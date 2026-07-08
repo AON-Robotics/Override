@@ -1,4 +1,4 @@
-# VEX-U Override 2026-2027 Competition Repository
+# VEX-U Override 2026-27 Competition Repository
 
 ## Overview
 This repository contains all the code used for the VEX-U Override 2026-27 competition, including both the operator-controlled and autonomous period programs. The code is built using the **PROS (Purdue Robotics Operating System) framework** and incorporates **OkapiLib** for motion control and path planning.
