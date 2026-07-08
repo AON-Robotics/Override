@@ -1,7 +1,7 @@
-# VEX-U Push Back 2026 Competition Repository
+# VEX-U Override 2026-27 Competition Repository
 
 ## Overview
-This repository contains all the code used for the VEX-U Push Back 2026 competition, including both the operator-controlled and autonomous period programs. The code is built using the **PROS (Purdue Robotics Operating System) framework** and incorporates **OkapiLib** for motion control and path planning.
+This repository contains all the code used for the VEX-U Override 2026-27 competition, including both the operator-controlled and autonomous period programs. The code is built using the **PROS (Purdue Robotics Operating System) framework** and incorporates **OkapiLib** for motion control and path planning.
 
 ## Features
 - **Autonomous Period**: Pre-programmed routines for different strategies.
@@ -19,8 +19,8 @@ This repository contains all the code used for the VEX-U Push Back 2026 competit
 
 ### Cloning the Repository
 ```sh
-git clone https://github.com/AON-Robotics/Push-Back.git
-cd "Push-Back"
+git clone https://github.com/AON-Robotics/Override.git
+cd "Override"
 ```
 
 ### Building & Uploading Code
