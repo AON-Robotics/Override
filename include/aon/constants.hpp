@@ -11,7 +11,7 @@
 
 // NOT using big robot = Using small robot
 #define USING_BIG_ROBOT false
-#define TESTING_AUTONOMOUS true
+#define TESTING_AUTONOMOUS false
 
 #if USING_BIG_ROBOT
 

@@ -75,7 +75,7 @@ pros::Rotation encoder(port);
 **Changes:**
 - Constructor: 2 parameters → 1 parameter (port only)
 - Encoder reversal: Must implement manual reversal logic (negate values)
-- No automatic reversal support in PROS 4 constructor
+- **No automatic reversal support in PROS 4 constructor**
 
 ### GPS
 
