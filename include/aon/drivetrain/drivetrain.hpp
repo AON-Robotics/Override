@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../okapi/api.hpp"
+#include "pros/motors.hpp"
 #include "../odometry/odometry.hpp"
 #include "../controls/smart_motor.hpp"
 #include "../controls/pid/pid.hpp"
@@ -261,12 +261,12 @@ class Drivetrain {
   /// @param gearset The gearbox the physical motors contain, they MUST be all
   /// the same
   /// @param slew The slew rate for the motors, if 0, slew rate is `inf`
-  void configure(okapi::AbstractMotor::brakeMode brakeMode, okapi::AbstractMotor::gearset gearset, double slew) {
+  void configure(pros::MotorBrake brakeMode, pros::MotorGears gearset, double slew) {
     this->setBrakeMode(brakeMode);
     this->setGearset(gearset);
-    this->setEncoderUnits(okapi::AbstractMotor::encoderUnits::degrees);
+    this->setEncoderUnits(pros::MotorEncoderUnits::degrees);
 
-    if(brakeMode == okapi::AbstractMotor::brakeMode::hold){
+    if(brakeMode == pros::MotorBrake::hold){
       this->setSlewRate(0);
     } else {
       this->setSlewRate(slew);
@@ -286,15 +286,15 @@ class Drivetrain {
 
   /// @brief Sets the brake mode for all motors of the drivetrain
   /// @param brakeMode The new brake mode for the drivetrain
-  virtual void setBrakeMode(okapi::AbstractMotor::brakeMode brakeMode) = 0;
+  virtual void setBrakeMode(pros::MotorBrake brakeMode) = 0;
 
   /// @brief Sets the gearset for all motors of the drivetrain
   /// @param gearset The new gearset for the drivetrain
-  virtual void setGearset(okapi::AbstractMotor::gearset gearset) = 0;
+  virtual void setGearset(pros::MotorGears gearset) = 0;
 
   /// @brief Sets the units for all encoders of the motors of the drivetrain
   /// @param units The new units for the drivetrain
-  virtual void setEncoderUnits(okapi::AbstractMotor::encoderUnits units) = 0;
+  virtual void setEncoderUnits(pros::MotorEncoderUnits units) = 0;
 
   /// @brief Sets the slew rate for all motors of the drivetrain
   /// @param slew The new slew rate for the drivetrain

@@ -4,8 +4,8 @@ namespace aon {
 
 #if USING_BIG_ROBOT
 
-Intake::Intake(const std::initializer_list<okapi::Motor>& elevatorPorts,
-               const std::initializer_list<okapi::Motor>& judgePorts,
+Intake::Intake(const std::initializer_list<std::int8_t>& elevatorPorts,
+               const std::initializer_list<std::int8_t>& judgePorts,
                char cartPistonsPort, int distanceSensorPort,
                int colorSensorPort, 
                char acceptSensorPort, char rejectSensorPort)
@@ -17,16 +17,16 @@ Intake::Intake(const std::initializer_list<okapi::Motor>& elevatorPorts,
       acceptSensor(acceptSensorPort),
       rejectSensor(rejectSensorPort) {}
 
-void Intake::configure(okapi::AbstractMotor::brakeMode brakeMode, okapi::AbstractMotor::gearset gearset) {
-  elevatorMG.setBrakeMode(brakeMode);
-  elevatorMG.setGearing(gearset);
-  elevatorMG.setEncoderUnits(okapi::AbstractMotor::encoderUnits::degrees);
-  elevatorMG.tarePosition();
+void Intake::configure(pros::MotorBrake brakeMode, pros::MotorGears gearset) {
+  elevatorMG.set_brake_mode(brakeMode);
+  elevatorMG.set_gearing(gearset);
+  elevatorMG.set_encoder_units(pros::MotorEncoderUnits::degrees);
+  elevatorMG.tare_position();
 
-  judgeMG.setBrakeMode(brakeMode);
-  judgeMG.setGearing(gearset);
-  judgeMG.setEncoderUnits(okapi::AbstractMotor::encoderUnits::degrees);
-  judgeMG.tarePosition();
+  judgeMG.set_brake_mode(brakeMode);
+  judgeMG.set_gearing(gearset);
+  judgeMG.set_encoder_units(pros::MotorEncoderUnits::degrees);
+  judgeMG.tare_position();
 }
 
 void Intake::move(const int& rpm) {
@@ -34,9 +34,9 @@ void Intake::move(const int& rpm) {
   this->judge(rpm);
 }
 
-void Intake::elevator(const int& rpm) { elevatorMG.moveVelocity(rpm); }
+void Intake::elevator(const int& rpm) { elevatorMG.move_velocity(rpm); }
 
-void Intake::judge(const int& rpm) { judgeMG.moveVelocity(rpm); }
+void Intake::judge(const int& rpm) { judgeMG.move_velocity(rpm); }
 
 void Intake::scan() {
   size_t stopTime = UINT32_MAX;
@@ -229,10 +229,10 @@ Intake::SortState Intake::getSortingState() const { return sortState; }
   
 #else
 
-Intake::Intake(const std::initializer_list<okapi::Motor>& corridorPorts,
-               const std::initializer_list<okapi::Motor>& elevatorPorts,
-               const std::initializer_list<okapi::Motor>& judgePorts,
-               const std::initializer_list<okapi::Motor>& scorerPorts,
+Intake::Intake(const std::initializer_list<std::int8_t>& corridorPorts,
+               const std::initializer_list<std::int8_t>& elevatorPorts,
+               const std::initializer_list<std::int8_t>& judgePorts,
+               const std::initializer_list<std::int8_t>& scorerPorts,
                char scorerPistonPort, char cartPistonPort, char trapdoorPistonPort,
                int distanceSensorPort, int colorSensorPort)
     : corridorMG(corridorPorts),
@@ -244,31 +244,33 @@ Intake::Intake(const std::initializer_list<okapi::Motor>& corridorPorts,
       trapdoor(trapdoorPistonPort, Piston::RETRACTED),
       distanceSensor(distanceSensorPort),
       colorSensor(colorSensorPort) {
-        this->leverController = okapi::AsyncPosControllerBuilder().withMotor(scorerPorts).build();
+        // TODO: Replace okapi::AsyncPositionController with custom async controller or use move_absolute()
+        // this->leverController = okapi::AsyncPosControllerBuilder().withMotor(scorerPorts).build();
       }
 
-void Intake::configure(okapi::AbstractMotor::brakeMode brakeMode, okapi::AbstractMotor::gearset gearset) {
-  corridorMG.setBrakeMode(brakeMode);
-  corridorMG.setGearing(gearset);
-  corridorMG.setEncoderUnits(okapi::AbstractMotor::encoderUnits::degrees);
-  corridorMG.tarePosition();
+void Intake::configure(pros::MotorBrake brakeMode, pros::MotorGears gearset) {
+  corridorMG.set_brake_mode(brakeMode);
+  corridorMG.set_gearing(gearset);
+  corridorMG.set_encoder_units(pros::MotorEncoderUnits::degrees);
+  corridorMG.tare_position();
 
-  elevatorMG.setBrakeMode(brakeMode);
-  elevatorMG.setGearing(gearset);
-  elevatorMG.setEncoderUnits(okapi::AbstractMotor::encoderUnits::degrees);
-  elevatorMG.tarePosition();
+  elevatorMG.set_brake_mode(brakeMode);
+  elevatorMG.set_gearing(gearset);
+  elevatorMG.set_encoder_units(pros::MotorEncoderUnits::degrees);
+  elevatorMG.tare_position();
 
-  judgeMG.setBrakeMode(brakeMode);
-  judgeMG.setGearing(gearset);
-  judgeMG.setEncoderUnits(okapi::AbstractMotor::encoderUnits::degrees);
-  judgeMG.tarePosition();
+  judgeMG.set_brake_mode(brakeMode);
+  judgeMG.set_gearing(gearset);
+  judgeMG.set_encoder_units(pros::MotorEncoderUnits::degrees);
+  judgeMG.tare_position();
 
-  scorerMG.setBrakeMode(okapi::AbstractMotor::brakeMode::hold);
-  scorerMG.setGearing(okapi::AbstractMotor::gearset::green);
-  scorerMG.setEncoderUnits(okapi::AbstractMotor::encoderUnits::degrees);
-  scorerMG.tarePosition();
+  scorerMG.set_brake_mode(pros::MotorBrake::hold);
+  scorerMG.set_gearing(pros::MotorGears::green);
+  scorerMG.set_encoder_units(pros::MotorEncoderUnits::degrees);
+  scorerMG.tare_position();
 
-  leverController->tarePosition();
+  // TODO: Initialize leverController when async position controller is implemented
+  // leverController->tare_position();
 }
 
 void Intake::move(const int& rpm) {
@@ -277,11 +279,11 @@ void Intake::move(const int& rpm) {
   this->judge(rpm);
 }
 
-void Intake::corridor(const int& rpm) { corridorMG.moveVelocity(rpm); }
+void Intake::corridor(const int& rpm) { corridorMG.move_velocity(rpm); }
 
-void Intake::elevator(const int& rpm) { elevatorMG.moveVelocity(rpm); }
+void Intake::elevator(const int& rpm) { elevatorMG.move_velocity(rpm); }
 
-void Intake::judge(const int& rpm) { judgeMG.moveVelocity(rpm); }
+void Intake::judge(const int& rpm) { judgeMG.move_velocity(rpm); }
 
 void Intake::scan() {
   colorSensor.set_led_pwm(50);
@@ -366,15 +368,21 @@ void Intake::lever(const uint32_t timeout) {
 }
 
 void Intake::extendLever() {
-  this->leverController->setTarget(150);
+  // TODO: Implement async position control for lever using move_absolute() or custom controller
+  // this->leverController->setTarget(150);
+  scorerMG.move_absolute(150, 100);
 }
 
 void Intake::resetLever() {
-  this->leverController->setTarget(0);
+  // TODO: Implement async position control for lever using move_absolute() or custom controller
+  // this->leverController->setTarget(0);
+  scorerMG.move_absolute(0, 100);
 }
 
 bool Intake::leverFinished() {
-  return this->leverController->getError() < 10;
+  // TODO: Implement proper position tracking for async position control
+  // return this->leverController->getError() < 10;
+  return true;  // Placeholder
 }
 
 void Intake::score(const Height& height, const int& delay) {
@@ -409,7 +417,7 @@ void Intake::closeTrapdoor() { trapdoor.deactivate(); }
 
 void Intake::scorer(const int& rpm) {
   // TODO: modify logic for the lever
-  scorerMG.moveVelocity(rpm);
+  scorerMG.move_velocity(rpm);
 }
 
 void Intake::activateScan() {

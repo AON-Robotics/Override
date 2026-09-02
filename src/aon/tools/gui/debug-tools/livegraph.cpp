@@ -4,17 +4,17 @@
 namespace aon {
 
 void GuiDebug::DisplayLiveGraph() {
-  pros::screen::set_eraser(COLOR_BLACK);
+  pros::screen::set_eraser(pros::Color::black);
   pros::screen::erase();
 
   // Title
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "LIVE GRAPH");
 
   // BACK button
-  pros::screen::set_eraser(COLOR_DARK_GRAY);
+  pros::screen::set_eraser(pros::Color::dark_gray);
   pros::screen::erase_rect(10, 10, 90, 40);
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_MEDIUM, 20, 18, "BACK");
 
   // Graph bounds
@@ -24,12 +24,12 @@ void GuiDebug::DisplayLiveGraph() {
   const int graphH = graphY2 - graphY1;
 
   // Draw axis
-  pros::screen::set_pen(COLOR_LIGHT_GRAY);
+  pros::screen::set_pen(pros::Color::light_gray);
   pros::screen::draw_line(graphX1, graphY1, graphX1, graphY2); // Y axis
   pros::screen::draw_line(graphX1, graphY2, graphX2, graphY2); // X axis
 
   // Draw grid
-  pros::screen::set_pen(COLOR_DARK_GRAY);
+  pros::screen::set_pen(pros::Color::dark_gray);
   for (int i = 0; i <= 5; i++) {
     int x = graphX1 + (i * graphW / 5);
     int y = graphY2 + 3;
@@ -40,7 +40,7 @@ void GuiDebug::DisplayLiveGraph() {
 
   // Draw data points
   if (graphBuffer[0].x != 0 || graphBuffer[0].y != 0) {
-    pros::screen::set_pen(COLOR_GREEN);
+    pros::screen::set_pen(pros::Color::green);
     
     for (int i = 1; i < GuiDebug::GRAPH_BUFFER_SIZE; i++) {
       int prevIdx = (i - 1);
@@ -68,7 +68,7 @@ void GuiDebug::DisplayLiveGraph() {
   }
 
   // Display axis labels
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_SMALL, graphX1 - 35, graphY1 - 5, "%.1f", graphMaxY);
   pros::screen::print(pros::E_TEXT_SMALL, graphX1 - 35, graphY2 - 5, "%.1f", graphMinY);
   pros::screen::print(pros::E_TEXT_SMALL, graphX1 - 5, graphY2 + 8, "%.1f", graphMinX);

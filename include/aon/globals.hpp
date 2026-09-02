@@ -5,7 +5,7 @@
 
 #include "./constants.hpp"
 #include "../api.h"
-#include "../okapi/api.hpp"
+#include "pros/motors.hpp"
 #include "./controls/pid/pid.hpp"
 #include "./tools/vector.hpp"
 #include "./drivetrain/h-drive.hpp"
@@ -150,17 +150,17 @@ namespace aon {
 
 inline void Configure(const bool opcontrol = true) {
   // HOLD for AUTONOMOUS ||| BRAKE for OPERATOR CONTROL
-  okapi::AbstractMotor::brakeMode brakeMode = opcontrol ? okapi::AbstractMotor::brakeMode::brake : okapi::AbstractMotor::brakeMode::hold;
+  pros::MotorBrake brakeMode = opcontrol ? pros::MotorBrake::brake : pros::MotorBrake::hold;
 
   #if USING_BIG_ROBOT
-  drivetrain.configure(brakeMode, okapi::AbstractMotor::gearset::blue, MAX_ACCEL * 0.4);
+  drivetrain.configure(brakeMode, pros::MotorGears::blue, MAX_ACCEL * 0.4);
   
-  intake.configure(okapi::AbstractMotor::brakeMode::brake, okapi::AbstractMotor::gearset::blue);
+  intake.configure(pros::MotorBrake::brake, pros::MotorGears::blue);
   
   #else
-  drivetrain.configure(brakeMode, okapi::AbstractMotor::gearset::blue, MAX_ACCEL);
+  drivetrain.configure(brakeMode, pros::MotorGears::blue, MAX_ACCEL);
   
-  intake.configure(okapi::AbstractMotor::brakeMode::coast, okapi::AbstractMotor::gearset::blue);
+  intake.configure(pros::MotorBrake::coast, pros::MotorGears::blue);
 
   intake.stopScan();
 

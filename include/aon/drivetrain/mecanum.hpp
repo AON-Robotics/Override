@@ -12,10 +12,10 @@ class MecanumDrive : public Drivetrain {
   SmartMotorGroup backRightMotors;
 
  public:
-  MecanumDrive(const std::initializer_list<okapi::Motor> &FLPorts = {0},
-         const std::initializer_list<okapi::Motor> &FRPorts = {0},
-         const std::initializer_list<okapi::Motor> &BLPorts = {0},
-         const std::initializer_list<okapi::Motor> &BRPorts = {0},
+  MecanumDrive(const std::initializer_list<std::int8_t> &FLPorts = {0},
+         const std::initializer_list<std::int8_t> &FRPorts = {0},
+         const std::initializer_list<std::int8_t> &BLPorts = {0},
+         const std::initializer_list<std::int8_t> &BRPorts = {0},
          Pose pose = Pose(),
          std::unique_ptr<Odometry> odometry = nullptr,
          SpeedFactors speedFactors = SpeedFactors(),
@@ -47,15 +47,15 @@ class MecanumDrive : public Drivetrain {
 
   /// @brief Sets the brake mode for all motors of the drivetrain
   /// @param brakeMode The new brake mode for the drivetrain
-  void setBrakeMode(okapi::AbstractMotor::brakeMode brakeMode) override;
+  void setBrakeMode(pros::MotorBrake brakeMode) override;
 
   /// @brief Sets the gearset for all motors of the drivetrain
   /// @param gearset The new gearset for the drivetrain
-  void setGearset(okapi::AbstractMotor::gearset gearset) override;
+  void setGearset(pros::MotorGears gearset) override;
 
   /// @brief Sets the units for all encoders of the motors of the drivetrain
   /// @param units The new units for the drivetrain
-  void setEncoderUnits(okapi::AbstractMotor::encoderUnits units) override;
+  void setEncoderUnits(pros::MotorEncoderUnits units) override;
 
   /// @brief Sets the slew rate for all motors of the drivetrain
   /// @param slew The new slew rate for the drivetrain

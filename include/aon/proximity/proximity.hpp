@@ -1,13 +1,13 @@
 #pragma once
 
 #include "../../api.h"
-#include "../../okapi/api.hpp"
+#include "pros/motors.hpp"
 
 namespace aon {
 
 class Proximity {
  private:
-  pros::ADIDigitalIn sensor;
+  pros::adi::DigitalIn sensor;
 
  public:
   Proximity(char port) : sensor(port) {}
