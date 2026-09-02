@@ -3,36 +3,36 @@
 namespace aon {
 
 void HDrive::sideways(const double &rpm, const int& delay) {
-  this->midMotors.moveVelocity(rpm);
+  this->midMotors.move_velocity(rpm);
   if (delay == 0) return;
   pros::delay(delay);
   this->stop();
 }
 
 void HDrive::tank(const double &left, const double &right){
-  this->leftMotors.moveVelocity(left);
-  this->rightMotors.moveVelocity(right);
+  this->leftMotors.move_velocity(left);
+  this->rightMotors.move_velocity(right);
 }
 
-void HDrive::setBrakeMode(okapi::AbstractMotor::brakeMode brakeMode){
-  leftMotors.setBrakeMode(brakeMode);
-  rightMotors.setBrakeMode(brakeMode);
-  midMotors.setBrakeMode(brakeMode);
+void HDrive::setBrakeMode(pros::MotorBrake brakeMode){
+  leftMotors.set_brake_mode(brakeMode);
+  rightMotors.set_brake_mode(brakeMode);
+  midMotors.set_brake_mode(brakeMode);
 }
 
-void HDrive::setGearset(okapi::AbstractMotor::gearset gearset){
-  leftMotors.setGearing(gearset);
-  rightMotors.setGearing(gearset);
-  midMotors.setGearing(gearset);
+void HDrive::setGearset(pros::MotorGears gearset){
+  leftMotors.set_gearing(gearset);
+  rightMotors.set_gearing(gearset);
+  midMotors.set_gearing(gearset);
 }
 
-void HDrive::setEncoderUnits(okapi::AbstractMotor::encoderUnits units){
-  leftMotors.setEncoderUnits(units);
-  leftMotors.tarePosition();
-  rightMotors.setEncoderUnits(units);
-  rightMotors.tarePosition();
-  midMotors.setEncoderUnits(units);
-  midMotors.tarePosition();
+void HDrive::setEncoderUnits(pros::MotorEncoderUnits units){
+  leftMotors.set_encoder_units(units);
+  leftMotors.tare_position();
+  rightMotors.set_encoder_units(units);
+  rightMotors.tare_position();
+  midMotors.set_encoder_units(units);
+  midMotors.tare_position();
 }
 
 void HDrive::setSlewRate(double slew){
@@ -42,8 +42,8 @@ void HDrive::setSlewRate(double slew){
 }
 
 double HDrive::getRPM(){
-  double left = leftMotors.getActualVelocity();
-  double right = rightMotors.getActualVelocity();
+  double left = leftMotors.get_actual_velocity();
+  double right = rightMotors.get_actual_velocity();
   return (left + right) / 2;
 }
 
@@ -77,10 +77,10 @@ void HDrive::stop(){
 //     double topLeftDiag = command.GetY();
 //     double turn = theta;
 
-//     this->leftMotors.moveVelocity(topRightDiag + turn);
-//     this->rightMotors.moveVelocity(topLeftDiag - turn);
-//     this->midMotors.moveVelocity(topLeftDiag + turn);
-//     this->backRightMotors.moveVelocity(topRightDiag - turn);
+//     this->leftMotors.move_velocity(topRightDiag + turn);
+//     this->rightMotors.move_velocity(topLeftDiag - turn);
+//     this->midMotors.move_velocity(topLeftDiag + turn);
+//     this->backRightMotors.move_velocity(topRightDiag - turn);
 //     pros::delay(delay);
 //     currPose.x += getSpeed(x) * delay / 1000; //# in case of odom failure
 //     currPose.y += getSpeed(y) * delay / 1000; //# in case of odom failure

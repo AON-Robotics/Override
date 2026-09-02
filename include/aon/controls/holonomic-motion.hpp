@@ -63,10 +63,10 @@
 //   // in per s * (1 rev / (2*pi*WheelRadius) in) * (60 s / 1 min) = rev per min
 //   const double INPS2RPM = 60.0 / (M_PI * DRIVE_WHEEL_DIAMETER);
 
-//   drive_front_left.moveVelocity(u1 * INPS2RPM);
-//   drive_back_left.moveVelocity(u2 * INPS2RPM);
-//   drive_front_right.moveVelocity(-u3 * INPS2RPM);
-//   drive_back_right.moveVelocity(-u4 * INPS2RPM);
+//   drive_front_left.move_velocity(u1 * INPS2RPM);
+//   drive_back_left.move_velocity(u2 * INPS2RPM);
+//   drive_front_right.move_velocity(-u3 * INPS2RPM);
+//   drive_back_right.move_velocity(-u4 * INPS2RPM);
 // }
 
 // inline void emptyFunction(int t) {}

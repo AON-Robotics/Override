@@ -35,7 +35,7 @@ void opcontrol() {
     aon::Configure(false); // Set drivetrain to hold for auton testing
 
     // TODO: add presetFunction
-    aon::autonomousReader->ExecuteFunction("autonomous");
+    // aon::autonomousReader->ExecuteFunction("autonomous");
 
     pros::delay(5000);
     #else

@@ -10,8 +10,8 @@ class DifferentialDrive : public Drivetrain {
   SmartMotorGroup rightMotors;
 
  public:
-  DifferentialDrive(const std::initializer_list<okapi::Motor> &leftPorts = {0},
-            const std::initializer_list<okapi::Motor> &rightPorts = {0},
+  DifferentialDrive(const std::initializer_list<std::int8_t> &leftPorts = {0},
+            const std::initializer_list<std::int8_t> &rightPorts = {0},
             Pose pose = Pose(),
             std::unique_ptr<Odometry> odometry = nullptr,
             SpeedFactors speedFactors = SpeedFactors(),
@@ -29,15 +29,15 @@ class DifferentialDrive : public Drivetrain {
 
   /// @brief Sets the brake mode for all motors of the drivetrain
   /// @param brakeMode The new brake mode for the drivetrain
-  void setBrakeMode(okapi::AbstractMotor::brakeMode brakeMode) override;
+  void setBrakeMode(pros::MotorBrake brakeMode) override;
 
   /// @brief Sets the gearset for all motors of the drivetrain
   /// @param gearset The new gearset for the drivetrain
-  void setGearset(okapi::AbstractMotor::gearset gearset) override;
+  void setGearset(pros::MotorGears gearset) override;
 
   /// @brief Sets the units for all encoders of the motors of the drivetrain
   /// @param units The new units for the drivetrain
-  void setEncoderUnits(okapi::AbstractMotor::encoderUnits units) override;
+  void setEncoderUnits(pros::MotorEncoderUnits units) override;
 
   /// @brief Sets the slew rate for all motors of the drivetrain
   /// @param slew The new slew rate for the drivetrain

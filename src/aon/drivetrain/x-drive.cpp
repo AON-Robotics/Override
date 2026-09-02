@@ -3,20 +3,20 @@
 namespace aon {
 
 void XDrive::sideways(const double &rpm, const int& delay) {
-  this->frontLeftMotors.moveVelocity(rpm);
-  this->frontRightMotors.moveVelocity(-rpm);
-  this->backLeftMotors.moveVelocity(-rpm);
-  this->backRightMotors.moveVelocity(rpm);
+  this->frontLeftMotors.move_velocity(rpm);
+  this->frontRightMotors.move_velocity(-rpm);
+  this->backLeftMotors.move_velocity(-rpm);
+  this->backRightMotors.move_velocity(rpm);
   if (delay == 0) return;
   pros::delay(delay);
   this->stop();
 }
 
 void XDrive::tank(const double &left, const double &right){
-  this->frontLeftMotors.moveVelocity(left);
-  this->backLeftMotors.moveVelocity(left);
-  this->frontRightMotors.moveVelocity(right);
-  this->backRightMotors.moveVelocity(right);
+  this->frontLeftMotors.move_velocity(left);
+  this->backLeftMotors.move_velocity(left);
+  this->frontRightMotors.move_velocity(right);
+  this->backRightMotors.move_velocity(right);
 }
 
 void XDrive::holonomic(const double &forward, const double &sideways, const double &turn){
@@ -39,10 +39,10 @@ void XDrive::holonomic(const double &forward, const double &sideways, const doub
     backRight = (backRight / maxVal) * MAX_RPM;
   }
 
-  this->frontLeftMotors.moveVelocity(frontLeft);
-  this->frontRightMotors.moveVelocity(frontRight);
-  this->backLeftMotors.moveVelocity(backLeft);
-  this->backRightMotors.moveVelocity(backRight);
+  this->frontLeftMotors.move_velocity(frontLeft);
+  this->frontRightMotors.move_velocity(frontRight);
+  this->backLeftMotors.move_velocity(backLeft);
+  this->backRightMotors.move_velocity(backRight);
 }
 
 Vector XDrive::translateToMotorCommand(Vector direction){
@@ -52,29 +52,29 @@ Vector XDrive::translateToMotorCommand(Vector direction){
   return result;
 }
 
-void XDrive::setBrakeMode(okapi::AbstractMotor::brakeMode brakeMode){
-  frontLeftMotors.setBrakeMode(brakeMode);
-  frontRightMotors.setBrakeMode(brakeMode);
-  backLeftMotors.setBrakeMode(brakeMode);
-  backRightMotors.setBrakeMode(brakeMode);
+void XDrive::setBrakeMode(pros::MotorBrake brakeMode){
+  frontLeftMotors.set_brake_mode(brakeMode);
+  frontRightMotors.set_brake_mode(brakeMode);
+  backLeftMotors.set_brake_mode(brakeMode);
+  backRightMotors.set_brake_mode(brakeMode);
 }
 
-void XDrive::setGearset(okapi::AbstractMotor::gearset gearset){
-  frontLeftMotors.setGearing(gearset);
-  frontRightMotors.setGearing(gearset);
-  backLeftMotors.setGearing(gearset);
-  backRightMotors.setGearing(gearset);
+void XDrive::setGearset(pros::MotorGears gearset){
+  frontLeftMotors.set_gearing(gearset);
+  frontRightMotors.set_gearing(gearset);
+  backLeftMotors.set_gearing(gearset);
+  backRightMotors.set_gearing(gearset);
 }
 
-void XDrive::setEncoderUnits(okapi::AbstractMotor::encoderUnits units){
-  frontLeftMotors.setEncoderUnits(units);
-  frontLeftMotors.tarePosition();
-  frontRightMotors.setEncoderUnits(units);
-  frontRightMotors.tarePosition();
-  backLeftMotors.setEncoderUnits(units);
-  backLeftMotors.tarePosition();
-  backRightMotors.setEncoderUnits(units);
-  backRightMotors.tarePosition();
+void XDrive::setEncoderUnits(pros::MotorEncoderUnits units){
+  frontLeftMotors.set_encoder_units(units);
+  frontLeftMotors.tare_position();
+  frontRightMotors.set_encoder_units(units);
+  frontRightMotors.tare_position();
+  backLeftMotors.set_encoder_units(units);
+  backLeftMotors.tare_position();
+  backRightMotors.set_encoder_units(units);
+  backRightMotors.tare_position();
 }
 
 void XDrive::setSlewRate(double slew){
@@ -85,10 +85,10 @@ void XDrive::setSlewRate(double slew){
 }
 
 double XDrive::getRPM(){
-  double frontLeft = abs(frontLeftMotors.getActualVelocity());
-  double frontRight = abs(frontRightMotors.getActualVelocity());
-  double backLeft = abs(backLeftMotors.getActualVelocity());
-  double backRight = abs(backRightMotors.getActualVelocity());
+  double frontLeft = abs(frontLeftMotors.get_actual_velocity());
+  double frontRight = abs(frontRightMotors.get_actual_velocity());
+  double backLeft = abs(backLeftMotors.get_actual_velocity());
+  double backRight = abs(backRightMotors.get_actual_velocity());
   return (frontLeft + frontRight + backLeft + backRight) / 4;
 }
 
@@ -117,10 +117,10 @@ double XDrive::getRPM(){
 //     double topLeftDiag = command.GetY();
 //     double turn = theta;
 
-//     this->frontLeftMotors.moveVelocity(topRightDiag + turn);
-//     this->frontRightMotors.moveVelocity(topLeftDiag - turn);
-//     this->backLeftMotors.moveVelocity(topLeftDiag + turn);
-//     this->backRightMotors.moveVelocity(topRightDiag - turn);
+//     this->frontLeftMotors.move_velocity(topRightDiag + turn);
+//     this->frontRightMotors.move_velocity(topLeftDiag - turn);
+//     this->backLeftMotors.move_velocity(topLeftDiag + turn);
+//     this->backRightMotors.move_velocity(topRightDiag - turn);
 //     pros::delay(delay);
 //     currPose.x += getSpeed(x) * delay / 1000; //# in case of odom failure
 //     currPose.y += getSpeed(y) * delay / 1000; //# in case of odom failure
@@ -176,10 +176,10 @@ void XDrive::goToPose(const Pose& target){
     // double topLeftDiag = command.GetY();
     // double turn = theta;
 
-    // this->frontLeftMotors.moveVelocity(topRightDiag + turn);
-    // this->frontRightMotors.moveVelocity(topLeftDiag - turn);
-    // this->backLeftMotors.moveVelocity(topLeftDiag + turn);
-    // this->backRightMotors.moveVelocity(topRightDiag - turn);
+    // this->frontLeftMotors.move_velocity(topRightDiag + turn);
+    // this->frontRightMotors.move_velocity(topLeftDiag - turn);
+    // this->backLeftMotors.move_velocity(topLeftDiag + turn);
+    // this->backRightMotors.move_velocity(topRightDiag - turn);
 
     pros::delay(delay);
 

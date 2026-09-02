@@ -23,7 +23,7 @@ std::unique_ptr<FunctionReader<int>> autonomousReader =
 
 int Gui::displayInitializationMessage() {
   // Clear the screen completely
-  pros::screen::set_eraser(COLOR_BLACK);
+  pros::screen::set_eraser(pros::Color::black);
   pros::screen::erase();
 
   // Typewriter-style primary message (shows debug text when enabled for
@@ -44,10 +44,10 @@ int Gui::displayInitializationMessage() {
   int startX = (BRAIN_SCREEN_WIDTH - textWidth) / 2;
   int startY = BRAIN_SCREEN_HEIGHT / 3;  // higher on screen
 
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   for (int i = 1; i <= len; ++i) {
     // Clear the text area to avoid artifacts
-    pros::screen::set_eraser(COLOR_BLACK);
+    pros::screen::set_eraser(pros::Color::black);
     pros::screen::erase_rect(startX, startY, startX + textWidth, startY + charHeight + 4);
 
     // Print substring (typewriter effect)
@@ -71,10 +71,10 @@ int Gui::displayInitializationMessage() {
   int secTextWidth = secLen * charWidth;
   int secX = (BRAIN_SCREEN_WIDTH - secTextWidth) / 2;
   int secY = startY + 40;
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   for (int i = 1; i <= secLen; ++i) {
     // Clear the secondary text area
-    pros::screen::set_eraser(COLOR_BLACK);
+    pros::screen::set_eraser(pros::Color::black);
     pros::screen::erase_rect(secX, secY, secX + secTextWidth, secY + charHeight + 4);
 
     // Print substring

@@ -123,17 +123,17 @@ void GuiDebug::ClearMapPath() {
 // ============================================================================
 
 void GuiDebug::DisplayDebugMenu() {
-  pros::screen::set_eraser(COLOR_BLACK);
+  pros::screen::set_eraser(pros::Color::black);
   pros::screen::erase();
 
   // Title
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "DEBUG MENU");
 
   // BACK button
-  pros::screen::set_eraser(COLOR_DARK_GRAY);
+  pros::screen::set_eraser(pros::Color::dark_gray);
   pros::screen::erase_rect(10, 10, 90, 40);
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_MEDIUM, 20, 18, "BACK");
 
   // Buttons for debug options
@@ -161,9 +161,9 @@ void GuiDebug::DisplayDebugMenu() {
     int x = startX + buttons[i].col * (btnWidth + gap);
     int y = startY + buttons[i].row * (btnHeight + gap);
     
-    pros::screen::set_eraser(COLOR_LIGHT_GRAY);
+    pros::screen::set_eraser(pros::Color::light_gray);
     pros::screen::erase_rect(x, y, x + btnWidth, y + btnHeight);
-    pros::screen::set_pen(COLOR_BLACK);
+    pros::screen::set_pen(pros::Color::black);
     pros::screen::print(pros::E_TEXT_SMALL, x + 5, y + 8, buttons[i].text1);
     if (buttons[i].text2[0] != '\0') {
       pros::screen::print(pros::E_TEXT_SMALL, x + 5, y + 28, buttons[i].text2);
@@ -183,7 +183,7 @@ void GuiDebug::handleMainMenuTouch(const pros::screen_touch_status_s_t& touchSta
     // Check if the "AUTONS" button is pressed (bottom-left corner)
     if (touchStatus.x < BRAIN_SCREEN_WIDTH / 2 && touchStatus.y > BRAIN_SCREEN_HEIGHT - 50) {
       if (currentScreen != AutonMenu) {
-        pros::screen::set_eraser(COLOR_BLACK);
+        pros::screen::set_eraser(pros::Color::black);
         pros::screen::erase_rect(0, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH / 2, BRAIN_SCREEN_HEIGHT);
 
         displayAutonMenu();
@@ -192,7 +192,7 @@ void GuiDebug::handleMainMenuTouch(const pros::screen_touch_status_s_t& touchSta
     }
     // Check if the "DEBUG" button is pressed (bottom-right corner)
     else if (touchStatus.x > BRAIN_SCREEN_WIDTH / 2 && touchStatus.y > BRAIN_SCREEN_HEIGHT - 50) {
-      pros::screen::set_eraser(COLOR_BLACK);
+      pros::screen::set_eraser(pros::Color::black);
       pros::screen::erase_rect(BRAIN_SCREEN_WIDTH / 2, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH, BRAIN_SCREEN_HEIGHT);
       
       DisplayDebugMenu();
@@ -204,7 +204,7 @@ void GuiDebug::handleMainMenuTouch(const pros::screen_touch_status_s_t& touchSta
     // Check if the "AUTONS" button is pressed (full width bottom)
     if (touchStatus.y > BRAIN_SCREEN_HEIGHT - 50) {
       if (currentScreen != AutonMenu) {
-        pros::screen::set_eraser(COLOR_BLACK);
+        pros::screen::set_eraser(pros::Color::black);
         pros::screen::erase_rect(0, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH, BRAIN_SCREEN_HEIGHT);
 
         displayAutonMenu();
@@ -359,38 +359,38 @@ void GuiDebug::mainLoop() {
 
 void GuiDebug::displayMainMenu() {
   // Ensure the screen is cleared at the start of each display function
-  pros::screen::set_eraser(COLOR_BLACK);
+  pros::screen::set_eraser(pros::Color::black);
   pros::screen::erase();
 
   aon::DrawAONLogo((BRAIN_SCREEN_WIDTH - 225) / 2, (BRAIN_SCREEN_HEIGHT - 225) / 4);
 
   // Display the current selected autonomous routine at the top center
-  pros::screen::set_pen(COLOR_WHITE); // Default color for "NO AUTON"
+  pros::screen::set_pen(pros::Color::white); // Default color for "NO AUTON"
   if (selectedAutonName == "None") {
     pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "NO AUTON");
   } else {
-    pros::screen::set_pen(COLOR_GREEN);
+    pros::screen::set_pen(pros::Color::green);
     pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, selectedAutonName.c_str());
   }
 
   if (TESTING_AUTONOMOUS) {
     // Debug mode: split button bar in half
     // Draw the "AUTONS" button in the bottom-left corner (half width)
-    pros::screen::set_eraser(COLOR_GREEN);
+    pros::screen::set_eraser(pros::Color::green);
     pros::screen::erase_rect(0, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH / 2, BRAIN_SCREEN_HEIGHT);
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_LARGE, 60, BRAIN_SCREEN_HEIGHT - 40, "AUTONS");
 
     // Draw the "DEBUG" button in the bottom-right corner (half width)
-    pros::screen::set_eraser(COLOR_GRAY);
+    pros::screen::set_eraser(pros::Color::gray);
     pros::screen::erase_rect(BRAIN_SCREEN_WIDTH / 2, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH, BRAIN_SCREEN_HEIGHT);
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_LARGE, BRAIN_SCREEN_WIDTH / 2 + 70, BRAIN_SCREEN_HEIGHT - 40, "DEBUG");
   } else {
     // Non-debug mode: auton button takes full width
-    pros::screen::set_eraser(COLOR_GREEN);
+    pros::screen::set_eraser(pros::Color::green);
     pros::screen::erase_rect(0, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH, BRAIN_SCREEN_HEIGHT);
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_LARGE, BRAIN_SCREEN_WIDTH / 2 - 50, BRAIN_SCREEN_HEIGHT - 40, "AUTONS");
   }
 }

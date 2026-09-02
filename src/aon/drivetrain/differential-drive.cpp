@@ -3,25 +3,25 @@
 namespace aon {
 
 void DifferentialDrive::tank(const double &left, const double &right){
-  this->leftMotors.moveVelocity(left);
-  this->rightMotors.moveVelocity(right);
+  this->leftMotors.move_velocity(left);
+  this->rightMotors.move_velocity(right);
 }
 
-void DifferentialDrive::setBrakeMode(okapi::AbstractMotor::brakeMode brakeMode){
-  leftMotors.setBrakeMode(brakeMode);
-  rightMotors.setBrakeMode(brakeMode);
+void DifferentialDrive::setBrakeMode(pros::MotorBrake brakeMode){
+  leftMotors.set_brake_mode(brakeMode);
+  rightMotors.set_brake_mode(brakeMode);
 }
 
-void DifferentialDrive::setGearset(okapi::AbstractMotor::gearset gearset){
-  leftMotors.setGearing(gearset);
-  rightMotors.setGearing(gearset);
+void DifferentialDrive::setGearset(pros::MotorGears gearset){
+  leftMotors.set_gearing(gearset);
+  rightMotors.set_gearing(gearset);
 }
 
-void DifferentialDrive::setEncoderUnits(okapi::AbstractMotor::encoderUnits units){
-  leftMotors.setEncoderUnits(units);
-  leftMotors.tarePosition();
-  rightMotors.setEncoderUnits(units);
-  rightMotors.tarePosition();
+void DifferentialDrive::setEncoderUnits(pros::MotorEncoderUnits units){
+  leftMotors.set_encoder_units(units);
+  leftMotors.tare_position();
+  rightMotors.set_encoder_units(units);
+  rightMotors.tare_position();
 }
 
 void DifferentialDrive::setSlewRate(double slew){
@@ -30,8 +30,8 @@ void DifferentialDrive::setSlewRate(double slew){
 }
 
 double DifferentialDrive::getRPM(){
-  double left = leftMotors.getActualVelocity();
-  double right = rightMotors.getActualVelocity();
+  double left = leftMotors.get_actual_velocity();
+  double right = rightMotors.get_actual_velocity();
   return (left + right) / 2;
 }
 

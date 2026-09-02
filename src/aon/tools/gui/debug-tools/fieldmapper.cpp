@@ -93,30 +93,30 @@ static void computeArc(const Pose* buf, int start, int end,
 // ============================================================================
 
 void GuiDebug::DisplayFieldMapper() {
-  pros::screen::set_eraser(COLOR_BLACK);
+  pros::screen::set_eraser(pros::Color::black);
   pros::screen::erase();
 
   // Header
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_MEDIUM, BRAIN_SCREEN_WIDTH / 2 - 55, 10, "FIELD MAPPER");
 
   // BACK button
   const int backX1 = 10, backY1 = 6, backX2 = backX1 + 80, backY2 = backY1 + 28;
-  pros::screen::set_eraser(COLOR_DARK_GRAY);
+  pros::screen::set_eraser(pros::Color::dark_gray);
   pros::screen::erase_rect(backX1, backY1, backX2, backY2);
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_MEDIUM, backX1 + 10, backY1 + 6, "BACK");
 
   // CLEAR button
   const int clearX1 = BRAIN_SCREEN_WIDTH - 90, clearY1 = 6, clearX2 = BRAIN_SCREEN_WIDTH - 10, clearY2 = clearY1 + 28;
-  pros::screen::set_eraser(COLOR_RED);
+  pros::screen::set_eraser(pros::Color::red);
   pros::screen::erase_rect(clearX1, clearY1, clearX2, clearY2);
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_MEDIUM, clearX1 + 10, clearY1 + 6, "CLEAR");
 
   // ── Field view ────────────────────────────────────────────────────────────
   // Outer border
-  pros::screen::set_eraser(COLOR_DARK_GRAY);
+  pros::screen::set_eraser(pros::Color::dark_gray);
   pros::screen::erase_rect(FIELDX1 - 1, FIELDY1 - 1, FIELDX2 + 1, FIELDY2 + 1);
   // Field background
   pros::screen::set_eraser(COLOR_FIELD_BG);
@@ -148,7 +148,7 @@ void GuiDebug::DisplayFieldMapper() {
       int y1 = fieldToScreenY(mapBuffer[i].y);
 
       bool inArc = (arcStartIndex >= 0 && i > arcStartIndex);
-      pros::screen::set_pen(inArc ? COLOR_YELLOW : COLOR_CYAN);
+      pros::screen::set_pen(inArc ? pros::Color::yellow : pros::Color::cyan);
       pros::screen::draw_line(x0, y0, x1, y1);
     }
 
@@ -156,7 +156,7 @@ void GuiDebug::DisplayFieldMapper() {
     if (arcStartIndex >= 0 && arcStartIndex < mapBufferCount) {
       int ax = fieldToScreenX(mapBuffer[arcStartIndex].x);
       int ay = fieldToScreenY(mapBuffer[arcStartIndex].y);
-      pros::screen::set_pen(COLOR_GREEN);
+      pros::screen::set_pen(pros::Color::green);
       pros::screen::draw_pixel(ax, ay);
       pros::screen::draw_pixel(ax + 1, ay);
       pros::screen::draw_pixel(ax, ay + 1);
@@ -176,7 +176,7 @@ void GuiDebug::DisplayFieldMapper() {
     int arrowTipX = rx + static_cast<int>(std::sin(cur.theta) * arrowLen);
     int arrowTipY = ry - static_cast<int>(std::cos(cur.theta) * arrowLen);
 
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::draw_line(rx, ry, arrowTipX, arrowTipY);
     // Dot at robot center
     pros::screen::draw_pixel(rx, ry);
@@ -199,30 +199,30 @@ void GuiDebug::DisplayFieldMapper() {
   }
 
   char buf[40];
-  pros::screen::set_pen(COLOR_LIGHT_GRAY);
+  pros::screen::set_pen(pros::Color::light_gray);
   pros::screen::print(pros::E_TEXT_SMALL, dx, dy, "X:");
-  pros::screen::set_pen(COLOR_GREEN);
+  pros::screen::set_pen(pros::Color::green);
   snprintf(buf, sizeof(buf), "%.2f\"", curX);
   pros::screen::print(pros::E_TEXT_SMALL, dx + 20, dy, buf);
   dy += rowH;
 
-  pros::screen::set_pen(COLOR_LIGHT_GRAY);
+  pros::screen::set_pen(pros::Color::light_gray);
   pros::screen::print(pros::E_TEXT_SMALL, dx, dy, "Y:");
-  pros::screen::set_pen(COLOR_GREEN);
+  pros::screen::set_pen(pros::Color::green);
   snprintf(buf, sizeof(buf), "%.2f\"", curY);
   pros::screen::print(pros::E_TEXT_SMALL, dx + 20, dy, buf);
   dy += rowH;
 
-  pros::screen::set_pen(COLOR_LIGHT_GRAY);
+  pros::screen::set_pen(pros::Color::light_gray);
   pros::screen::print(pros::E_TEXT_SMALL, dx, dy, "H:");
-  pros::screen::set_pen(COLOR_GREEN);
+  pros::screen::set_pen(pros::Color::green);
   snprintf(buf, sizeof(buf), "%.1f" "\xb0", curHdgDeg);
   pros::screen::print(pros::E_TEXT_SMALL, dx + 20, dy, buf);
   dy += rowH;
 
-  pros::screen::set_pen(COLOR_LIGHT_GRAY);
+  pros::screen::set_pen(pros::Color::light_gray);
   pros::screen::print(pros::E_TEXT_SMALL, dx, dy, "D:");
-  pros::screen::set_pen(COLOR_GREEN);
+  pros::screen::set_pen(pros::Color::green);
   snprintf(buf, sizeof(buf), "%.2f\"", mapTotalDist); // cumulative path distance in inches
   pros::screen::print(pros::E_TEXT_SMALL, dx + 20, dy, buf);
   dy += rowH;
@@ -234,7 +234,7 @@ void GuiDebug::DisplayFieldMapper() {
 
   // ── Stats panel ──────────────────────────────────────────────────────────
   if (mapMode == MapMode::DISPLACEMENT) {
-    pros::screen::set_pen(COLOR_CYAN);
+    pros::screen::set_pen(pros::Color::cyan);
     pros::screen::print(pros::E_TEXT_SMALL, dx, dy, "DISPLACE:");
     dy += rowH;
 
@@ -248,26 +248,26 @@ void GuiDebug::DisplayFieldMapper() {
       while (deltaTheta < -M_PI) deltaTheta += 2.0 * M_PI;
       double distance = std::sqrt(deltaX * deltaX + deltaY * deltaY);
 
-      pros::screen::set_pen(COLOR_LIGHT_GRAY);
+      pros::screen::set_pen(pros::Color::light_gray);
       pros::screen::print(pros::E_TEXT_SMALL, dx, dy, "X:");
-      pros::screen::set_pen(COLOR_CYAN);
+      pros::screen::set_pen(pros::Color::cyan);
       snprintf(buf, sizeof(buf), "%.2f\"", deltaX);
       pros::screen::print(pros::E_TEXT_SMALL, dx + 16, dy, buf);
-      pros::screen::set_pen(COLOR_LIGHT_GRAY);
+      pros::screen::set_pen(pros::Color::light_gray);
       pros::screen::print(pros::E_TEXT_SMALL, dx + 130, dy, "Hdg:");
-      pros::screen::set_pen(COLOR_CYAN);
+      pros::screen::set_pen(pros::Color::cyan);
       snprintf(buf, sizeof(buf), "%.1f" "\xb0", deltaTheta * (180.0 / M_PI));
       pros::screen::print(pros::E_TEXT_SMALL, dx + 158, dy, buf);
       dy += rowH;
 
-      pros::screen::set_pen(COLOR_LIGHT_GRAY);
+      pros::screen::set_pen(pros::Color::light_gray);
       pros::screen::print(pros::E_TEXT_SMALL, dx, dy, "Y:");
-      pros::screen::set_pen(COLOR_CYAN);
+      pros::screen::set_pen(pros::Color::cyan);
       snprintf(buf, sizeof(buf), "%.2f\"", deltaY);
       pros::screen::print(pros::E_TEXT_SMALL, dx + 16, dy, buf);
-      pros::screen::set_pen(COLOR_LIGHT_GRAY);
+      pros::screen::set_pen(pros::Color::light_gray);
       pros::screen::print(pros::E_TEXT_SMALL, dx + 130, dy, "Hyp:");
-      pros::screen::set_pen(COLOR_CYAN);
+      pros::screen::set_pen(pros::Color::cyan);
       snprintf(buf, sizeof(buf), "%.2f\"", distance);
       pros::screen::print(pros::E_TEXT_SMALL, dx + 158, dy, buf);
       dy += rowH;
@@ -284,50 +284,50 @@ void GuiDebug::DisplayFieldMapper() {
     }
   } else if (mapMode == MapMode::ARC) {
     if (arcMeasured && arcResult.valid) {
-      pros::screen::set_pen(COLOR_YELLOW);
+      pros::screen::set_pen(pros::Color::yellow);
       pros::screen::print(pros::E_TEXT_SMALL, dx, dy, "ARC:");
       dy += rowH;
 
       // Radius + ΔHdg on the same row
-      pros::screen::set_pen(COLOR_LIGHT_GRAY);
+      pros::screen::set_pen(pros::Color::light_gray);
       pros::screen::print(pros::E_TEXT_SMALL, dx, dy, "Radius:");
-      pros::screen::set_pen(COLOR_YELLOW);
+      pros::screen::set_pen(pros::Color::yellow);
       if (arcResult.radius > 0.01) {
         snprintf(buf, sizeof(buf), "%.2f\"", arcResult.radius);
       } else {
         snprintf(buf, sizeof(buf), "straight");
       }
       pros::screen::print(pros::E_TEXT_SMALL, dx + 56, dy, buf);
-      pros::screen::set_pen(COLOR_LIGHT_GRAY);
+      pros::screen::set_pen(pros::Color::light_gray);
       pros::screen::print(pros::E_TEXT_SMALL, dx + 130, dy, "Hdg:");
-      pros::screen::set_pen(COLOR_YELLOW);
+      pros::screen::set_pen(pros::Color::yellow);
       snprintf(buf, sizeof(buf), "%.1f" "\xb0", arcResult.deltaHeading);
       pros::screen::print(pros::E_TEXT_SMALL, dx + 158, dy, buf);
       dy += rowH;
 
-      pros::screen::set_pen(COLOR_LIGHT_GRAY);
+      pros::screen::set_pen(pros::Color::light_gray);
       pros::screen::print(pros::E_TEXT_SMALL, dx, dy, "ArcLen:");
-      pros::screen::set_pen(COLOR_YELLOW);
+      pros::screen::set_pen(pros::Color::yellow);
       snprintf(buf, sizeof(buf), "%.2f\"", arcResult.arcLength);//Arc Length
       pros::screen::print(pros::E_TEXT_SMALL, dx + 56, dy, buf);
       if (arcResult.radius > 0.01) {
-        pros::screen::set_pen(COLOR_LIGHT_GRAY);
+        pros::screen::set_pen(pros::Color::light_gray);
         pros::screen::print(pros::E_TEXT_SMALL, dx + 130, dy, "In:");
-        pros::screen::set_pen(COLOR_YELLOW);
+        pros::screen::set_pen(pros::Color::yellow);
         snprintf(buf, sizeof(buf), "%.2f\"", arcResult.innerRadius);
         pros::screen::print(pros::E_TEXT_SMALL, dx + 150, dy, buf);
       }
       dy += rowH;
 
-      pros::screen::set_pen(COLOR_LIGHT_GRAY);
+      pros::screen::set_pen(pros::Color::light_gray);
       pros::screen::print(pros::E_TEXT_SMALL, dx, dy, "Chord:");
-      pros::screen::set_pen(COLOR_YELLOW);
+      pros::screen::set_pen(pros::Color::yellow);
       snprintf(buf, sizeof(buf), "%.2f\"", arcResult.chordLength);
       pros::screen::print(pros::E_TEXT_SMALL, dx + 48, dy, buf);
       if (arcResult.radius > 0.01) {
-        pros::screen::set_pen(COLOR_LIGHT_GRAY);
+        pros::screen::set_pen(pros::Color::light_gray);
         pros::screen::print(pros::E_TEXT_SMALL, dx + 130, dy, "Out:");
-        pros::screen::set_pen(COLOR_YELLOW);
+        pros::screen::set_pen(pros::Color::yellow);
         snprintf(buf, sizeof(buf), "%.2f\"", arcResult.outerRadius);
         pros::screen::print(pros::E_TEXT_SMALL, dx + 154, dy, buf);
       }
@@ -353,41 +353,41 @@ void GuiDebug::DisplayFieldMapper() {
     // [DISPLACE]  [ARC MEAS]
     pros::screen::set_eraser(COLOR_BTN_DISPLACE);
     pros::screen::erase_rect(dx, btnY1, dx + halfW, btnY2);
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_SMALL, dx + 4, btnY1 + 8, "DISPLACE");
 
     pros::screen::set_eraser(COLOR_BTN_ARC_IDLE);
     pros::screen::erase_rect(dx + halfW + 6, btnY1, dx + displayW, btnY2);
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_SMALL, dx + halfW + 10, btnY1 + 8, "ARC MEAS");
   } else if (mapMode == MapMode::DISPLACEMENT) {
     // [MARK START]  [MARK END]
-    uint32_t startColor = (arcStartIndex >= 0) ? COLOR_DARK_GREEN : COLOR_BTN_ARC_IDLE;
+    uint32_t startColor = (arcStartIndex >= 0) ? static_cast<uint32_t>(pros::Color::dark_green) : COLOR_BTN_ARC_IDLE;
     pros::screen::set_eraser(startColor);
     pros::screen::erase_rect(dx, btnY1, dx + halfW, btnY2);
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_SMALL, dx + 4, btnY1 + 8,
                         (arcStartIndex >= 0) ? "START SET" : "MARK START");
 
-    uint32_t endColor = (dispEndIndex >= 0) ? COLOR_DARK_BLUE : COLOR_BTN_END_IDLE;
+    uint32_t endColor = (dispEndIndex >= 0) ? static_cast<uint32_t>(pros::Color::dark_blue) : COLOR_BTN_END_IDLE;
     pros::screen::set_eraser(endColor);
     pros::screen::erase_rect(dx + halfW + 6, btnY1, dx + displayW, btnY2);
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_SMALL, dx + halfW + 10, btnY1 + 8,
                         (dispEndIndex >= 0) ? "END SET" : "MARK END");
   } else {
     // ARC mode — [MARK START]  [MARK END]
-    uint32_t markSColor = (arcStartIndex >= 0) ? COLOR_DARK_GREEN : COLOR_BTN_ARC_IDLE;
+    uint32_t markSColor = (arcStartIndex >= 0) ? static_cast<uint32_t>(pros::Color::dark_green) : COLOR_BTN_ARC_IDLE;
     pros::screen::set_eraser(markSColor);
     pros::screen::erase_rect(dx, btnY1, dx + halfW, btnY2);
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_SMALL, dx + 4, btnY1 + 8,
                         (arcStartIndex >= 0) ? "START SET" : "MARK START");
 
-    uint32_t markEColor = arcMeasured ? COLOR_DARK_BLUE : COLOR_BTN_END_IDLE;
+    uint32_t markEColor = arcMeasured ? static_cast<uint32_t>(pros::Color::dark_blue) : COLOR_BTN_END_IDLE;
     pros::screen::set_eraser(markEColor);
     pros::screen::erase_rect(dx + halfW + 6, btnY1, dx + displayW, btnY2);
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_SMALL, dx + halfW + 10, btnY1 + 8, "MARK END");
   }
 }

@@ -3,6 +3,7 @@
 #define AON_TOOLS_GUI_DEBUG_HPP_
 #include "gui.hpp"
 #include "aon/math/pose.hpp"
+#include "pros/colors.h"
 #include <map>
 #include <string>
 #include <type_traits>

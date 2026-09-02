@@ -8,25 +8,25 @@ static int variablesPage = 0;
 static constexpr int VARS_PER_PAGE = 2;
 
 void GuiDebug::DisplayVariablesMenu() {
-  pros::screen::set_eraser(COLOR_BLACK);
+  pros::screen::set_eraser(pros::Color::black);
   pros::screen::erase();
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "VARIABLES");
 
   // BACK button
   const int backY1 = 10, backY2 = backY1 + 30;
   const int backX2 = BRAIN_SCREEN_WIDTH / 2 - 110, backX1 = backX2 - 80;
-  pros::screen::set_eraser(COLOR_DARK_GRAY);
+  pros::screen::set_eraser(pros::Color::dark_gray);
   pros::screen::erase_rect(backX1, backY1, backX2, backY2);
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_MEDIUM, backX1 + 8, backY1 + 8, "BACK");
 
   // MENU button
   const int menuY1 = 10, menuY2 = menuY1 + 30;
   const int menuX1 = BRAIN_SCREEN_WIDTH - 120, menuX2 = BRAIN_SCREEN_WIDTH - 40;
-  pros::screen::set_eraser(COLOR_DARK_GRAY);
+  pros::screen::set_eraser(pros::Color::dark_gray);
   pros::screen::erase_rect(menuX1, menuY1, menuX2, menuY2);
-  pros::screen::set_pen(COLOR_WHITE);
+  pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_MEDIUM, menuX1 + 6, menuY1 + 8, "MENU");
 
   // Seed variables if needed
@@ -46,7 +46,7 @@ void GuiDebug::DisplayVariablesMenu() {
   int endIdx = std::min(startIdx + VARS_PER_PAGE, (int)variableEntries.size());
 
   // Page indicator
-  pros::screen::set_pen(COLOR_LIGHT_GRAY);
+  pros::screen::set_pen(pros::Color::light_gray);
   char pageText[32];
   snprintf(pageText, sizeof(pageText), "Page %d/%d", variablesPage + 1, totalPages);
   pros::screen::print(pros::E_TEXT_SMALL, BRAIN_SCREEN_WIDTH / 2 - 30, BRAIN_SCREEN_HEIGHT - 20, pageText);
@@ -55,9 +55,9 @@ void GuiDebug::DisplayVariablesMenu() {
   if (variablesPage > 0) {
     const int prevX1 = 20, prevY1 = BRAIN_SCREEN_HEIGHT - 35;
     const int prevX2 = prevX1 + 80, prevY2 = prevY1 + 30;
-    pros::screen::set_eraser(COLOR_DARK_GRAY);
+    pros::screen::set_eraser(pros::Color::dark_gray);
     pros::screen::erase_rect(prevX1, prevY1, prevX2, prevY2);
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_MEDIUM, prevX1 + 12, prevY1 + 8, "PREV");
   }
 
@@ -65,9 +65,9 @@ void GuiDebug::DisplayVariablesMenu() {
   if (variablesPage < totalPages - 1) {
     const int nextX1 = BRAIN_SCREEN_WIDTH - 100, nextY1 = BRAIN_SCREEN_HEIGHT - 35;
     const int nextX2 = nextX1 + 80, nextY2 = nextY1 + 30;
-    pros::screen::set_eraser(COLOR_DARK_GRAY);
+    pros::screen::set_eraser(pros::Color::dark_gray);
     pros::screen::erase_rect(nextX1, nextY1, nextX2, nextY2);
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_MEDIUM, nextX1 + 12, nextY1 + 8, "NEXT");
   }
 
@@ -76,19 +76,19 @@ void GuiDebug::DisplayVariablesMenu() {
     const auto& e = variableEntries[i];
     
     // Name and current value
-    pros::screen::set_pen(COLOR_WHITE);
+    pros::screen::set_pen(pros::Color::white);
     pros::screen::print(pros::E_TEXT_MEDIUM, 20, y, e.name.c_str());
     pros::screen::print(pros::E_TEXT_MEDIUM, BRAIN_SCREEN_WIDTH - 140, y, "%0.3f", e.get());
 
     int bx = 20, by = y + 20, bw = 70, bh = 30, gap = 10;
     ui::Button btns[6];
-    btns[0] = {bx, by, bx+bw, by+bh, "-1",  COLOR_DARK_RED,   COLOR_WHITE, [&e]() { e.apply(-1.0); }}; bx += bw + gap;
-    btns[1] = {bx, by, bx+bw, by+bh, "-0.1",   COLOR_DARK_RED,   COLOR_WHITE, [&e]() { e.apply(-0.1); }};  bx += bw + gap;
-    btns[2] = {bx, by, bx+bw, by+bh, "-0.01", COLOR_DARK_RED,   COLOR_WHITE, [&e]() { e.apply(-0.01); }};
+    btns[0] = {bx, by, bx+bw, by+bh, "-1",  pros::Color::dark_red,   pros::Color::white, [&e]() { e.apply(-1.0); }}; bx += bw + gap;
+    btns[1] = {bx, by, bx+bw, by+bh, "-0.1",   pros::Color::dark_red,   pros::Color::white, [&e]() { e.apply(-0.1); }};  bx += bw + gap;
+    btns[2] = {bx, by, bx+bw, by+bh, "-0.01", pros::Color::dark_red,   pros::Color::white, [&e]() { e.apply(-0.01); }};
     bx = BRAIN_SCREEN_WIDTH - (bw * 3 + gap * 2) - 20;
-    btns[3] = {bx, by, bx+bw, by+bh, "+0.01", COLOR_DARK_GREEN, COLOR_WHITE, [&e]() { e.apply(+0.01); }};  bx += bw + gap;
-    btns[4] = {bx, by, bx+bw, by+bh, "+0.1",   COLOR_DARK_GREEN, COLOR_WHITE, [&e]() { e.apply(+0.1); }};  bx += bw + gap;
-    btns[5] = {bx, by, bx+bw, by+bh, "+1",  COLOR_DARK_GREEN, COLOR_WHITE, [&e]() { e.apply(+1.0); }};
+    btns[3] = {bx, by, bx+bw, by+bh, "+0.01", pros::Color::dark_green, pros::Color::white, [&e]() { e.apply(+0.01); }};  bx += bw + gap;
+    btns[4] = {bx, by, bx+bw, by+bh, "+0.1",   pros::Color::dark_green, pros::Color::white, [&e]() { e.apply(+0.1); }};  bx += bw + gap;
+    btns[5] = {bx, by, bx+bw, by+bh, "+1",   pros::Color::dark_green, pros::Color::white, [&e]() { e.apply(+1.0); }};
 
     for (auto& btn : btns) btn.draw();
 
@@ -170,13 +170,13 @@ void GuiDebug::HandleVariablesMenuTouch() {
     auto& e = variableEntries[i];
     int bx = 20, by = y + 20, bw = 70, bh = 30, gap = 10;
     ui::Button btns[6];
-    btns[0] = {bx, by, bx+bw, by+bh, "-1",  COLOR_DARK_RED,   COLOR_WHITE, [&e]() { e.apply(-1.0); }}; bx += bw + gap;
-    btns[1] = {bx, by, bx+bw, by+bh, "-0.1",   COLOR_DARK_RED,   COLOR_WHITE, [&e]() { e.apply(-0.1); }};  bx += bw + gap;
-    btns[2] = {bx, by, bx+bw, by+bh, "-0.01", COLOR_DARK_RED,   COLOR_WHITE, [&e]() { e.apply(-0.01); }};
+    btns[0] = {bx, by, bx+bw, by+bh, "-1",  pros::Color::dark_red,   pros::Color::white, [&e]() { e.apply(-1.0); }}; bx += bw + gap;
+    btns[1] = {bx, by, bx+bw, by+bh, "-0.1",   pros::Color::dark_red,   pros::Color::white, [&e]() { e.apply(-0.1); }};  bx += bw + gap;
+    btns[2] = {bx, by, bx+bw, by+bh, "-0.01", pros::Color::dark_red,   pros::Color::white, [&e]() { e.apply(-0.01); }};
     bx = BRAIN_SCREEN_WIDTH - (bw * 3 + gap * 2) - 20;
-    btns[3] = {bx, by, bx+bw, by+bh, "+0.01", COLOR_DARK_GREEN, COLOR_WHITE, [&e]() { e.apply(+0.01); }};  bx += bw + gap;
-    btns[4] = {bx, by, bx+bw, by+bh, "+0.1",   COLOR_DARK_GREEN, COLOR_WHITE, [&e]() { e.apply(+0.1); }};  bx += bw + gap;
-    btns[5] = {bx, by, bx+bw, by+bh, "+1",  COLOR_DARK_GREEN, COLOR_WHITE, [&e]() { e.apply(+1.0); }};
+    btns[3] = {bx, by, bx+bw, by+bh, "+0.01", pros::Color::dark_green, pros::Color::white, [&e]() { e.apply(+0.01); }};  bx += bw + gap;
+    btns[4] = {bx, by, bx+bw, by+bh, "+0.1",   pros::Color::dark_green, pros::Color::white, [&e]() { e.apply(+0.1); }};  bx += bw + gap;
+    btns[5] = {bx, by, bx+bw, by+bh, "+1",  pros::Color::dark_green, pros::Color::white, [&e]() { e.apply(+1.0); }};
 
     for (auto& btn : btns) {
       if (btn.isHit(touch.x, touch.y)) {

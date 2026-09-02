@@ -11,9 +11,9 @@ class HDrive : public Drivetrain {
   SmartMotorGroup midMotors;
 
  public:
-  HDrive(const std::initializer_list<okapi::Motor> &leftPorts = {0},
-         const std::initializer_list<okapi::Motor> &rightPorts = {0},
-         const std::initializer_list<okapi::Motor> &midPorts = {0},
+  HDrive(const std::initializer_list<std::int8_t> &leftPorts = {0},
+         const std::initializer_list<std::int8_t> &rightPorts = {0},
+         const std::initializer_list<std::int8_t> &midPorts = {0},
          Pose pose = Pose(),
          std::unique_ptr<Odometry> odometry = nullptr,
          SpeedFactors speedFactors = SpeedFactors(),
@@ -31,12 +31,12 @@ class HDrive : public Drivetrain {
   /// auton and `brake` for drivers
   /// @param gearset The gearbox the physical motors contain, they MUST be all
   /// the same
-  void configure(okapi::AbstractMotor::brakeMode brakeMode, okapi::AbstractMotor::gearset gearset, double slew) {
+  void configure(pros::MotorBrake brakeMode, pros::MotorGears gearset, double slew) {
     Drivetrain::configure(brakeMode, gearset, slew);
-    midMotors.setBrakeMode(brakeMode);
-    midMotors.setGearing(okapi::AbstractMotor::gearset::red);
-    midMotors.setEncoderUnits(okapi::AbstractMotor::encoderUnits::degrees);
-    midMotors.tarePosition();
+    midMotors.set_brake_mode(brakeMode);
+    midMotors.set_gearing(pros::MotorGears::red);
+    midMotors.set_encoder_units(pros::MotorEncoderUnits::degrees);
+    midMotors.tare_position();
   }
 
   void stop() override;
@@ -53,15 +53,15 @@ class HDrive : public Drivetrain {
 
   /// @brief Sets the brake mode for all motors of the drivetrain
   /// @param brakeMode The new brake mode for the drivetrain
-  void setBrakeMode(okapi::AbstractMotor::brakeMode brakeMode) override;
+  void setBrakeMode(pros::MotorBrake brakeMode) override;
 
   /// @brief Sets the gearset for all motors of the drivetrain
   /// @param gearset The new gearset for the drivetrain
-  void setGearset(okapi::AbstractMotor::gearset gearset) override;
+  void setGearset(pros::MotorGears gearset) override;
 
   /// @brief Sets the units for all encoders of the motors of the drivetrain
   /// @param units The new units for the drivetrain
-  void setEncoderUnits(okapi::AbstractMotor::encoderUnits units) override;
+  void setEncoderUnits(pros::MotorEncoderUnits units) override;
 
   /// @brief Sets the slew rate for all motors of the drivetrain
   /// @param slew The new slew rate for the drivetrain

@@ -1,7 +1,7 @@
 #ifndef AON_CONTROLS_SMART_MOTOR_HPP__
 #define AON_CONTROLS_SMART_MOTOR_HPP__
 
-#include "../../okapi/api.hpp"
+#include "pros/motors.hpp"
 
 /**
  * SMART_MOTOR
@@ -15,7 +15,7 @@
 
 namespace aon {
 
-class SmartMotor : public okapi::Motor {
+class SmartMotor : public pros::Motor {
  private:
   double current_voltage;
   // Using double because int conversions create loss of data.
@@ -29,7 +29,7 @@ class SmartMotor : public okapi::Motor {
  public:
   explicit SmartMotor(std::int8_t iport, int voltage_delta = 0,
                       int velocity_delta = 0)
-      : okapi::Motor(iport) {
+      : pros::Motor(iport) {
     current_voltage = 0;
     current_velocity = 0;
 
@@ -61,7 +61,7 @@ class SmartMotor : public okapi::Motor {
   /// @brief Move motor velocity according to slew rate calculations. Slew is in \b rev/min^2
   /// @param ivelocity – The new motor velocity in \b rpm from -+-100, +-200, or +-600 depending on the motor's gearset
   /// @returns 1 if the operation was successful or PROS_ERR if the operation failed, setting errno.
-  std::int32_t moveVelocity(std::int16_t ivelocity) {
+  std::int32_t move_velocity(std::int16_t ivelocity) {
     if (GetAcceleration() != 0) {
       now = pros::micros();
 
@@ -72,13 +72,13 @@ class SmartMotor : public okapi::Motor {
 
       previous_time = pros::micros();
     }
-    return okapi::Motor::moveVelocity(ivelocity);
+    return pros::Motor::move_velocity(ivelocity);
   }
 
   /// @brief Move motor voltage according to slew rate calculations. Slew is in \b mV/s
   /// @param ivoltage – ivoltage – The new voltage value from -12000 to 12000.
   /// @returns 1 if the operation was successful or PROS_ERR if the operation failed, setting errno.
-  std::int32_t moveVoltage(std::int16_t ivoltage) {
+  std::int32_t move_voltage(std::int16_t ivoltage) {
     if (GetDVoltage() != 0) {
       now = pros::micros();
 
@@ -89,7 +89,7 @@ class SmartMotor : public okapi::Motor {
 
       previous_time = pros::micros();
     }
-    return okapi::Motor::moveVoltage(ivoltage);
+    return pros::Motor::move_voltage(ivoltage);
   }
 };
 
@@ -103,7 +103,7 @@ class SmartMotor : public okapi::Motor {
  *
  */
 
-class SmartMotorGroup : public okapi::MotorGroup {
+class SmartMotorGroup : public pros::MotorGroup {
  private:
   double current_voltage;
   double current_velocity;
@@ -114,9 +114,9 @@ class SmartMotorGroup : public okapi::MotorGroup {
   int step = 0;
 
  public:
-  SmartMotorGroup(const std::initializer_list<okapi::Motor> &imotors,
+  SmartMotorGroup(const std::initializer_list<std::int8_t> &ports,
                   int voltage_delta = 0, int velocity_delta = 0)
-      : okapi::MotorGroup(imotors) {
+      : pros::MotorGroup(ports) {
     current_voltage = 0;
     current_velocity = 0;
 
@@ -148,7 +148,7 @@ class SmartMotorGroup : public okapi::MotorGroup {
   /// @brief Move motor velocity according to slew rate calculations. Slew is in \b rev/min^2
   /// @param ivelocity – The new motor velocity in \b rpm from -+-100, +-200, or +-600 depending on the motor's gearset
   /// @returns 1 if the operation was successful or PROS_ERR if the operation failed, setting errno.
-  std::int32_t moveVelocity(std::int16_t ivelocity) {
+  std::int32_t move_velocity(std::int16_t ivelocity) {
     if (this->GetAcceleration() != 0) {
       now = pros::micros();
 
@@ -161,13 +161,13 @@ class SmartMotorGroup : public okapi::MotorGroup {
 
       previous_time = pros::micros();
     }
-    return okapi::MotorGroup::moveVelocity(ivelocity);
+    return pros::MotorGroup::move_velocity(ivelocity);
   }
 
   /// @brief Move motor voltage according to slew rate calculations. Slew is in \b mV/s
   /// @param ivoltage – ivoltage – The new voltage value from -12000 to 12000.
   /// @returns 1 if the operation was successful or PROS_ERR if the operation failed, setting errno.
-  std::int32_t moveVoltage(std::int16_t ivoltage) {
+  std::int32_t move_voltage(std::int16_t ivoltage) {
     if (GetDVoltage() != 0) {
       now = pros::micros();
 
@@ -178,7 +178,7 @@ class SmartMotorGroup : public okapi::MotorGroup {
 
       previous_time = pros::micros();
     }
-    return okapi::MotorGroup::moveVoltage(ivoltage);
+    return pros::MotorGroup::move_voltage(ivoltage);
   }
 };
 

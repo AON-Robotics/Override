@@ -9,6 +9,7 @@
 #include "../controls/s-curve-profile.hpp"
 #include "../tools/logging.hpp"
 #include "../tools/moving-average.hpp"
+#include "../tools/simple-filter.hpp"
 #include "../tools/general.hpp"
 #include "../math/misc/misc.hpp"
 
@@ -67,7 +68,7 @@ void alignRobotTo(const Colors &color = orbit.getColor()){
 /// @note Takes half a second (0.5s) to complete
 double getDistanceToRing(const Colors &color = orbit.getColor()){
   orbit.setColor(orbit.getColor());
-  okapi::EKFFilter ekf;
+  aon::EKFFilter ekf;
 
   double distance;
 
@@ -107,7 +108,7 @@ void driveIntoRing(const Colors &color = orbit.getColor()){
   orbit.follow();
   intake.activateScan();
   pros::delay(500);
-  okapi::EKFFilter ekf;
+  aon::EKFFilter ekf;
   const double tolerance = 5; //? Probably adjust this
   double difference;
 
@@ -251,7 +252,7 @@ void visionSensorDistance(){
   MovingAverage avgMav(50);
   MovingAverage ekfMav(50);
   MovingAverage avg_ekfMav(50);
-  okapi::EKFFilter ekf;
+  aon::EKFFilter ekf;
   orbit.activateFollow();
   while(true){
     pros::vision_object block = orbit.getLargestObject();
@@ -278,11 +279,11 @@ void visionSensorDistance(){
 
 /// @brief Uses the gyro to test the precision of an ekf
 void gyroWithEKF(){
-  okapi::EKFFilter ekf1;
-  okapi::EKFFilter ekf2(2.6E-4, 0.04);
-  okapi::EKFFilter ekf3(3E-4, 0.04);
-  okapi::EKFFilter ekf4(4E-4, 0.04); 
-  okapi::EKFFilter ekf5(5E-4, 0.04);
+  aon::EKFFilter ekf1;
+  aon::EKFFilter ekf2(2.6E-4, 0.04);
+  aon::EKFFilter ekf3(3E-4, 0.04);
+  aon::EKFFilter ekf4(4E-4, 0.04); 
+  aon::EKFFilter ekf5(5E-4, 0.04);
   while(true){
     const double pos = odometry.gyroscope.get_heading();
     pros::lcd::print(0, "Raw Heading = %.2f", pos);
