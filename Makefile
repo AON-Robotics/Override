@@ -30,7 +30,6 @@ STATIC_FILES:=$(wildcard $(STATIC_DIR)/*)
 STATIC_OBJECTS:=$(patsubst $(STATIC_DIR)/%,$(BINDIR)/static/%.o,$(STATIC_FILES))
 STATIC_LIBRARY:=$(BINDIR)/aon-static-assets.a
 LIBRARIES+=$(STATIC_LIBRARY)
-EXCLUDE_COLD_LIBRARIES+=$(STATIC_LIBRARY)
 
 # Set this to 1 to add additional rules to compile your project as a PROS library template
 IS_LIBRARY:=0
