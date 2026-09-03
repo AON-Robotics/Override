@@ -21,3 +21,6 @@ temp.errors
 # Python env
 env/
 .DS_Store
+
+# Local agent design and execution notes
+docs/superpowers/
