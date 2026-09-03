@@ -42,3 +42,8 @@ Invoke-CppTest -Name 'path-jerryio-test' -Sources @(
     'tests/path-jerryio-test.cpp',
     'src/aon/jerryio/path-jerryio.cpp'
 )
+
+Invoke-CppTest -Name 'path-follower-test' -Sources @(
+    'tests/path-follower-test.cpp',
+    'src/aon/jerryio/path-follower.cpp'
+)

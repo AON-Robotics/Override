@@ -1,0 +1,153 @@
+#include "aon/jerryio/path-follower.hpp"
+
+#include <cmath>
+#include <cstdlib>
+#include <iostream>
+
+#define CHECK(condition)                                                     \
+  do {                                                                       \
+    if (!(condition)) {                                                      \
+      std::cerr << __FILE__ << ':' << __LINE__ << ": " << #condition       \
+                << '\n';                                                     \
+      std::exit(1);                                                          \
+    }                                                                        \
+  } while (false)
+
+namespace {
+
+constexpr double kTolerance = 0.0001;
+
+bool near(double actual, double expected) {
+  return std::abs(actual - expected) <= kTolerance;
+}
+
+aon::PathFollowerConfig immediateConfig() {
+  aon::PathFollowerConfig config;
+  config.lookaheadDistance = 5.0;
+  config.trackWidth = 12.0;
+  config.maximumRpm = 600.0;
+  config.maximumAcceleration = 100000.0;
+  config.maximumDeceleration = 100000.0;
+  config.positionTolerance = 0.5;
+  return config;
+}
+
+void followsStraightPathsAtExportedSpeed() {
+  const aon::Path path{{{0, 0, 0}, 63.5}, {{0, 10, 0}, 63.5}};
+  aon::PathFollower follower(path, immediateConfig());
+
+  const auto output = follower.step({0, 0, 0}, 0.02);
+
+  CHECK(output.valid);
+  CHECK(!output.complete);
+  CHECK(near(output.target.x, 0.0));
+  CHECK(near(output.target.y, 5.0));
+  CHECK(near(output.leftRpm, 300.0));
+  CHECK(near(output.rightRpm, 300.0));
+  CHECK(near(output.remainingDistance, 10.0));
+}
+
+void turnsTowardGeometricLookahead() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{5, 5, 0}, 127},
+                       {{10, 5, 0}, 127}};
+  aon::PathFollowerConfig config = immediateConfig();
+  config.lookaheadDistance = std::sqrt(50.0);
+  aon::PathFollower follower(path, config);
+
+  const auto output = follower.step({0, 0, 0}, 0.02);
+
+  CHECK(output.leftRpm > output.rightRpm);
+  CHECK(output.leftRpm <= config.maximumRpm);
+  CHECK(output.rightRpm >= -config.maximumRpm);
+}
+
+void neverMovesProgressBackward() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 127},
+                       {{0, 20, 0}, 127}};
+  aon::PathFollower follower(path, immediateConfig());
+
+  const auto advanced = follower.step({0, 16, 0}, 0.02);
+  const auto noisy = follower.step({0, 4, 0}, 0.02);
+
+  CHECK(advanced.progress >= 16.0 - kTolerance);
+  CHECK(noisy.progress >= advanced.progress);
+}
+
+void limitsAccelerationAndDeceleration() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 0},
+                       {{0, 20, 0}, 0}};
+  aon::PathFollowerConfig config = immediateConfig();
+  config.maximumAcceleration = 100.0;
+  config.maximumDeceleration = 200.0;
+  aon::PathFollower follower(path, config);
+
+  const auto accelerating = follower.step({0, 0, 0}, 0.1);
+  const auto decelerating = follower.step({0, 10, 0}, 0.1);
+
+  CHECK(near(accelerating.profiledSpeedRpm, 10.0));
+  CHECK(near(decelerating.profiledSpeedRpm, 0.0));
+}
+
+void supportsReverseFollowing() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 127}};
+  aon::PathFollowerConfig config = immediateConfig();
+  config.forwards = false;
+  aon::PathFollower follower(path, config);
+
+  const auto output = follower.step({0, 0, 180}, 0.02);
+
+  CHECK(near(output.leftRpm, -600.0));
+  CHECK(near(output.rightRpm, -600.0));
+}
+
+void normalizesWheelCommandsToConfiguredMaximum() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{5, 2, 0}, 127}};
+  aon::PathFollower follower(path, immediateConfig());
+
+  const auto output = follower.step({0, 0, 0}, 0.02);
+
+  CHECK(std::abs(output.leftRpm) <= 600.0 + kTolerance);
+  CHECK(std::abs(output.rightRpm) <= 600.0 + kTolerance);
+  CHECK(near(std::max(std::abs(output.leftRpm), std::abs(output.rightRpm)),
+             600.0));
+}
+
+void completesInsideTerminalTolerance() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 0}};
+  aon::PathFollower follower(path, immediateConfig());
+
+  const auto output = follower.step({0.2, 9.8, 45}, 0.02);
+
+  CHECK(output.valid);
+  CHECK(output.complete);
+  CHECK(output.leftRpm == 0.0);
+  CHECK(output.rightRpm == 0.0);
+  CHECK(output.profiledSpeedRpm == 0.0);
+}
+
+void rejectsUnsafePathsAndConfiguration() {
+  aon::PathFollowerConfig config = immediateConfig();
+  config.lookaheadDistance = 0.0;
+  aon::PathFollower invalidConfig({{{0, 0, 0}, 127}, {{0, 10, 0}, 0}},
+                                  config);
+  aon::PathFollower invalidPath({{{0, 0, 0}, 128}, {{0, 10, 0}, 0}},
+                                immediateConfig());
+
+  CHECK(!invalidConfig.isValid());
+  CHECK(!invalidConfig.step({0, 0, 0}, 0.02).valid);
+  CHECK(!invalidPath.isValid());
+}
+
+}  // namespace
+
+int main() {
+  followsStraightPathsAtExportedSpeed();
+  turnsTowardGeometricLookahead();
+  neverMovesProgressBackward();
+  limitsAccelerationAndDeceleration();
+  supportsReverseFollowing();
+  normalizesWheelCommandsToConfiguredMaximum();
+  completesInsideTerminalTolerance();
+  rejectsUnsafePathsAndConfiguration();
+  std::cout << "AON path follower tests passed\n";
+}
