@@ -31,8 +31,7 @@ PathDecodeResult failure(PathDecodeError error, std::size_t line) {
   return {{}, error, line};
 }
 
-PathDecodeResult parsePoint(std::string_view text, std::size_t line,
-                            Path& path) {
+PathDecodeError parsePoint(std::string_view text, Path& path) {
   const std::string buffer(text);
   const char* cursor = buffer.c_str();
   PathPoint point;
@@ -40,22 +39,22 @@ PathDecodeResult parsePoint(std::string_view text, std::size_t line,
   if (!readNumber(cursor, point.pose.x) || !consumeComma(cursor) ||
       !readNumber(cursor, point.pose.y) || !consumeComma(cursor) ||
       !readNumber(cursor, point.speed)) {
-    return failure(PathDecodeError::MalformedPoint, line);
+    return PathDecodeError::MalformedPoint;
   }
   skipWhitespace(cursor);
   if (*cursor != '\0') {
-    return failure(PathDecodeError::MalformedPoint, line);
+    return PathDecodeError::MalformedPoint;
   }
   if (!std::isfinite(point.pose.x) || !std::isfinite(point.pose.y) ||
       !std::isfinite(point.speed)) {
-    return failure(PathDecodeError::NonFiniteValue, line);
+    return PathDecodeError::NonFiniteValue;
   }
   if (point.speed < 0.0 || point.speed > 127.0) {
-    return failure(PathDecodeError::SpeedOutOfRange, line);
+    return PathDecodeError::SpeedOutOfRange;
   }
 
   path.push_back(point);
-  return {path, PathDecodeError::None, 0};
+  return PathDecodeError::None;
 }
 
 std::string_view trim(std::string_view text) {
@@ -101,8 +100,8 @@ PathDecodeResult PathJerryIO::decode(std::string_view input) {
       break;
     }
 
-    const PathDecodeResult parsed = parsePoint(line, lineNumber, path);
-    if (!parsed) return parsed;
+    const PathDecodeError error = parsePoint(line, path);
+    if (error != PathDecodeError::None) return failure(error, lineNumber);
 
     if (newline == std::string_view::npos) break;
     offset = newline + 1;

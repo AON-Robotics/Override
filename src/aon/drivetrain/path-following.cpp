@@ -16,7 +16,9 @@ MotionResult Drivetrain::followPath(const Path& path,
   followerConfig.maximumRpm = options.maximumRpm;
   followerConfig.maximumAcceleration = options.maximumAcceleration;
   followerConfig.maximumDeceleration = options.maximumDeceleration;
+  followerConfig.terminalRecoveryRpm = options.terminalRecoveryRpm;
   followerConfig.positionTolerance = options.positionTolerance;
+  followerConfig.projectionWindowSegments = options.projectionWindowSegments;
   followerConfig.forwards = options.forwards;
   PathFollower follower(path, followerConfig);
 
@@ -65,24 +67,56 @@ MotionResult Drivetrain::followPath(const Path& path,
 
     this->stop();
     if (!shouldAlignFinalHeading(status, options)) return {status};
-
-    if (pros::competition::is_disabled()) {
-      return finish(MotionStatus::Disabled);
-    }
-    if (options.cancelRequested && options.cancelRequested()) {
-      return finish(MotionStatus::Cancelled);
-    }
-    this->turnToHeading(*options.finalHeading);
-    return finish(MotionStatus::Completed);
+    return alignToHeading(*options.finalHeading, options, startedAt);
   }
 }
 
 MotionResult Drivetrain::moveToPose(const Pose& target,
                                     FollowPathOptions options) {
   const Pose start = this->odometry->getPose();
-  Path path{{start, 127.0}, {target, 0.0}};
+  const std::uint32_t startedAt = pros::millis();
   options.finalHeading = target.theta;
+  if (start.distanceTo(target) <= options.positionTolerance) {
+    return alignToHeading(target.theta, options, startedAt);
+  }
+  Path path{{start, 127.0}, {target, 0.0}};
   return followPath(path, options);
+}
+
+MotionResult Drivetrain::turnToHeadingMonitored(double heading,
+                                                FollowPathOptions options) {
+  options.finalHeading = heading;
+  return alignToHeading(heading, options, pros::millis());
+}
+
+MotionResult Drivetrain::alignToHeading(double heading,
+                                        const FollowPathOptions& options,
+                                        std::uint32_t startedAt) {
+  const auto finish = [this](MotionStatus status) {
+    this->stop();
+    return MotionResult{status};
+  };
+
+  while (true) {
+    const HeadingAlignmentOutput output = calculateHeadingAlignment(
+        this->odometry->getDegrees(), heading, options.headingKp,
+        options.maximumRpm, options.minimumTurnRpm, options.headingTolerance);
+    MotionLoopSnapshot snapshot;
+    snapshot.pathValid = output.valid;
+    snapshot.optionsValid = options.isValid();
+    snapshot.complete = output.complete;
+    snapshot.disabled = pros::competition::is_disabled();
+    snapshot.cancelled =
+        options.cancelRequested && options.cancelRequested();
+    snapshot.elapsedMs = pros::millis() - startedAt;
+    snapshot.timeoutMs = options.timeoutMs;
+
+    const MotionStatus status = evaluateMotionStatus(snapshot);
+    if (status != MotionStatus::Running) return finish(status);
+
+    this->tank(output.leftRpm, output.rightRpm);
+    pros::delay(options.loopPeriodMs);
+  }
 }
 
 }  // namespace aon

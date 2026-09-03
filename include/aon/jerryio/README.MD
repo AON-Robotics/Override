@@ -70,8 +70,9 @@ conditions, limiting motor output, and stopping both drive sides on every exit.
 
 `Drivetrain::followPath()` accepts a decoded `Path` and `FollowPathOptions`.
 The options control lookahead, drivetrain width, RPM ceiling, acceleration,
-deceleration, terminal tolerance, direction, timeout, loop period, optional
-final heading, and an optional cancellation callback. It returns a
+deceleration, terminal recovery speed, projection search window, terminal
+tolerance, direction, timeout, loop period, monitored final-heading control,
+and an optional cancellation callback. It returns a
 `MotionResult` whose status distinguishes completion, invalid input, timeout,
 competition disable, and cancellation.
 
@@ -95,7 +96,9 @@ if (!result) {
 
 For a single destination, `Drivetrain::moveToPose(target, options)` creates a
 profiled AON path from the current odometry pose and aligns to `target.theta`
-after reaching the target position.
+after reaching the target position. If the target position is already reached,
+it performs only the monitored heading alignment. `turnToHeadingMonitored()`
+provides that same timeout-, disable-, and cancellation-aware rotation directly.
 
 ## Embedded path assets
 
@@ -182,12 +185,20 @@ through an autonomous sequence.
 - Keep `maximumAcceleration` at or below the measured no-slip limit.
 - Keep `maximumDeceleration` low enough to avoid tipping or wheel slip.
 - Use `positionTolerance` around 1.5 to 2 inches for initial tests.
+- Keep `terminalRecoveryRpm` just high enough to correct residual endpoint
+  error after an exported zero-speed sample; set it to `0` only after proving
+  the robot settles reliably without recovery.
+- Keep `projectionWindowSegments` large enough for normal motion between
+  updates but small enough that crossing or nearby return legs cannot steal
+  progress from the active leg.
 - Give `timeoutMs` enough margin for the exported speed profile, but never use
   an unbounded timeout.
 - Set `forwards = false` only when the path coordinates progress in the travel
   direction while the robot faces 180 degrees away from the path tangent.
 - Supply `finalHeading` only when heading alignment is required after the
-  positional path completes.
+  positional path completes. Its proportional gain, tolerance, and minimum
+  turn speed are controlled by `headingKp`, `headingTolerance`, and
+  `minimumTurnRpm` under the same overall timeout.
 
 ## Verification
 

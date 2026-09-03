@@ -40,7 +40,11 @@ PathFollower::PathFollower(Path path, PathFollowerConfig config)
           finitePositive(this->config.maximumRpm) &&
           finitePositive(this->config.maximumAcceleration) &&
           finitePositive(this->config.maximumDeceleration) &&
-          finitePositive(this->config.positionTolerance);
+          std::isfinite(this->config.terminalRecoveryRpm) &&
+          this->config.terminalRecoveryRpm >= 0.0 &&
+          this->config.terminalRecoveryRpm <= this->config.maximumRpm &&
+          finitePositive(this->config.positionTolerance) &&
+          this->config.projectionWindowSegments > 0;
 
   cumulativeDistance.reserve(this->path.size());
   cumulativeDistance.push_back(0.0);
@@ -88,7 +92,18 @@ double PathFollower::projectProgress(const Pose& current) const {
   double bestDistanceSquared = std::numeric_limits<double>::infinity();
   double bestProgress = progress;
 
-  for (std::size_t index = 0; index + 1 < path.size(); ++index) {
+  const auto upper = std::upper_bound(cumulativeDistance.begin(),
+                                      cumulativeDistance.end(), progress);
+  const std::size_t activeSegment =
+      upper == cumulativeDistance.begin()
+          ? 0
+          : std::min(static_cast<std::size_t>(upper - cumulativeDistance.begin() - 1),
+                     path.size() - 2);
+  const std::size_t endSegment =
+      std::min(path.size() - 1,
+               activeSegment + config.projectionWindowSegments);
+
+  for (std::size_t index = activeSegment; index < endSegment; ++index) {
     const Pose& start = path[index].pose;
     const Pose& end = path[index + 1].pose;
     const double dx = end.x - start.x;
@@ -161,8 +176,12 @@ PathFollowerOutput PathFollower::step(const Pose& current,
   const PathPoint lookahead =
       sample(std::min(length(), progress + config.lookaheadDistance));
   output.target = lookahead.pose;
-  const double desiredRpm =
+  double desiredRpm =
       local.speed / kJerryIoMaximumSpeed * config.maximumRpm;
+  if (output.remainingDistance <= config.lookaheadDistance &&
+      terminalDistance > config.positionTolerance) {
+    desiredRpm = std::max(desiredRpm, config.terminalRecoveryRpm);
+  }
   const double speed = updateProfiledSpeed(desiredRpm, elapsedSeconds);
   output.profiledSpeedRpm = speed;
 

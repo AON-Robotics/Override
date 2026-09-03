@@ -13,7 +13,9 @@ struct PathFollowerConfig {
   double maximumRpm = 600.0;
   double maximumAcceleration = 1200.0;
   double maximumDeceleration = 1800.0;
+  double terminalRecoveryRpm = 30.0;
   double positionTolerance = 2.0;
+  std::size_t projectionWindowSegments = 8;
   bool forwards = true;
 };
 

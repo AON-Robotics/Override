@@ -125,6 +125,42 @@ void completesInsideTerminalTolerance() {
   CHECK(output.profiledSpeedRpm == 0.0);
 }
 
+void recoversWhenProgressReachesAZeroSpeedEndpoint() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 0}};
+  aon::PathFollowerConfig config = immediateConfig();
+  config.terminalRecoveryRpm = 40.0;
+  aon::PathFollower follower(path, config);
+
+  const auto output = follower.step({2, 10, 0}, 0.02);
+
+  CHECK(output.valid);
+  CHECK(!output.complete);
+  CHECK(near(output.profiledSpeedRpm, 40.0));
+  CHECK(std::abs(output.leftRpm) + std::abs(output.rightRpm) > 0.0);
+}
+
+void doesNotJumpToASeparateLegAtAPathCrossing() {
+  aon::Path path;
+  for (int index = 0; index <= 10; ++index) {
+    path.push_back({{-10.0 + index, -10.0 + index, 0}, 127});
+  }
+  for (int index = 1; index <= 10; ++index) {
+    path.push_back({{static_cast<double>(index),
+                     -static_cast<double>(index), 0},
+                    127});
+  }
+  for (int index = 1; index <= 10; ++index) {
+    path.push_back({{10.0 - index, -10.0 + index, 0}, 127});
+  }
+
+  aon::PathFollowerConfig config = immediateConfig();
+  config.projectionWindowSegments = 4;
+  aon::PathFollower follower(path, config);
+  const auto output = follower.step({-0.1, 0.1, 0}, 0.02);
+
+  CHECK(output.progress < 8.0);
+}
+
 void rejectsUnsafePathsAndConfiguration() {
   aon::PathFollowerConfig config = immediateConfig();
   config.lookaheadDistance = 0.0;
@@ -148,6 +184,8 @@ int main() {
   supportsReverseFollowing();
   normalizesWheelCommandsToConfiguredMaximum();
   completesInsideTerminalTolerance();
+  recoversWhenProgressReachesAZeroSpeedEndpoint();
+  doesNotJumpToASeparateLegAtAPathCrossing();
   rejectsUnsafePathsAndConfiguration();
   std::cout << "AON path follower tests passed\n";
 }

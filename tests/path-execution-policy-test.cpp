@@ -1,6 +1,7 @@
 #include "aon/jerryio/path-following.hpp"
 
 #include <cstdlib>
+#include <cmath>
 #include <iostream>
 
 #define CHECK(condition)                                                     \
@@ -87,6 +88,26 @@ void motionResultReportsSuccessOnlyForCompletion() {
   CHECK(!aon::MotionResult{MotionStatus::TimedOut});
 }
 
+void calculatesSafeFinalHeadingCommands() {
+  const auto turning = aon::calculateHeadingAlignment(350.0, 10.0, 2.0,
+                                                       100.0, 20.0, 1.0);
+  CHECK(turning.valid);
+  CHECK(!turning.complete);
+  CHECK(turning.leftRpm > 0.0);
+  CHECK(turning.rightRpm < 0.0);
+
+  const auto complete = aon::calculateHeadingAlignment(89.5, 90.0, 2.0,
+                                                        100.0, 20.0, 1.0);
+  CHECK(complete.valid);
+  CHECK(complete.complete);
+  CHECK(complete.leftRpm == 0.0);
+  CHECK(complete.rightRpm == 0.0);
+
+  const auto invalid = aon::calculateHeadingAlignment(
+      NAN, 90.0, 2.0, 100.0, 20.0, 1.0);
+  CHECK(!invalid.valid);
+}
+
 }  // namespace
 
 int main() {
@@ -95,5 +116,6 @@ int main() {
   classifiesInvalidRunningCompletedAndTimedOutStates();
   onlySuccessfulMotionMayAlignFinalHeading();
   motionResultReportsSuccessOnlyForCompletion();
+  calculatesSafeFinalHeadingCommands();
   std::cout << "AON path execution policy tests passed\n";
 }

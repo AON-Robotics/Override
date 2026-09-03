@@ -766,6 +766,10 @@ class Drivetrain {
   MotionResult moveToPose(const Pose& target,
                           FollowPathOptions options = {});
 
+  /// @brief Turns to an absolute heading with timeout, disable, and cancellation checks.
+  MotionResult turnToHeadingMonitored(double heading,
+                                      FollowPathOptions options = {});
+
   /// @brief Follows a path using a pure pursuit controller
   /// @param path The path to follow
   /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
@@ -812,6 +816,10 @@ class Drivetrain {
   static double applySpeed(const double& input, const double& percentage){
     return input * MAX_RPM * percentage;
   }
+
+ private:
+  MotionResult alignToHeading(double heading, const FollowPathOptions& options,
+                              std::uint32_t startedAt);
 };
 
 }  // namespace aon
