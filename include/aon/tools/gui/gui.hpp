@@ -31,6 +31,7 @@ namespace aon {
     int SkillsRoutine1();
     int SkillsRoutine2();
     int SkillsRoutine3();
+    int PathJerryIORoutine();
   }
     
   // Add other auton routine declarations as needed
@@ -79,7 +80,7 @@ public:
   bool autonCompleted = false;
   
   // Preselected auton indices (1-3, 0 = none)
-  int selectedRedAut = 0;
+  int selectedRedAut = 1;
   int selectedBlueAut = 0;
   int selectedSkill = 0;
 
@@ -90,7 +91,7 @@ public:
   // 3rd option is for button label keep it to less than 4 characters
   // Auton routines for each alliance
   AutonOption redAutonOptions[autonOptionsCount] = {
-    {"Black Beard", aon::routines::RedRoutine1, "BB"},
+    {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
     {"Jack Sparrow", aon::routines::RedRoutine2, "JS"},
     {"Red AUT3", aon::routines::RedRoutine3, "RA3"},
   };

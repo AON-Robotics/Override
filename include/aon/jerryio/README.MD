@@ -17,7 +17,7 @@ the robot's path-following library.
 - `asset.hpp` declares assets embedded by the AON build rules.
 - `path-follower.hpp` and `path-following.hpp` provide controller and runtime
   APIs.
-- `routines.hpp` exposes the hardware validation routine.
+- `routines.hpp` exposes the team's PATH.JERRYIO autonomous routine.
 - The corresponding implementations live under `src/aon/jerryio/`.
 
 ## Supported data section
@@ -117,13 +117,14 @@ const auto path = aon::PathJerryIO::decode(
     my_auton_first_leg_jerryio_txt.size);
 ```
 
-`aon::jerryio::RunPathJerryIOValidation(drivetrain)` demonstrates the complete
-AON-only workflow using `static/path-jerryio-validation.jerryio.txt`. It resets
-odometry to the path's documented starting pose, follows the speed profile,
-aligns its final heading, and returns `1` only after successful completion. It
-accepts the drivetrain explicitly so the subsystem does not depend on one
-robot's globals. It is intentionally not assigned to a match GUI slot
-automatically; wrap or register it only during controlled physical validation.
+`aon::jerryio::RunPathJerryIOAuton(drivetrain)` runs the team's checked-in
+`static/path-jerryio-auton.jerryio.txt`. It resets odometry to
+`(-66.557, -35.024, 90°)`,
+follows the complete exported speed profile at a first-test RPM ceiling of
+`150`, aligns to `270°`, and returns `1` only after successful completion. The
+GUI exposes it as Red option 1 (`JerryIO Path`) and preselects it at startup.
+It accepts the drivetrain explicitly so the JerryIO module does not depend on
+one robot's globals.
 
 ## Creating an autonomous routine
 
@@ -212,7 +213,7 @@ in path:
 Then compile the complete firmware with the PROS extension or `pros make`.
 The host suite validates parsing, speed preservation, lookahead geometry,
 progress, profiling, reverse travel, normalized motor commands, execution
-status policy, and the checked-in validation asset.
+status policy, and the checked-in autonomous asset.
 
 Before enabling a new routine in the match GUI:
 

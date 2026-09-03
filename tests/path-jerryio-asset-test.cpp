@@ -16,7 +16,7 @@
   } while (false)
 
 int main() {
-  std::ifstream input("static/path-jerryio-validation.jerryio.txt",
+  std::ifstream input("static/path-jerryio-auton.jerryio.txt",
                       std::ios::binary);
   CHECK(input.is_open());
   std::ostringstream bytes;
@@ -24,17 +24,19 @@ int main() {
 
   const auto decoded = aon::PathJerryIO::decode(bytes.str());
   CHECK(decoded);
-  CHECK(decoded.path.size() == 35);
+  CHECK(decoded.path.size() == 78);
   CHECK(std::hypot(decoded.path.front().pose.x + 66.557,
                    decoded.path.front().pose.y + 35.024) < 0.001);
-  CHECK(std::hypot(decoded.path.back().pose.x + 12.547,
-                   decoded.path.back().pose.y + 21.611) < 0.001);
-  CHECK(decoded.path.front().speed == 84.0);
+  CHECK(std::hypot(decoded.path.back().pose.x + 60.298,
+                   decoded.path.back().pose.y + 58.810) < 0.001);
+  CHECK(decoded.path.front().speed == 84.463);
   CHECK(decoded.path.back().speed == 0.0);
 
   for (std::size_t index = 1; index < decoded.path.size(); ++index) {
     CHECK(decoded.path[index - 1].pose.distanceTo(decoded.path[index].pose) <=
           2.1);
+    CHECK(decoded.path[index - 1].pose.distanceTo(decoded.path[index].pose) >
+          0.0);
     CHECK(decoded.path[index].speed >= 0.0);
     CHECK(decoded.path[index].speed <= 127.0);
   }

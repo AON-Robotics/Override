@@ -8,7 +8,7 @@
 
 #include <string>
 
-AON_JERRYIO_ASSET(path_jerryio_validation_jerryio_txt);
+AON_JERRYIO_ASSET(path_jerryio_auton_jerryio_txt);
 
 namespace aon::jerryio {
 namespace {
@@ -35,32 +35,32 @@ const char* motionStatusName(MotionStatus status) {
 
 }  // namespace
 
-int RunPathJerryIOValidation(Drivetrain& drivetrain) {
-  const Pose start{-66.557, -35.024, 132.06};
+int RunPathJerryIOAuton(Drivetrain& drivetrain) {
+  const Pose start{-66.557, -35.024, 90.0};
   const auto decoded = PathJerryIO::decode(
-      reinterpret_cast<const char*>(path_jerryio_validation_jerryio_txt.data),
-      path_jerryio_validation_jerryio_txt.size);
+      reinterpret_cast<const char*>(path_jerryio_auton_jerryio_txt.data),
+      path_jerryio_auton_jerryio_txt.size);
   if (!decoded) {
     drivetrain.stop();
-    logging::Error("PATH.JERRYIO validation asset failed to decode at line " +
+    logging::Error("PATH.JERRYIO autonomous failed to decode at line " +
                    std::to_string(decoded.line));
     return 0;
   }
 
   drivetrain.resetPose(start.x, start.y, start.theta);
   FollowPathOptions options;
-  options.lookaheadDistance = 10.0;
-  options.timeoutMs = 14000;
-  options.maximumRpm = MAX_RPM;
+  options.lookaheadDistance = 8.0;
+  options.timeoutMs = 30000;
+  options.maximumRpm = 150.0;
   options.finalHeading = 270.0;
 
   const MotionResult result = drivetrain.followPath(decoded.path, options);
   if (!result) {
-    logging::Warn(std::string("PATH.JERRYIO validation ") +
+    logging::Warn(std::string("PATH.JERRYIO autonomous ") +
                   motionStatusName(result.status));
     return 0;
   }
-  logging::Debug("PATH.JERRYIO validation completed");
+  logging::Debug("PATH.JERRYIO autonomous completed");
   return 1;
 }
 
