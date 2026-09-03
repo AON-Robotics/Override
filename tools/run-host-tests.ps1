@@ -47,3 +47,8 @@ Invoke-CppTest -Name 'path-follower-test' -Sources @(
     'tests/path-follower-test.cpp',
     'src/aon/jerryio/path-follower.cpp'
 )
+
+Invoke-CppTest -Name 'path-execution-policy-test' -Sources @(
+    'tests/path-execution-policy-test.cpp',
+    'src/aon/jerryio/path-following.cpp'
+)

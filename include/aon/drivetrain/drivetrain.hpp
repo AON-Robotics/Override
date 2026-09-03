@@ -7,6 +7,8 @@
 #include "../controls/s-curve-profile.hpp"
 #include "../math/timer.hpp"
 #include "../controls/pure-pursuit.hpp"
+#include "../jerryio/path-following.hpp"
+#include "../jerryio/path.hpp"
 #include <cfloat>
 
 
@@ -753,6 +755,16 @@ class Drivetrain {
   /// @param pose The target pose
   /// @note Uses coordinate system from GPS in \b meters
   virtual void goToPose(const Pose &pose) = 0;
+
+  /// @brief Follows a speed-aware path with AON odometry and pure pursuit.
+  /// @return A terminal status describing completion or the safe-stop cause.
+  MotionResult followPath(const Path& path,
+                          const FollowPathOptions& options = {});
+
+  /// @brief Moves to a pose through the AON path follower and aligns heading.
+  /// @return A terminal status describing completion or the safe-stop cause.
+  MotionResult moveToPose(const Pose& target,
+                          FollowPathOptions options = {});
 
   /// @brief Follows a path using a pure pursuit controller
   /// @param path The path to follow

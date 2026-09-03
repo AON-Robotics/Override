@@ -45,5 +45,33 @@ Decoding never commands hardware. The drivetrain execution layer is
 responsible for validating options, observing competition-disabled and timeout
 conditions, limiting motor output, and stopping both drive sides on every exit.
 
-The complete export and autonomous-call workflow will be documented here as
-the public follower API is completed.
+## AON motion API
+
+`Drivetrain::followPath()` accepts a decoded `Path` and `FollowPathOptions`.
+The options control lookahead, drivetrain width, RPM ceiling, acceleration,
+deceleration, terminal tolerance, direction, timeout, loop period, optional
+final heading, and an optional cancellation callback. It returns a
+`MotionResult` whose status distinguishes completion, invalid input, timeout,
+competition disable, and cancellation.
+
+```cpp
+const aon::PathDecodeResult decoded = aon::PathJerryIO::decode(data, size);
+if (!decoded) {
+  drivetrain.stop();
+  return;
+}
+
+aon::FollowPathOptions options;
+options.lookaheadDistance = 8.0;
+options.timeoutMs = 5000;
+options.finalHeading = 90.0;
+
+const aon::MotionResult result = drivetrain.followPath(decoded.path, options);
+if (!result) {
+  // The drivetrain has already been stopped safely.
+}
+```
+
+For a single destination, `Drivetrain::moveToPose(target, options)` creates a
+profiled AON path from the current odometry pose and aligns to `target.theta`
+after reaching the target position.

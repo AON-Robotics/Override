@@ -21,6 +21,10 @@
 #include "./controls/trapezoid-profile/trapezoid.hpp"
 #include "./controls/exponential-profile.hpp"
 #include "./odometry/odometry.hpp"
+#include "./jerryio/path.hpp"
+#include "./jerryio/path-jerryio.hpp"
+#include "./jerryio/path-follower.hpp"
+#include "./jerryio/path-following.hpp"
 
 #if !USING_BLACK_ROBOT
 #include "./controls/holonomic-motion.hpp"
