@@ -25,6 +25,7 @@
 #include "./jerryio/path-jerryio.hpp"
 #include "./jerryio/path-follower.hpp"
 #include "./jerryio/path-following.hpp"
+#include "./jerryio/routines.hpp"
 
 #if !USING_BLACK_ROBOT
 #include "./controls/holonomic-motion.hpp"

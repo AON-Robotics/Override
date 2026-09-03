@@ -14,6 +14,10 @@ the robot's path-following library.
 
 - `path.hpp` defines the reusable AON path and speed-aware waypoint model.
 - `path-jerryio.hpp` declares the strict PATH.JERRYIO decoder.
+- `asset.hpp` declares assets embedded by the AON build rules.
+- `path-follower.hpp` and `path-following.hpp` provide controller and runtime
+  APIs.
+- `routines.hpp` exposes the hardware validation routine.
 - The corresponding implementations live under `src/aon/jerryio/`.
 
 ## Supported data section
@@ -75,3 +79,28 @@ if (!result) {
 For a single destination, `Drivetrain::moveToPose(target, options)` creates a
 profiled AON path from the current odometry pose and aligns to `target.theta`
 after reaching the target position.
+
+## Embedded path assets
+
+Save exported files in `static/` with the suffix `.jerryio.txt`. The AON
+Makefile rules convert static files to a linked asset archive, so an SD card is
+not required at competition time. Declare an asset by replacing punctuation in
+its filename with underscores:
+
+```cpp
+#include "aon/jerryio/asset.hpp"
+
+AON_JERRYIO_ASSET(my_auton_first_leg_jerryio_txt);
+
+const auto path = aon::PathJerryIO::decode(
+    reinterpret_cast<const char*>(my_auton_first_leg_jerryio_txt.data),
+    my_auton_first_leg_jerryio_txt.size);
+```
+
+`aon::jerryio::RunPathJerryIOValidation(drivetrain)` demonstrates the complete
+AON-only workflow using `static/path-jerryio-validation.jerryio.txt`. It resets
+odometry to the path's documented starting pose, follows the speed profile,
+aligns its final heading, and returns `1` only after successful completion. It
+accepts the drivetrain explicitly so the subsystem does not depend on one
+robot's globals. It is intentionally not assigned to a match GUI slot
+automatically; wrap or register it only during controlled physical validation.
