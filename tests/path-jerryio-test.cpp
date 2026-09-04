@@ -50,6 +50,23 @@ void acceptsBoundedBuffersWithoutNullTermination() {
   CHECK(result.path.size() == 2);
 }
 
+void removesPathJerryIoGeneratedZeroSpeedTrailer() {
+  const std::string input =
+      "0,0,20\n"
+      "1,0,0\n"
+      "1,0,0\n"
+      "99,99,0\n"
+      "endData\n"
+      "#PATH.JERRYIO-DATA {}\n";
+
+  const auto result = PathJerryIO::decode(input);
+
+  CHECK(result);
+  CHECK(result.path.size() == 2);
+  CHECK(result.path.back().pose.x == 1.0);
+  CHECK(result.path.back().pose.y == 0.0);
+}
+
 void rejectsMalformedRows() {
   const auto result = PathJerryIO::decode("0,0,50\ninvalid\nendData\n");
 
@@ -112,6 +129,7 @@ void rejectsEmptyInput() {
 int main() {
   decodesPointsAndIgnoresEditorMetadata();
   acceptsBoundedBuffersWithoutNullTermination();
+  removesPathJerryIoGeneratedZeroSpeedTrailer();
   rejectsMalformedRows();
   rejectsExtraPointColumns();
   requiresEndData();

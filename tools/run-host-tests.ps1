@@ -55,5 +55,6 @@ Invoke-CppTest -Name 'path-execution-policy-test' -Sources @(
 
 Invoke-CppTest -Name 'path-jerryio-asset-test' -Sources @(
     'tests/path-jerryio-asset-test.cpp',
-    'src/aon/jerryio/path-jerryio.cpp'
+    'src/aon/jerryio/path-jerryio.cpp',
+    'src/aon/jerryio/path-follower.cpp'
 )

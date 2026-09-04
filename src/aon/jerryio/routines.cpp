@@ -8,7 +8,7 @@
 
 #include <string>
 
-AON_JERRYIO_ASSET(path_jerryio_auton_jerryio_txt);
+AON_JERRYIO_ASSET(path_jerryio_txt);
 
 namespace aon::jerryio {
 namespace {
@@ -36,10 +36,10 @@ const char* motionStatusName(MotionStatus status) {
 }  // namespace
 
 int RunPathJerryIOAuton(Drivetrain& drivetrain) {
-  const Pose start{-66.557, -35.024, 90.0};
+  const Pose start{0.0, 0.0, 0.0};
   const auto decoded = PathJerryIO::decode(
-      reinterpret_cast<const char*>(path_jerryio_auton_jerryio_txt.data),
-      path_jerryio_auton_jerryio_txt.size);
+      reinterpret_cast<const char*>(path_jerryio_txt.data),
+      path_jerryio_txt.size);
   if (!decoded) {
     drivetrain.stop();
     logging::Error("PATH.JERRYIO autonomous failed to decode at line " +
@@ -52,7 +52,7 @@ int RunPathJerryIOAuton(Drivetrain& drivetrain) {
   options.lookaheadDistance = 8.0;
   options.timeoutMs = 30000;
   options.maximumRpm = 150.0;
-  options.finalHeading = 270.0;
+  options.finalHeading = 0.0;
 
   const MotionResult result = drivetrain.followPath(decoded.path, options);
   if (!result) {

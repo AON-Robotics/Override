@@ -118,10 +118,9 @@ const auto path = aon::PathJerryIO::decode(
 ```
 
 `aon::jerryio::RunPathJerryIOAuton(drivetrain)` runs the team's checked-in
-`static/path-jerryio-auton.jerryio.txt`. It resets odometry to
-`(-66.557, -35.024, 90°)`,
+`static/path.jerryio.txt`. It resets odometry to `(0, 0, 0°)`,
 follows the complete exported speed profile at a first-test RPM ceiling of
-`150`, aligns to `270°`, and returns `1` only after successful completion. The
+`150`, aligns to `0°`, and returns `1` only after successful completion. The
 GUI exposes it as Red option 1 (`JerryIO Path`) and preselects it at startup.
 It accepts the drivetrain explicitly so the JerryIO module does not depend on
 one robot's globals.

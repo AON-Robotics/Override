@@ -110,6 +110,22 @@ PathDecodeResult PathJerryIO::decode(std::string_view input) {
   if (!foundTerminator) {
     return failure(PathDecodeError::MissingTerminator, lineNumber);
   }
+
+  // PATH.JERRYIO 0.11 may append a duplicated zero-speed endpoint and one
+  // editor-only zero-speed position before endData. The metadata still names
+  // the first of those three points as the real segment endpoint.
+  if (path.size() >= 3) {
+    const PathPoint& endpoint = path[path.size() - 3];
+    const PathPoint& duplicate = path[path.size() - 2];
+    const PathPoint& editorPosition = path.back();
+    const bool sameEndpoint = endpoint.pose.x == duplicate.pose.x &&
+                              endpoint.pose.y == duplicate.pose.y;
+    if (sameEndpoint && endpoint.speed == 0.0 && duplicate.speed == 0.0 &&
+        editorPosition.speed == 0.0) {
+      path.resize(path.size() - 2);
+    }
+  }
+
   if (path.size() < 2) {
     return failure(PathDecodeError::TooFewPoints, lineNumber);
   }
