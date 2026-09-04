@@ -45,6 +45,26 @@ MotionStatus evaluateMotionStatus(const MotionLoopSnapshot& snapshot) {
   return MotionStatus::Running;
 }
 
+const char* motionStatusName(MotionStatus status) {
+  switch (status) {
+    case MotionStatus::Running:
+      return "running";
+    case MotionStatus::Completed:
+      return "completed";
+    case MotionStatus::InvalidPath:
+      return "invalid path";
+    case MotionStatus::InvalidOptions:
+      return "invalid options";
+    case MotionStatus::TimedOut:
+      return "timed out";
+    case MotionStatus::Disabled:
+      return "disabled";
+    case MotionStatus::Cancelled:
+      return "cancelled";
+  }
+  return "unknown";
+}
+
 bool shouldAlignFinalHeading(MotionStatus status,
                              const FollowPathOptions& options) {
   return status == MotionStatus::Completed && options.finalHeading.has_value();

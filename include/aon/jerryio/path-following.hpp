@@ -64,6 +64,7 @@ struct MotionLoopSnapshot {
 };
 
 MotionStatus evaluateMotionStatus(const MotionLoopSnapshot& snapshot);
+const char* motionStatusName(MotionStatus status);
 bool shouldAlignFinalHeading(MotionStatus status,
                              const FollowPathOptions& options);
 HeadingAlignmentOutput calculateHeadingAlignment(

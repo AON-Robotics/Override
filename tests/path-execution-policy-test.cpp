@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <iostream>
+#include <string>
 
 #define CHECK(condition)                                                     \
   do {                                                                       \
@@ -108,6 +109,17 @@ void calculatesSafeFinalHeadingCommands() {
   CHECK(!invalid.valid);
 }
 
+void exposesReadableTerminalStatusNames() {
+  CHECK(std::string(aon::motionStatusName(MotionStatus::Completed)) ==
+        "completed");
+  CHECK(std::string(aon::motionStatusName(MotionStatus::TimedOut)) ==
+        "timed out");
+  CHECK(std::string(aon::motionStatusName(MotionStatus::InvalidPath)) ==
+        "invalid path");
+  CHECK(std::string(aon::motionStatusName(MotionStatus::Disabled)) ==
+        "disabled");
+}
+
 }  // namespace
 
 int main() {
@@ -117,5 +129,6 @@ int main() {
   onlySuccessfulMotionMayAlignFinalHeading();
   motionResultReportsSuccessOnlyForCompletion();
   calculatesSafeFinalHeadingCommands();
+  exposesReadableTerminalStatusNames();
   std::cout << "AON path execution policy tests passed\n";
 }
