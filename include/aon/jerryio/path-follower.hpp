@@ -13,6 +13,10 @@ struct PathFollowerConfig {
   double maximumRpm = 600.0;
   double maximumAcceleration = 1200.0;
   double maximumDeceleration = 1800.0;
+  double driveWheelDiameter = 2.75;
+  double motorToWheelRatio = 0.75;
+  // Inches/s^2. Zero disables the curvature cap until it is characterized.
+  double maximumLateralAcceleration = 0.0;
   double terminalRecoveryRpm = 30.0;
   double positionTolerance = 2.0;
   std::size_t projectionWindowSegments = 8;
@@ -37,12 +41,14 @@ class PathFollower {
 
   bool isValid() const { return valid; }
   double length() const;
+  double plannedSpeedRpm(double distance) const;
   PathFollowerOutput step(const Pose& current, double elapsedSeconds);
 
  private:
   Path path;
   PathFollowerConfig config;
   std::vector<double> cumulativeDistance;
+  std::vector<double> velocityProfileRpm;
   double progress = 0.0;
   double profiledSpeedRpm = 0.0;
   bool valid = false;

@@ -30,6 +30,19 @@ bool finitePositive(double value) {
   return std::isfinite(value) && value > 0.0;
 }
 
+double pointCurvature(const Pose& previous, const Pose& current,
+                      const Pose& next) {
+  const double previousToCurrent = previous.distanceTo(current);
+  const double currentToNext = current.distanceTo(next);
+  const double previousToNext = previous.distanceTo(next);
+  const double cross =
+      std::abs((current.x - previous.x) * (next.y - previous.y) -
+               (current.y - previous.y) * (next.x - previous.x));
+  const double denominator =
+      previousToCurrent * currentToNext * previousToNext;
+  return denominator > 1e-9 ? 2.0 * cross / denominator : 0.0;
+}
+
 }  // namespace
 
 PathFollower::PathFollower(Path path, PathFollowerConfig config)
@@ -40,6 +53,10 @@ PathFollower::PathFollower(Path path, PathFollowerConfig config)
           finitePositive(this->config.maximumRpm) &&
           finitePositive(this->config.maximumAcceleration) &&
           finitePositive(this->config.maximumDeceleration) &&
+          finitePositive(this->config.driveWheelDiameter) &&
+          finitePositive(this->config.motorToWheelRatio) &&
+          std::isfinite(this->config.maximumLateralAcceleration) &&
+          this->config.maximumLateralAcceleration >= 0.0 &&
           std::isfinite(this->config.terminalRecoveryRpm) &&
           this->config.terminalRecoveryRpm >= 0.0 &&
           this->config.terminalRecoveryRpm <= this->config.maximumRpm &&
@@ -59,6 +76,46 @@ PathFollower::PathFollower(Path path, PathFollowerConfig config)
         this->path[index - 1].pose.distanceTo(point.pose);
     if (!finitePositive(segmentLength)) valid = false;
     cumulativeDistance.push_back(cumulativeDistance.back() + segmentLength);
+  }
+
+  if (!valid) return;
+
+  velocityProfileRpm.reserve(this->path.size());
+  for (const PathPoint& point : this->path) {
+    velocityProfileRpm.push_back(
+        point.speed / kJerryIoMaximumSpeed * this->config.maximumRpm);
+  }
+
+  const double inchesPerSecondPerRpm =
+      kPi * this->config.driveWheelDiameter *
+      this->config.motorToWheelRatio / 60.0;
+  if (this->config.maximumLateralAcceleration > 0.0) {
+    for (std::size_t index = 1; index + 1 < this->path.size(); ++index) {
+      const double curvature = pointCurvature(this->path[index - 1].pose,
+                                              this->path[index].pose,
+                                              this->path[index + 1].pose);
+      if (curvature <= 1e-9) continue;
+      const double maximumLinearSpeed = std::sqrt(
+          this->config.maximumLateralAcceleration / curvature);
+      velocityProfileRpm[index] = std::min(
+          velocityProfileRpm[index],
+          maximumLinearSpeed / inchesPerSecondPerRpm);
+    }
+  }
+
+  const double decelerationInchesPerSecondSquared =
+      this->config.maximumDeceleration * inchesPerSecondPerRpm;
+  for (std::size_t index = this->path.size() - 1; index-- > 0;) {
+    const double nextLinearSpeed =
+        velocityProfileRpm[index + 1] * inchesPerSecondPerRpm;
+    const double segmentLength =
+        cumulativeDistance[index + 1] - cumulativeDistance[index];
+    const double maximumLinearSpeed = std::sqrt(
+        nextLinearSpeed * nextLinearSpeed +
+        2.0 * decelerationInchesPerSecondSquared * segmentLength);
+    velocityProfileRpm[index] = std::min(
+        velocityProfileRpm[index],
+        maximumLinearSpeed / inchesPerSecondPerRpm);
   }
 }
 
@@ -86,6 +143,24 @@ PathPoint PathFollower::sample(double distance) const {
            start.pose.y + (end.pose.y - start.pose.y) * ratio,
            start.pose.theta + (end.pose.theta - start.pose.theta) * ratio},
           start.speed + (end.speed - start.speed) * ratio};
+}
+
+double PathFollower::plannedSpeedRpm(double distance) const {
+  if (!valid || velocityProfileRpm.empty()) return 0.0;
+  if (distance <= 0.0) return velocityProfileRpm.front();
+  if (distance >= length()) return velocityProfileRpm.back();
+
+  const auto upper = std::upper_bound(cumulativeDistance.begin(),
+                                      cumulativeDistance.end(), distance);
+  const std::size_t endIndex =
+      static_cast<std::size_t>(upper - cumulativeDistance.begin());
+  const std::size_t startIndex = endIndex - 1;
+  const double ratio =
+      (distance - cumulativeDistance[startIndex]) /
+      (cumulativeDistance[endIndex] - cumulativeDistance[startIndex]);
+  return velocityProfileRpm[startIndex] +
+         (velocityProfileRpm[endIndex] - velocityProfileRpm[startIndex]) *
+             ratio;
 }
 
 double PathFollower::projectProgress(const Pose& current) const {
@@ -172,12 +247,10 @@ PathFollowerOutput PathFollower::step(const Pose& current,
     return output;
   }
 
-  const PathPoint local = sample(progress);
   const PathPoint lookahead =
       sample(std::min(length(), progress + config.lookaheadDistance));
   output.target = lookahead.pose;
-  double desiredRpm =
-      local.speed / kJerryIoMaximumSpeed * config.maximumRpm;
+  double desiredRpm = plannedSpeedRpm(progress);
   if (output.remainingDistance <= config.lookaheadDistance &&
       terminalDistance > config.positionTolerance) {
     desiredRpm = std::max(desiredRpm, config.terminalRecoveryRpm);

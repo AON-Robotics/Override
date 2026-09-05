@@ -28,6 +28,8 @@ aon::PathFollowerConfig immediateConfig() {
   config.maximumRpm = 600.0;
   config.maximumAcceleration = 100000.0;
   config.maximumDeceleration = 100000.0;
+  config.driveWheelDiameter = 4.0;
+  config.motorToWheelRatio = 1.0;
   config.positionTolerance = 0.5;
   return config;
 }
@@ -174,6 +176,51 @@ void rejectsUnsafePathsAndConfiguration() {
   CHECK(!invalidPath.isValid());
 }
 
+void plansBrakingBeforeAStopPoint() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 127},
+                       {{0, 20, 0}, 0}};
+  aon::PathFollowerConfig config = immediateConfig();
+  config.maximumDeceleration = 60.0;
+  aon::PathFollower follower(path, config);
+
+  CHECK(follower.isValid());
+  CHECK(near(follower.plannedSpeedRpm(20.0), 0.0));
+  CHECK(follower.plannedSpeedRpm(10.0) < config.maximumRpm);
+  CHECK(follower.plannedSpeedRpm(0.0) < config.maximumRpm);
+  CHECK(follower.plannedSpeedRpm(0.0) > follower.plannedSpeedRpm(10.0));
+}
+
+void limitsSpeedFromPathCurvature() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 127},
+                       {{10, 10, 0}, 127}};
+  aon::PathFollowerConfig unlimitedConfig = immediateConfig();
+  aon::PathFollower unlimited(path, unlimitedConfig);
+
+  aon::PathFollowerConfig limitedConfig = immediateConfig();
+  limitedConfig.maximumLateralAcceleration = 10.0;
+  aon::PathFollower limited(path, limitedConfig);
+
+  CHECK(near(unlimited.plannedSpeedRpm(10.0), 600.0));
+  CHECK(limited.plannedSpeedRpm(10.0) <
+        unlimited.plannedSpeedRpm(10.0));
+  CHECK(limited.plannedSpeedRpm(10.0) > 0.0);
+}
+
+void rejectsInvalidPhysicalProfileConfiguration() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 0}};
+  aon::PathFollowerConfig config = immediateConfig();
+  config.driveWheelDiameter = 0.0;
+  CHECK(!aon::PathFollower(path, config).isValid());
+
+  config = immediateConfig();
+  config.motorToWheelRatio = 0.0;
+  CHECK(!aon::PathFollower(path, config).isValid());
+
+  config = immediateConfig();
+  config.maximumLateralAcceleration = -1.0;
+  CHECK(!aon::PathFollower(path, config).isValid());
+}
+
 }  // namespace
 
 int main() {
@@ -187,5 +234,8 @@ int main() {
   recoversWhenProgressReachesAZeroSpeedEndpoint();
   doesNotJumpToASeparateLegAtAPathCrossing();
   rejectsUnsafePathsAndConfiguration();
+  plansBrakingBeforeAStopPoint();
+  limitsSpeedFromPathCurvature();
+  rejectsInvalidPhysicalProfileConfiguration();
   std::cout << "AON path follower tests passed\n";
 }
