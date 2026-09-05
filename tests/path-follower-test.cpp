@@ -190,6 +190,20 @@ void plansBrakingBeforeAStopPoint() {
   CHECK(follower.plannedSpeedRpm(0.0) > follower.plannedSpeedRpm(10.0));
 }
 
+void limitsAccelerationAfterAStopPoint() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 0},
+                       {{0, 20, 0}, 127}};
+  aon::PathFollowerConfig config = immediateConfig();
+  config.maximumAcceleration = 60.0;
+  aon::PathFollower follower(path, config);
+
+  CHECK(follower.isValid());
+  CHECK(near(follower.plannedSpeedRpm(10.0), 0.0));
+  // With a 4-inch wheel and 1:1 gearing, 60 RPM/s over 10 inches from
+  // rest reaches 75.693975 RPM by v^2 = u^2 + 2as.
+  CHECK(near(follower.plannedSpeedRpm(20.0), 75.693975));
+}
+
 void limitsSpeedFromPathCurvature() {
   const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 127},
                        {{10, 10, 0}, 127}};
@@ -235,6 +249,7 @@ int main() {
   doesNotJumpToASeparateLegAtAPathCrossing();
   rejectsUnsafePathsAndConfiguration();
   plansBrakingBeforeAStopPoint();
+  limitsAccelerationAfterAStopPoint();
   limitsSpeedFromPathCurvature();
   rejectsInvalidPhysicalProfileConfiguration();
   std::cout << "AON path follower tests passed\n";

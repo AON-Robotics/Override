@@ -103,6 +103,21 @@ PathFollower::PathFollower(Path path, PathFollowerConfig config)
     }
   }
 
+  const double accelerationInchesPerSecondSquared =
+      this->config.maximumAcceleration * inchesPerSecondPerRpm;
+  for (std::size_t index = 1; index < this->path.size(); ++index) {
+    const double previousLinearSpeed =
+        velocityProfileRpm[index - 1] * inchesPerSecondPerRpm;
+    const double segmentLength =
+        cumulativeDistance[index] - cumulativeDistance[index - 1];
+    const double maximumLinearSpeed = std::sqrt(
+        previousLinearSpeed * previousLinearSpeed +
+        2.0 * accelerationInchesPerSecondSquared * segmentLength);
+    velocityProfileRpm[index] = std::min(
+        velocityProfileRpm[index],
+        maximumLinearSpeed / inchesPerSecondPerRpm);
+  }
+
   const double decelerationInchesPerSecondSquared =
       this->config.maximumDeceleration * inchesPerSecondPerRpm;
   for (std::size_t index = this->path.size() - 1; index-- > 0;) {
