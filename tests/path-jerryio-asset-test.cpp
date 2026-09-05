@@ -1,3 +1,4 @@
+#include "aon/jerryio/path-actions.hpp"
 #include "aon/jerryio/path-jerryio.hpp"
 #include "aon/jerryio/path-follower.hpp"
 #include "aon/jerryio/path-transform.hpp"
@@ -32,6 +33,15 @@ int main() {
                    decoded.path.back().pose.y + 59.566) < 0.001);
   CHECK(decoded.path.front().speed == 90.064);
   CHECK(decoded.path.back().speed == 0.0);
+  CHECK(decoded.path[12].speed == 0.0);
+  CHECK(decoded.path[32].speed == 0.0);
+  CHECK(decoded.path[65].speed == 0.0);
+
+  const aon::PathActionPlan actionPlan =
+      aon::buildPathActionPlan(decoded.path);
+  CHECK(actionPlan.valid);
+  CHECK(actionPlan.markerCount == 3);
+  CHECK(actionPlan.legs.size() == 4);
 
   for (std::size_t index = 1; index < decoded.path.size(); ++index) {
     CHECK(decoded.path[index - 1].pose.distanceTo(decoded.path[index].pose) <=
