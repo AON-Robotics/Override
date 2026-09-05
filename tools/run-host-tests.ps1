@@ -68,6 +68,11 @@ Invoke-CppTest -Name 'path-transform-test' -Sources @(
     'src/aon/jerryio/path-transform.cpp'
 )
 
+Invoke-CppTest -Name 'routine-actions-test' -Sources @(
+    'tests/routine-actions-test.cpp',
+    'src/aon/jerryio/routine-actions.cpp'
+)
+
 Invoke-CppTest -Name 'auton-selection-test' -Sources @(
     'tests/auton-selection-test.cpp'
 )
@@ -76,5 +81,6 @@ Invoke-CppTest -Name 'path-jerryio-asset-test' -Sources @(
     'tests/path-jerryio-asset-test.cpp',
     'src/aon/jerryio/path-jerryio.cpp',
     'src/aon/jerryio/path-follower.cpp',
-    'src/aon/jerryio/path-transform.cpp'
+    'src/aon/jerryio/path-transform.cpp',
+    'src/aon/jerryio/path-actions.cpp'
 )

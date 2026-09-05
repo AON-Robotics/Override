@@ -183,10 +183,12 @@ const auto path = aon::PathJerryIO::decode(
     my_auton_first_leg_jerryio_txt.size);
 ```
 
-`aon::jerryio::RunPathJerryIOAuton(drivetrain)` runs the team's checked-in
+`aon::jerryio::RunPathJerryIOAuton(drivetrain, actions)` runs the team's checked-in
 `static/path.jerryio.txt`. It rebases the exported route, resets odometry to
-`(0, 0, 0°)`, and follows the complete speed profile with a `350` RPM ceiling, a
-10-inch lookahead, and a conservative 40 in/s² lateral-acceleration cap. It
+`(0, 0, 0°)`, and follows the complete speed profile with a `500` RPM ceiling,
+a 10-inch base lookahead, and a 60 in/s² lateral-acceleration cap. Adaptive
+lookahead varies from 5 to 14 inches using speed weight 0.6 and curvature
+weight 1.2. It
 aligns with the final path segment and returns `1` only after successful
 completion. The GUI
 exposes the same wrapper as Red 4 and Blue 4 (`JerryIO Path`) and preselects
@@ -202,6 +204,19 @@ and is not a marker. At a marker, `followPathWithActions()` stops the drive,
 runs every matching action in declaration order, waits for each duration,
 always calls its cleanup callback, and then resumes the path. An unbound marker
 still produces an immediate stop and resume.
+
+The checked-in competition routine binds these concrete actions:
+
+| Marker | Exported sample | Action |
+|---|---:|---|
+| 1 | `(-46.040, -13.527)` | Intake forward for 2 seconds, then stop |
+| 2 | `(-39.078, -46.661)` | Intake reverse/outtake for 2 seconds, then stop |
+| 3 | `(-56.063, -23.987)` | Intake forward for 2 seconds, then stop |
+| Final | `(-61.497, -59.566)` | Stop and complete; no extra delay |
+
+The six seconds of mechanism activity count toward the same 30-second overall
+timeout as path motion. The competition wrapper calls `intake.stop()` again
+after the runner returns, including decode and path failures.
 
 ```cpp
 std::vector<aon::PathAction> actions{
@@ -278,7 +293,7 @@ the robot halfway through an autonomous sequence.
 
 ## Tuning guide
 
-- Start with `maximumRpm` between `200` and `350`, then increase it only after
+- Start with `maximumRpm` between `250` and `500`, then increase it only after
   the robot tracks the geometry repeatedly.
 - Increase `lookaheadDistance` for smoother, wider turns. Decrease it for
   tighter tracking, watching for steering oscillation.

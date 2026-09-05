@@ -80,7 +80,8 @@ void reportMotionResult(MotionResult result, std::uint32_t elapsedMs,
 
 }  // namespace
 
-int RunPathJerryIOAuton(Drivetrain& drivetrain) {
+int RunPathJerryIOAuton(Drivetrain& drivetrain,
+                        const std::vector<PathAction>& actions) {
   const auto decoded = PathJerryIO::decode(
       reinterpret_cast<const char*>(path_jerryio_txt.data),
       path_jerryio_txt.size);
@@ -104,15 +105,17 @@ int RunPathJerryIOAuton(Drivetrain& drivetrain) {
   FollowPathOptions options;
   options.lookaheadDistance = 10.0;
   options.timeoutMs = 30000;
-  options.maximumRpm = 350.0;
-  options.maximumLateralAcceleration = 40.0;
+  options.maximumRpm = 500.0;
+  options.maximumLateralAcceleration = 60.0;
+  options.adaptiveLookahead.enabled = true;
+  options.adaptiveLookahead.minimumDistance = 5.0;
+  options.adaptiveLookahead.maximumDistance = 14.0;
+  options.adaptiveLookahead.speedWeight = 0.6;
+  options.adaptiveLookahead.curvatureWeight = 1.2;
   options.finalHeading = relative.finalHeading;
 
   reportStarted(options.timeoutMs);
   const std::uint32_t startedAt = pros::millis();
-  // Bind PathAction callbacks here after adding intentional internal
-  // zero-speed markers to the exported path.
-  const std::vector<PathAction> actions;
   const MotionResult result =
       drivetrain.followPathWithActions(relative.path, actions, options);
   const std::uint32_t elapsedMs = pros::millis() - startedAt;
