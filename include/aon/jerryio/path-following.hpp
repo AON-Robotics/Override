@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../constants.hpp"
+#include "./path-follower.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -44,6 +45,7 @@ struct FollowPathOptions {
   std::uint32_t timeoutMs = 10000;
   std::uint32_t loopPeriodMs = 10;
   bool forwards = true;
+  AdaptiveLookaheadConfig adaptiveLookahead;
   std::optional<double> finalHeading;
   std::function<bool()> cancelRequested;
 

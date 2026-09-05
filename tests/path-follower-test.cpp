@@ -235,6 +235,63 @@ void rejectsInvalidPhysicalProfileConfiguration() {
   CHECK(!aon::PathFollower(path, config).isValid());
 }
 
+void preservesFixedLookaheadWhenAdaptiveModeIsDisabled() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 127},
+                       {{0, 20, 0}, 127}};
+  aon::PathFollowerConfig config = immediateConfig();
+  config.adaptiveLookahead.enabled = false;
+  config.adaptiveLookahead.minimumDistance = 2.0;
+  config.adaptiveLookahead.maximumDistance = 20.0;
+  config.adaptiveLookahead.speedWeight = 3.0;
+  aon::PathFollower follower(path, config);
+
+  const auto output = follower.step({0, 0, 0}, 0.02);
+  CHECK(near(output.effectiveLookaheadDistance, 5.0));
+}
+
+void adaptsLookaheadFromSpeedAndPathCurvature() {
+  aon::PathFollowerConfig config = immediateConfig();
+  config.adaptiveLookahead.enabled = true;
+  config.adaptiveLookahead.minimumDistance = 2.0;
+  config.adaptiveLookahead.maximumDistance = 10.0;
+  config.adaptiveLookahead.speedWeight = 1.0;
+  config.adaptiveLookahead.curvatureWeight = 1.0;
+
+  const aon::Path straight{{{0, 0, 0}, 127}, {{0, 10, 0}, 127},
+                           {{0, 20, 0}, 127}};
+  aon::PathFollower straightFollower(straight, config);
+  const auto straightOutput = straightFollower.step({0, 0, 0}, 0.02);
+  CHECK(near(straightOutput.effectiveLookaheadDistance, 10.0));
+  CHECK(near(straightOutput.pathCurvature, 0.0));
+
+  const aon::Path corner{{{0, 0, 0}, 127}, {{0, 10, 0}, 127},
+                         {{10, 10, 0}, 127}};
+  aon::PathFollower cornerFollower(corner, config);
+  const auto cornerOutput = cornerFollower.step({0, 10, 0}, 0.02);
+  CHECK(cornerOutput.pathCurvature > 0.14);
+  CHECK(cornerOutput.effectiveLookaheadDistance <
+        straightOutput.effectiveLookaheadDistance);
+  CHECK(cornerOutput.effectiveLookaheadDistance >= 2.0);
+}
+
+void rejectsInvalidAdaptiveLookaheadConfiguration() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 0}};
+  aon::PathFollowerConfig config = immediateConfig();
+  config.adaptiveLookahead.enabled = true;
+  config.adaptiveLookahead.minimumDistance = 0.0;
+  config.adaptiveLookahead.maximumDistance = 10.0;
+  CHECK(!aon::PathFollower(path, config).isValid());
+
+  config.adaptiveLookahead.minimumDistance = 8.0;
+  config.adaptiveLookahead.maximumDistance = 4.0;
+  CHECK(!aon::PathFollower(path, config).isValid());
+
+  config.adaptiveLookahead.minimumDistance = 2.0;
+  config.adaptiveLookahead.maximumDistance = 10.0;
+  config.adaptiveLookahead.curvatureWeight = -1.0;
+  CHECK(!aon::PathFollower(path, config).isValid());
+}
+
 }  // namespace
 
 int main() {
@@ -252,5 +309,8 @@ int main() {
   limitsAccelerationAfterAStopPoint();
   limitsSpeedFromPathCurvature();
   rejectsInvalidPhysicalProfileConfiguration();
+  preservesFixedLookaheadWhenAdaptiveModeIsDisabled();
+  adaptsLookaheadFromSpeedAndPathCurvature();
+  rejectsInvalidAdaptiveLookaheadConfiguration();
   std::cout << "AON path follower tests passed\n";
 }

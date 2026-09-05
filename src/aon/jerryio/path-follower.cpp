@@ -63,6 +63,18 @@ PathFollower::PathFollower(Path path, PathFollowerConfig config)
           finitePositive(this->config.positionTolerance) &&
           this->config.projectionWindowSegments > 0;
 
+  const AdaptiveLookaheadConfig& adaptive =
+      this->config.adaptiveLookahead;
+  if (adaptive.enabled &&
+      (!finitePositive(adaptive.minimumDistance) ||
+       !finitePositive(adaptive.maximumDistance) ||
+       adaptive.minimumDistance > adaptive.maximumDistance ||
+       !std::isfinite(adaptive.speedWeight) || adaptive.speedWeight < 0.0 ||
+       !std::isfinite(adaptive.curvatureWeight) ||
+       adaptive.curvatureWeight < 0.0)) {
+    valid = false;
+  }
+
   cumulativeDistance.reserve(this->path.size());
   cumulativeDistance.push_back(0.0);
   for (std::size_t index = 0; index < this->path.size(); ++index) {
@@ -80,6 +92,13 @@ PathFollower::PathFollower(Path path, PathFollowerConfig config)
 
   if (!valid) return;
 
+  curvatureProfile.assign(this->path.size(), 0.0);
+  for (std::size_t index = 1; index + 1 < this->path.size(); ++index) {
+    curvatureProfile[index] = pointCurvature(this->path[index - 1].pose,
+                                             this->path[index].pose,
+                                             this->path[index + 1].pose);
+  }
+
   velocityProfileRpm.reserve(this->path.size());
   for (const PathPoint& point : this->path) {
     velocityProfileRpm.push_back(
@@ -91,9 +110,7 @@ PathFollower::PathFollower(Path path, PathFollowerConfig config)
       this->config.motorToWheelRatio / 60.0;
   if (this->config.maximumLateralAcceleration > 0.0) {
     for (std::size_t index = 1; index + 1 < this->path.size(); ++index) {
-      const double curvature = pointCurvature(this->path[index - 1].pose,
-                                              this->path[index].pose,
-                                              this->path[index + 1].pose);
+      const double curvature = curvatureProfile[index];
       if (curvature <= 1e-9) continue;
       const double maximumLinearSpeed = std::sqrt(
           this->config.maximumLateralAcceleration / curvature);
@@ -162,8 +179,14 @@ PathPoint PathFollower::sample(double distance) const {
 
 double PathFollower::plannedSpeedRpm(double distance) const {
   if (!valid || velocityProfileRpm.empty()) return 0.0;
-  if (distance <= 0.0) return velocityProfileRpm.front();
-  if (distance >= length()) return velocityProfileRpm.back();
+  return sampleProfile(velocityProfileRpm, distance);
+}
+
+double PathFollower::sampleProfile(const std::vector<double>& profile,
+                                   double distance) const {
+  if (profile.empty()) return 0.0;
+  if (distance <= 0.0) return profile.front();
+  if (distance >= length()) return profile.back();
 
   const auto upper = std::upper_bound(cumulativeDistance.begin(),
                                       cumulativeDistance.end(), distance);
@@ -173,9 +196,23 @@ double PathFollower::plannedSpeedRpm(double distance) const {
   const double ratio =
       (distance - cumulativeDistance[startIndex]) /
       (cumulativeDistance[endIndex] - cumulativeDistance[startIndex]);
-  return velocityProfileRpm[startIndex] +
-         (velocityProfileRpm[endIndex] - velocityProfileRpm[startIndex]) *
-             ratio;
+  return profile[startIndex] +
+         (profile[endIndex] - profile[startIndex]) * ratio;
+}
+
+double PathFollower::effectiveLookahead(double distance) const {
+  const AdaptiveLookaheadConfig& adaptive = config.adaptiveLookahead;
+  if (!adaptive.enabled) return config.lookaheadDistance;
+
+  const double speedFraction =
+      clamp(plannedSpeedRpm(distance) / config.maximumRpm, 0.0, 1.0);
+  const double normalizedCurvature =
+      std::abs(sampleProfile(curvatureProfile, distance)) * config.trackWidth;
+  const double distanceFromSpeed =
+      config.lookaheadDistance * (1.0 + adaptive.speedWeight * speedFraction);
+  return clamp(distanceFromSpeed /
+                   (1.0 + adaptive.curvatureWeight * normalizedCurvature),
+               adaptive.minimumDistance, adaptive.maximumDistance);
 }
 
 double PathFollower::projectProgress(const Pose& current) const {
@@ -252,9 +289,11 @@ PathFollowerOutput PathFollower::step(const Pose& current,
   progress = projectProgress(current);
   output.progress = progress;
   output.remainingDistance = std::max(0.0, length() - progress);
+  output.pathCurvature = sampleProfile(curvatureProfile, progress);
+  output.effectiveLookaheadDistance = effectiveLookahead(progress);
   const double terminalDistance = current.distanceTo(path.back().pose);
   if (terminalDistance <= config.positionTolerance &&
-      output.remainingDistance <= config.lookaheadDistance) {
+      output.remainingDistance <= output.effectiveLookaheadDistance) {
     profiledSpeedRpm = 0.0;
     output.target = path.back().pose;
     output.complete = true;
@@ -263,10 +302,11 @@ PathFollowerOutput PathFollower::step(const Pose& current,
   }
 
   const PathPoint lookahead =
-      sample(std::min(length(), progress + config.lookaheadDistance));
+      sample(std::min(length(),
+                      progress + output.effectiveLookaheadDistance));
   output.target = lookahead.pose;
   double desiredRpm = plannedSpeedRpm(progress);
-  if (output.remainingDistance <= config.lookaheadDistance &&
+  if (output.remainingDistance <= output.effectiveLookaheadDistance &&
       terminalDistance > config.positionTolerance) {
     desiredRpm = std::max(desiredRpm, config.terminalRecoveryRpm);
   }

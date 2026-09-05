@@ -30,6 +30,7 @@ MotionResult Drivetrain::followPathFromStart(
   followerConfig.positionTolerance = options.positionTolerance;
   followerConfig.projectionWindowSegments = options.projectionWindowSegments;
   followerConfig.forwards = options.forwards;
+  followerConfig.adaptiveLookahead = options.adaptiveLookahead;
   PathFollower follower(path, followerConfig);
 
   const auto finish = [this](MotionStatus status) {

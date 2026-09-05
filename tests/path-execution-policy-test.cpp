@@ -48,6 +48,22 @@ void validatesEverySafetyCriticalOption() {
   invalid = valid;
   invalid.finalHeading = 400.0;
   CHECK(!invalid.isValid());
+
+  invalid = valid;
+  invalid.adaptiveLookahead.enabled = true;
+  invalid.adaptiveLookahead.minimumDistance = 0.0;
+  CHECK(!invalid.isValid());
+
+  invalid = valid;
+  invalid.adaptiveLookahead.enabled = true;
+  invalid.adaptiveLookahead.minimumDistance = 8.0;
+  invalid.adaptiveLookahead.maximumDistance = 4.0;
+  CHECK(!invalid.isValid());
+
+  invalid = valid;
+  invalid.adaptiveLookahead.enabled = true;
+  invalid.adaptiveLookahead.speedWeight = -1.0;
+  CHECK(!invalid.isValid());
 }
 
 void safetyStopsTakePriorityOverCompletion() {

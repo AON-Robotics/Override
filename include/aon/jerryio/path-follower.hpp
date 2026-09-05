@@ -7,6 +7,14 @@
 
 namespace aon {
 
+struct AdaptiveLookaheadConfig {
+  bool enabled = false;
+  double minimumDistance = 5.0;
+  double maximumDistance = 5.0;
+  double speedWeight = 0.0;
+  double curvatureWeight = 0.0;
+};
+
 struct PathFollowerConfig {
   double lookaheadDistance = 5.0;
   double trackWidth = 12.0;
@@ -21,6 +29,7 @@ struct PathFollowerConfig {
   double positionTolerance = 2.0;
   std::size_t projectionWindowSegments = 8;
   bool forwards = true;
+  AdaptiveLookaheadConfig adaptiveLookahead;
 };
 
 struct PathFollowerOutput {
@@ -29,6 +38,8 @@ struct PathFollowerOutput {
   double profiledSpeedRpm = 0.0;
   double progress = 0.0;
   double remainingDistance = 0.0;
+  double effectiveLookaheadDistance = 0.0;
+  double pathCurvature = 0.0;
   Pose target;
   bool complete = false;
   bool valid = false;
@@ -49,11 +60,15 @@ class PathFollower {
   PathFollowerConfig config;
   std::vector<double> cumulativeDistance;
   std::vector<double> velocityProfileRpm;
+  std::vector<double> curvatureProfile;
   double progress = 0.0;
   double profiledSpeedRpm = 0.0;
   bool valid = false;
 
   PathPoint sample(double distance) const;
+  double sampleProfile(const std::vector<double>& profile,
+                       double distance) const;
+  double effectiveLookahead(double distance) const;
   double projectProgress(const Pose& current) const;
   double updateProfiledSpeed(double desiredRpm, double elapsedSeconds);
 };

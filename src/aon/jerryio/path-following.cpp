@@ -23,6 +23,16 @@ bool FollowPathOptions::isValid() const {
       !finalHeading.has_value() ||
       (std::isfinite(*finalHeading) && *finalHeading >= 0.0 &&
        *finalHeading <= 360.0);
+  const bool validAdaptiveLookahead =
+      !adaptiveLookahead.enabled ||
+      (finitePositive(adaptiveLookahead.minimumDistance) &&
+       finitePositive(adaptiveLookahead.maximumDistance) &&
+       adaptiveLookahead.minimumDistance <=
+           adaptiveLookahead.maximumDistance &&
+       std::isfinite(adaptiveLookahead.speedWeight) &&
+       adaptiveLookahead.speedWeight >= 0.0 &&
+       std::isfinite(adaptiveLookahead.curvatureWeight) &&
+       adaptiveLookahead.curvatureWeight >= 0.0);
   return finitePositive(lookaheadDistance) && finitePositive(trackWidth) &&
          finitePositive(maximumRpm) && finitePositive(maximumAcceleration) &&
          finitePositive(maximumDeceleration) &&
@@ -36,7 +46,7 @@ bool FollowPathOptions::isValid() const {
          finitePositive(headingKp) && finitePositive(headingTolerance) &&
          std::isfinite(minimumTurnRpm) && minimumTurnRpm >= 0.0 &&
          minimumTurnRpm <= maximumRpm && timeoutMs > 0 && loopPeriodMs > 0 &&
-         validHeading;
+         validHeading && validAdaptiveLookahead;
 }
 
 MotionStatus evaluateMotionStatus(const MotionLoopSnapshot& snapshot) {
