@@ -4,6 +4,7 @@
 #include "../../../include/aon/drivetrain/drivetrain.hpp"
 #include "../../../include/aon/jerryio/asset.hpp"
 #include "../../../include/aon/jerryio/path-jerryio.hpp"
+#include "../../../include/aon/jerryio/path-transform.hpp"
 #include "../../../include/aon/tools/logging.hpp"
 #include "pros/misc.h"
 #include "pros/rtos.hpp"
@@ -45,6 +46,18 @@ void reportDecodeFailure(std::size_t line) {
   pros::c::controller_rumble(pros::E_CONTROLLER_MASTER, "---");
 }
 
+void reportRelativePathFailure() {
+  clearStatusScreen();
+  pros::screen::set_pen(pros::Color::red);
+  pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "JERRYIO FAILED");
+  pros::screen::set_pen(pros::Color::white);
+  pros::screen::print(pros::E_TEXT_MEDIUM_CENTER, 3,
+                      "Invalid path direction");
+  pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0,
+                            "JIO bad direction");
+  pros::c::controller_rumble(pros::E_CONTROLLER_MASTER, "---");
+}
+
 void reportMotionResult(MotionResult result, std::uint32_t elapsedMs,
                         Drivetrain& drivetrain) {
   clearStatusScreen();
@@ -68,7 +81,6 @@ void reportMotionResult(MotionResult result, std::uint32_t elapsedMs,
 }  // namespace
 
 int RunPathJerryIOAuton(Drivetrain& drivetrain) {
-  const Pose start{0.0, 0.0, 0.0};
   const auto decoded = PathJerryIO::decode(
       reinterpret_cast<const char*>(path_jerryio_txt.data),
       path_jerryio_txt.size);
@@ -80,13 +92,21 @@ int RunPathJerryIOAuton(Drivetrain& drivetrain) {
     return 0;
   }
 
-  drivetrain.resetPose(start.x, start.y, start.theta);
+  const RelativePath relative = makePathRelative(decoded.path);
+  if (!relative.valid) {
+    drivetrain.stop();
+    reportRelativePathFailure();
+    logging::Error("PATH.JERRYIO autonomous has no usable direction");
+    return 0;
+  }
+
+  drivetrain.resetPose(0.0, 0.0, 0.0);
   FollowPathOptions options;
   options.lookaheadDistance = 10.0;
   options.timeoutMs = 30000;
   options.maximumRpm = 350.0;
   options.maximumLateralAcceleration = 40.0;
-  options.finalHeading = 0.0;
+  options.finalHeading = relative.finalHeading;
 
   reportStarted(options.timeoutMs);
   const std::uint32_t startedAt = pros::millis();
@@ -94,7 +114,7 @@ int RunPathJerryIOAuton(Drivetrain& drivetrain) {
   // zero-speed markers to the exported path.
   const std::vector<PathAction> actions;
   const MotionResult result =
-      drivetrain.followPathWithActions(decoded.path, actions, options);
+      drivetrain.followPathWithActions(relative.path, actions, options);
   const std::uint32_t elapsedMs = pros::millis() - startedAt;
   reportMotionResult(result, elapsedMs, drivetrain);
   if (!result) {

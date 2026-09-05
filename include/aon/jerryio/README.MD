@@ -14,6 +14,8 @@ the robot's path-following library.
 
 - `path.hpp` defines the reusable AON path and speed-aware waypoint model.
 - `path-jerryio.hpp` declares the strict PATH.JERRYIO decoder.
+- `path-transform.hpp` rebases exported field coordinates into a robot-relative
+  route.
 - `asset.hpp` declares assets embedded by the AON build rules.
 - `path-follower.hpp` and `path-following.hpp` provide controller and runtime
   APIs.
@@ -39,10 +41,18 @@ whole; callers never receive a partially decoded path.
 
 ## Coordinate convention
 
-Coordinates are expressed in inches using the same field frame as AON
-odometry. Robot heading is supplied by the autonomous routine rather than the
-sample rows and follows the AON/VEX convention: zero degrees faces field `+Y`,
-with positive angles clockwise.
+Exported coordinates are expressed in inches, but the checked-in routine
+converts them to a robot-relative frame before driving. The first point becomes
+`(0, 0)`, and the first sampled travel direction becomes AON heading `0°`
+(`+Y`). Translation and rotation do not change path length, shape, speed, or
+zero-speed action markers. The final heading is derived from the transformed
+final segment.
+
+This means an exported route may be drawn anywhere in PATH.JERRYIO. On the
+robot, place it at the desired physical starting location and point it in the
+desired initial travel direction; the routine resets odometry to `(0, 0, 0°)`.
+This removes editor-origin dependence, but it does not replace correct tracking
+wheel calibration or compensate automatically for severe wheel slip.
 
 ## PATH.JERRYIO editor configuration
 
@@ -57,9 +67,9 @@ Use these settings when creating an Override path:
   smoother geometric lookahead at the cost of a larger asset.
 - Speed range: `0` through `127`; end every stopping leg at speed `0`.
 
-Keep the path's starting `x`, `y`, and heading beside the autonomous routine.
-PATH.JERRYIO's sample rows do not contain a usable robot heading, so the
-routine must reset AON odometry explicitly before starting.
+The first two sampled points must be distinct because they define the relative
+starting direction. The last two decoded points must also be distinct because
+they define the finishing heading.
 
 ## Safety
 
@@ -123,10 +133,11 @@ const auto path = aon::PathJerryIO::decode(
 ```
 
 `aon::jerryio::RunPathJerryIOAuton(drivetrain)` runs the team's checked-in
-`static/path.jerryio.txt`. It resets odometry to `(0, 0, 0°)`,
-follows the complete exported speed profile with a `350` RPM ceiling, a
+`static/path.jerryio.txt`. It rebases the exported route, resets odometry to
+`(0, 0, 0°)`, and follows the complete speed profile with a `350` RPM ceiling, a
 10-inch lookahead, and a conservative 40 in/s² lateral-acceleration cap. It
-aligns to `0°` and returns `1` only after successful completion. The GUI
+aligns with the final path segment and returns `1` only after successful
+completion. The GUI
 exposes the same wrapper as Red 4 and Blue 4 (`JerryIO Path`) and preselects
 Red 4 at startup.
 It accepts the drivetrain explicitly so the JerryIO module does not depend on
@@ -170,7 +181,8 @@ that does not exist returns `InvalidOptions` before motion starts.
 3. Export the route into `static/` as `<routine-name>.jerryio.txt`.
 4. Declare the file with `AON_JERRYIO_ASSET`, decode it, and stop immediately
    if decoding fails.
-5. Reset AON odometry to the path's documented starting pose.
+5. Convert the decoded route with `makePathRelative()` and reset AON odometry
+   to `(0, 0, 0°)`.
 6. Bind `PathAction` callbacks by marker ordinal and call
    `drivetrain.followPathWithActions()`.
 7. Stop all drivetrain and mechanism outputs when any required phase fails.
