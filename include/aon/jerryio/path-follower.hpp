@@ -40,7 +40,11 @@ struct PathFollowerOutput {
   double remainingDistance = 0.0;
   double effectiveLookaheadDistance = 0.0;
   double pathCurvature = 0.0;
+  double crossTrackErrorInches = 0.0;
+  double plannedSpeedRpm = 0.0;
+  double steeringCurvature = 0.0;
   Pose target;
+  bool saturated = false;
   bool complete = false;
   bool valid = false;
 };
@@ -56,6 +60,11 @@ class PathFollower {
   PathFollowerOutput step(const Pose& current, double elapsedSeconds);
 
  private:
+  struct Projection {
+    double progress = 0.0;
+    double error = 0.0;
+  };
+
   Path path;
   PathFollowerConfig config;
   std::vector<double> cumulativeDistance;
@@ -69,7 +78,7 @@ class PathFollower {
   double sampleProfile(const std::vector<double>& profile,
                        double distance) const;
   double effectiveLookahead(double distance) const;
-  double projectProgress(const Pose& current) const;
+  Projection projectProgress(const Pose& current) const;
   double updateProfiledSpeed(double desiredRpm, double elapsedSeconds);
 };
 

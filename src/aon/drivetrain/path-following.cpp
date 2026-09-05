@@ -5,8 +5,31 @@
 #include "pros/rtos.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace aon {
+namespace {
+
+double normalizeDegrees(double angle) {
+  while (angle > 180.0) angle -= 360.0;
+  while (angle < -180.0) angle += 360.0;
+  return angle;
+}
+
+PathMetrics finishMetrics(const PathMetricsAccumulator& accumulator,
+                          const Path& path,
+                          const FollowPathOptions& options,
+                          const Pose& pose, std::uint32_t elapsedMs) {
+  const double endpointError =
+      path.empty() ? 0.0 : pose.distanceTo(path.back().pose);
+  const double headingError =
+      options.finalHeading.has_value()
+          ? normalizeDegrees(*options.finalHeading - pose.theta)
+          : 0.0;
+  return accumulator.finish(endpointError, headingError, elapsedMs);
+}
+
+}  // namespace
 
 MotionResult Drivetrain::followPath(const Path& path,
                                     const FollowPathOptions& options) {
@@ -33,11 +56,18 @@ MotionResult Drivetrain::followPathFromStart(
   followerConfig.adaptiveLookahead = options.adaptiveLookahead;
   PathFollower follower(path, followerConfig);
 
-  const auto finish = [this](MotionStatus status) {
+  PathMetricsAccumulator metricsAccumulator;
+  std::size_t loopCount = 0;
+  const auto finish = [this, &metricsAccumulator, &path, &options, startedAt](
+                          MotionStatus status, const Pose& pose) {
     this->stop();
-    return MotionResult{status};
+    return MotionResult{
+        status,
+        finishMetrics(metricsAccumulator, path, options, pose,
+                      pros::millis() - startedAt)};
   };
   std::uint64_t lastUpdate = pros::micros();
+  std::uint32_t nextWake = pros::millis();
 
   while (true) {
     const std::uint32_t elapsed = pros::millis() - startedAt;
@@ -51,15 +81,48 @@ MotionResult Drivetrain::followPathFromStart(
     snapshot.timeoutMs = options.timeoutMs;
 
     MotionStatus status = evaluateMotionStatus(snapshot);
-    if (status != MotionStatus::Running) return finish(status);
+    if (status != MotionStatus::Running) {
+      return finish(status, this->odometry->getPose());
+    }
 
     const std::uint64_t now = pros::micros();
+    const std::uint64_t updateIntervalMicros = now - lastUpdate;
     const double elapsedSeconds = std::max(
-        static_cast<double>(now - lastUpdate) / 1000000.0,
+        static_cast<double>(updateIntervalMicros) / 1000000.0,
         static_cast<double>(options.loopPeriodMs) / 1000.0);
     lastUpdate = now;
+    const Pose currentPose = this->odometry->getPose();
     const PathFollowerOutput output =
-        follower.step(this->odometry->getPose(), elapsedSeconds);
+        follower.step(currentPose, elapsedSeconds);
+
+    PathTelemetrySample telemetry;
+    telemetry.elapsedMs = pros::millis() - startedAt;
+    telemetry.currentPose = currentPose;
+    telemetry.targetPose = output.target;
+    telemetry.progressInches = output.progress;
+    telemetry.remainingDistanceInches = output.remainingDistance;
+    telemetry.crossTrackErrorInches = output.crossTrackErrorInches;
+    telemetry.effectiveLookaheadDistanceInches =
+        output.effectiveLookaheadDistance;
+    telemetry.pathCurvature = output.pathCurvature;
+    telemetry.steeringCurvature = output.steeringCurvature;
+    telemetry.plannedSpeedRpm = output.plannedSpeedRpm;
+    telemetry.profiledSpeedRpm = output.profiledSpeedRpm;
+    telemetry.commandedLeftRpm = output.leftRpm;
+    telemetry.commandedRightRpm = output.rightRpm;
+    telemetry.measuredDriveRpm = this->getRPM();
+    telemetry.saturated = output.saturated;
+    telemetry.loopOverrun =
+        updateIntervalMicros >
+        static_cast<std::uint64_t>(options.loopPeriodMs) * 1000;
+    if (output.valid) {
+      metricsAccumulator.add(telemetry);
+      if (options.telemetry &&
+          loopCount % options.telemetryEveryNLoops == 0) {
+        options.telemetry(telemetry);
+      }
+      ++loopCount;
+    }
 
     snapshot.pathValid = output.valid;
     snapshot.complete = output.complete;
@@ -71,13 +134,24 @@ MotionResult Drivetrain::followPathFromStart(
 
     if (status == MotionStatus::Running) {
       this->tank(output.leftRpm, output.rightRpm);
-      pros::delay(options.loopPeriodMs);
+      pros::Task::delay_until(&nextWake, options.loopPeriodMs);
       continue;
     }
 
     this->stop();
-    if (!shouldAlignFinalHeading(status, options)) return {status};
-    return alignToHeading(*options.finalHeading, options, startedAt);
+    MotionResult pathResult = finish(status, currentPose);
+    if (!shouldAlignFinalHeading(status, options)) return pathResult;
+
+    MotionResult alignmentResult =
+        alignToHeading(*options.finalHeading, options, startedAt);
+    const Pose alignedPose = this->odometry->getPose();
+    pathResult.status = alignmentResult.status;
+    pathResult.metrics.endpointErrorInches =
+        alignedPose.distanceTo(path.back().pose);
+    pathResult.metrics.finalHeadingErrorDegrees =
+        normalizeDegrees(*options.finalHeading - alignedPose.theta);
+    pathResult.metrics.elapsedMs = pros::millis() - startedAt;
+    return pathResult;
   }
 }
 
@@ -85,9 +159,10 @@ MotionResult Drivetrain::followPathWithActions(
     const Path& path, const std::vector<PathAction>& actions,
     const FollowPathOptions& options) {
   const PathActionPlan plan = buildPathActionPlan(path);
-  const auto finish = [this](MotionStatus status) {
+  PathMetrics combinedMetrics;
+  const auto finish = [this, &combinedMetrics](MotionStatus status) {
     this->stop();
-    return MotionResult{status};
+    return MotionResult{status, combinedMetrics};
   };
   if (!options.isValid() || !validatePathActions(plan, actions)) {
     return finish(MotionStatus::InvalidOptions);
@@ -99,7 +174,10 @@ MotionResult Drivetrain::followPathWithActions(
     if (legIndex + 1 < plan.legs.size()) legOptions.finalHeading.reset();
     const MotionResult driveResult =
         followPathFromStart(plan.legs[legIndex].path, legOptions, startedAt);
-    if (!driveResult) return driveResult;
+    combinedMetrics = mergePathMetrics(combinedMetrics, driveResult.metrics);
+    if (!driveResult) {
+      return MotionResult{driveResult.status, combinedMetrics};
+    }
 
     const auto marker = plan.legs[legIndex].markerOrdinalAfter;
     if (!marker.has_value()) continue;

@@ -2,6 +2,7 @@
 
 #include "../constants.hpp"
 #include "./path-follower.hpp"
+#include "./path-telemetry.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -22,6 +23,7 @@ enum class MotionStatus {
 
 struct MotionResult {
   MotionStatus status = MotionStatus::InvalidPath;
+  PathMetrics metrics;
 
   explicit operator bool() const { return status == MotionStatus::Completed; }
 };
@@ -46,6 +48,8 @@ struct FollowPathOptions {
   std::uint32_t loopPeriodMs = 10;
   bool forwards = true;
   AdaptiveLookaheadConfig adaptiveLookahead;
+  std::size_t telemetryEveryNLoops = 1;
+  std::function<void(const PathTelemetrySample&)> telemetry;
   std::optional<double> finalHeading;
   std::function<bool()> cancelRequested;
 

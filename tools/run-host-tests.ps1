@@ -58,6 +58,11 @@ Invoke-CppTest -Name 'path-actions-test' -Sources @(
     'src/aon/jerryio/path-actions.cpp'
 )
 
+Invoke-CppTest -Name 'path-telemetry-test' -Sources @(
+    'tests/path-telemetry-test.cpp',
+    'src/aon/jerryio/path-telemetry.cpp'
+)
+
 Invoke-CppTest -Name 'path-transform-test' -Sources @(
     'tests/path-transform-test.cpp',
     'src/aon/jerryio/path-transform.cpp'

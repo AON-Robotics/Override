@@ -64,6 +64,10 @@ void validatesEverySafetyCriticalOption() {
   invalid.adaptiveLookahead.enabled = true;
   invalid.adaptiveLookahead.speedWeight = -1.0;
   CHECK(!invalid.isValid());
+
+  invalid = valid;
+  invalid.telemetryEveryNLoops = 0;
+  CHECK(!invalid.isValid());
 }
 
 void safetyStopsTakePriorityOverCompletion() {

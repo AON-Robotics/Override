@@ -19,6 +19,7 @@ the robot's path-following library.
 - `asset.hpp` declares assets embedded by the AON build rules.
 - `path-follower.hpp` and `path-following.hpp` provide controller and runtime
   APIs.
+- `path-telemetry.hpp` defines per-loop samples and constant-space run metrics.
 - `path-actions.hpp` defines mechanism callbacks bound to zero-speed markers.
 - `routines.hpp` exposes the team's PATH.JERRYIO autonomous routine.
 - The corresponding implementations live under `src/aon/jerryio/`.
@@ -89,7 +90,8 @@ terminal recovery speed, projection search window, terminal tolerance,
 direction, timeout, loop period, monitored final-heading control, and an
 optional cancellation callback. It returns a
 `MotionResult` whose status distinguishes completion, invalid input, timeout,
-competition disable, and cancellation.
+competition disable, and cancellation. The result also contains summary path
+metrics on successful and interrupted runs.
 
 ```cpp
 const aon::PathDecodeResult decoded = aon::PathJerryIO::decode(data, size);
@@ -108,6 +110,55 @@ if (!result) {
   // The drivetrain has already been stopped safely.
 }
 ```
+
+## Adaptive lookahead
+
+Fixed lookahead remains the default. Adaptive mode increases lookahead as the
+planned speed rises and reduces it where path curvature rises:
+
+```text
+speedFraction = clamp(plannedRpm / maximumRpm, 0, 1)
+normalizedCurvature = abs(pathCurvature) * trackWidth
+lookahead = clamp(
+    baseLookahead * (1 + speedWeight * speedFraction)
+        / (1 + curvatureWeight * normalizedCurvature),
+    minimumDistance,
+    maximumDistance)
+```
+
+Enable it explicitly after measuring suitable bounds on the robot:
+
+```cpp
+options.adaptiveLookahead.enabled = true;
+options.adaptiveLookahead.minimumDistance = minimumTestedLookahead;
+options.adaptiveLookahead.maximumDistance = maximumTestedLookahead;
+options.adaptiveLookahead.speedWeight = testedSpeedWeight;
+options.adaptiveLookahead.curvatureWeight = testedCurvatureWeight;
+```
+
+All distances are inches. Both weights are dimensionless and non-negative.
+Invalid bounds or weights reject the motion before the drivetrain moves.
+
+## Path telemetry
+
+Every `MotionResult` includes sample count, RMS and maximum cross-track error,
+endpoint error, final-heading error, saturation count, loop-overrun count, and
+elapsed time. These metrics use constant memory and are available even after a
+timeout, disable, or cancellation.
+
+An optional callback exposes detailed loop samples for logging or a debug UI:
+
+```cpp
+options.telemetryEveryNLoops = 5;
+options.telemetry = [&](const aon::PathTelemetrySample& sample) {
+  telemetryBuffer.push(sample);  // Use a bounded, non-blocking buffer.
+};
+```
+
+The callback runs synchronously inside the motion-control loop. Keep it short,
+avoid blocking I/O, and increase `telemetryEveryNLoops` to reduce logging load.
+Leaving the callback empty disables sample delivery without disabling summary
+metrics.
 
 For a single destination, `Drivetrain::moveToPose(target, options)` creates a
 profiled AON path from the current odometry pose and aligns to `target.theta`
@@ -231,6 +282,8 @@ the robot halfway through an autonomous sequence.
   the robot tracks the geometry repeatedly.
 - Increase `lookaheadDistance` for smoother, wider turns. Decrease it for
   tighter tracking, watching for steering oscillation.
+- Tune adaptive lookahead bounds first, then add speed weight, then curvature
+  weight. Change one value at a time and compare the returned path metrics.
 - Set `trackWidth` to the effective left-to-right drive width used by AON.
 - Keep `maximumAcceleration` at or below the measured no-slip limit.
 - Keep `maximumDeceleration` low enough to avoid tipping or wheel slip.
@@ -265,8 +318,9 @@ in path:
 
 Then compile the complete firmware with the PROS extension or `pros make`.
 The host suite validates parsing, speed preservation, lookahead geometry,
-progress, profiling, reverse travel, normalized motor commands, execution
-status policy, and the checked-in autonomous asset.
+adaptive lookahead, progress, profiling, reverse travel, normalized motor
+commands, telemetry metrics, execution status policy, and the checked-in
+autonomous asset.
 
 Before enabling a new routine in the match GUI:
 

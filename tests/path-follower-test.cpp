@@ -292,6 +292,19 @@ void rejectsInvalidAdaptiveLookaheadConfiguration() {
   CHECK(!aon::PathFollower(path, config).isValid());
 }
 
+void reportsControlTelemetryFromEachStep() {
+  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 127},
+                       {{0, 20, 0}, 127}};
+  aon::PathFollower follower(path, immediateConfig());
+
+  const auto output = follower.step({3, 0, 0}, 0.02);
+  CHECK(output.valid);
+  CHECK(near(output.crossTrackErrorInches, 3.0));
+  CHECK(near(output.plannedSpeedRpm, 600.0));
+  CHECK(output.steeringCurvature < 0.0);
+  CHECK(output.saturated);
+}
+
 }  // namespace
 
 int main() {
@@ -312,5 +325,6 @@ int main() {
   preservesFixedLookaheadWhenAdaptiveModeIsDisabled();
   adaptsLookaheadFromSpeedAndPathCurvature();
   rejectsInvalidAdaptiveLookaheadConfiguration();
+  reportsControlTelemetryFromEachStep();
   std::cout << "AON path follower tests passed\n";
 }

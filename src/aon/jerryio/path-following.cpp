@@ -46,7 +46,7 @@ bool FollowPathOptions::isValid() const {
          finitePositive(headingKp) && finitePositive(headingTolerance) &&
          std::isfinite(minimumTurnRpm) && minimumTurnRpm >= 0.0 &&
          minimumTurnRpm <= maximumRpm && timeoutMs > 0 && loopPeriodMs > 0 &&
-         validHeading && validAdaptiveLookahead;
+         telemetryEveryNLoops > 0 && validHeading && validAdaptiveLookahead;
 }
 
 MotionStatus evaluateMotionStatus(const MotionLoopSnapshot& snapshot) {

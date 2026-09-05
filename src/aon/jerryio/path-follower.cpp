@@ -215,7 +215,8 @@ double PathFollower::effectiveLookahead(double distance) const {
                adaptive.minimumDistance, adaptive.maximumDistance);
 }
 
-double PathFollower::projectProgress(const Pose& current) const {
+PathFollower::Projection PathFollower::projectProgress(
+    const Pose& current) const {
   double bestDistanceSquared = std::numeric_limits<double>::infinity();
   double bestProgress = progress;
 
@@ -262,7 +263,10 @@ double PathFollower::projectProgress(const Pose& current) const {
     }
   }
 
-  return std::max(progress, bestProgress);
+  Projection projection;
+  projection.progress = std::max(progress, bestProgress);
+  projection.error = std::sqrt(bestDistanceSquared);
+  return projection;
 }
 
 double PathFollower::updateProfiledSpeed(double desiredRpm,
@@ -286,11 +290,14 @@ PathFollowerOutput PathFollower::step(const Pose& current,
     return output;
   }
 
-  progress = projectProgress(current);
+  const Projection projection = projectProgress(current);
+  progress = projection.progress;
   output.progress = progress;
   output.remainingDistance = std::max(0.0, length() - progress);
+  output.crossTrackErrorInches = projection.error;
   output.pathCurvature = sampleProfile(curvatureProfile, progress);
   output.effectiveLookaheadDistance = effectiveLookahead(progress);
+  output.plannedSpeedRpm = plannedSpeedRpm(progress);
   const double terminalDistance = current.distanceTo(path.back().pose);
   if (terminalDistance <= config.positionTolerance &&
       output.remainingDistance <= output.effectiveLookaheadDistance) {
@@ -305,7 +312,7 @@ PathFollowerOutput PathFollower::step(const Pose& current,
       sample(std::min(length(),
                       progress + output.effectiveLookaheadDistance));
   output.target = lookahead.pose;
-  double desiredRpm = plannedSpeedRpm(progress);
+  double desiredRpm = output.plannedSpeedRpm;
   if (output.remainingDistance <= output.effectiveLookaheadDistance &&
       terminalDistance > config.positionTolerance) {
     desiredRpm = std::max(desiredRpm, config.terminalRecoveryRpm);
@@ -322,12 +329,14 @@ PathFollowerOutput PathFollower::step(const Pose& current,
   const double targetDistance = std::max(std::hypot(dx, dy), 1e-6);
   const double curvature =
       2.0 * std::sin(headingError * kPi / 180.0) / targetDistance;
+  output.steeringCurvature = curvature;
   const double signedSpeed = config.forwards ? speed : -speed;
   double left = signedSpeed * (1.0 + curvature * config.trackWidth / 2.0);
   double right = signedSpeed * (1.0 - curvature * config.trackWidth / 2.0);
 
   const double largestMagnitude = std::max(std::abs(left), std::abs(right));
   if (largestMagnitude > speed && largestMagnitude > 0.0) {
+    output.saturated = true;
     const double scale = speed / largestMagnitude;
     left *= scale;
     right *= scale;
