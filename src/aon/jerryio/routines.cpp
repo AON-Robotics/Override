@@ -10,6 +10,7 @@
 #include "pros/screen.hpp"
 
 #include <string>
+#include <vector>
 
 AON_JERRYIO_ASSET(path_jerryio_txt);
 
@@ -81,14 +82,19 @@ int RunPathJerryIOAuton(Drivetrain& drivetrain) {
 
   drivetrain.resetPose(start.x, start.y, start.theta);
   FollowPathOptions options;
-  options.lookaheadDistance = 8.0;
+  options.lookaheadDistance = 10.0;
   options.timeoutMs = 30000;
-  options.maximumRpm = 150.0;
+  options.maximumRpm = 350.0;
+  options.maximumLateralAcceleration = 40.0;
   options.finalHeading = 0.0;
 
   reportStarted(options.timeoutMs);
   const std::uint32_t startedAt = pros::millis();
-  const MotionResult result = drivetrain.followPath(decoded.path, options);
+  // Bind PathAction callbacks here after adding intentional internal
+  // zero-speed markers to the exported path.
+  const std::vector<PathAction> actions;
+  const MotionResult result =
+      drivetrain.followPathWithActions(decoded.path, actions, options);
   const std::uint32_t elapsedMs = pros::millis() - startedAt;
   reportMotionResult(result, elapsedMs, drivetrain);
   if (!result) {

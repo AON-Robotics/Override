@@ -37,6 +37,15 @@ void validatesEverySafetyCriticalOption() {
   invalid.maximumRpm = -1;
   CHECK(!invalid.isValid());
   invalid = valid;
+  invalid.driveWheelDiameter = 0;
+  CHECK(!invalid.isValid());
+  invalid = valid;
+  invalid.motorToWheelRatio = 0;
+  CHECK(!invalid.isValid());
+  invalid = valid;
+  invalid.maximumLateralAcceleration = -1;
+  CHECK(!invalid.isValid());
+  invalid = valid;
   invalid.finalHeading = 400.0;
   CHECK(!invalid.isValid());
 }

@@ -17,6 +17,7 @@ the robot's path-following library.
 - `asset.hpp` declares assets embedded by the AON build rules.
 - `path-follower.hpp` and `path-following.hpp` provide controller and runtime
   APIs.
+- `path-actions.hpp` defines mechanism callbacks bound to zero-speed markers.
 - `routines.hpp` exposes the team's PATH.JERRYIO autonomous routine.
 - The corresponding implementations live under `src/aon/jerryio/`.
 
@@ -65,14 +66,18 @@ routine must reset AON odometry explicitly before starting.
 Decoding never commands hardware. The drivetrain execution layer is
 responsible for validating options, observing competition-disabled and timeout
 conditions, limiting motor output, and stopping both drive sides on every exit.
+The follower plans speed over the whole path before motion begins: exported
+speed remains the upper bound, while curvature and available braking distance
+can lower that bound. This avoids entering a corner or stop point too fast.
 
 ## AON motion API
 
 `Drivetrain::followPath()` accepts a decoded `Path` and `FollowPathOptions`.
-The options control lookahead, drivetrain width, RPM ceiling, acceleration,
-deceleration, terminal recovery speed, projection search window, terminal
-tolerance, direction, timeout, loop period, monitored final-heading control,
-and an optional cancellation callback. It returns a
+The options control lookahead, drivetrain width, wheel diameter, motor-to-wheel
+ratio, RPM ceiling, acceleration, deceleration, lateral acceleration,
+terminal recovery speed, projection search window, terminal tolerance,
+direction, timeout, loop period, monitored final-heading control, and an
+optional cancellation callback. It returns a
 `MotionResult` whose status distinguishes completion, invalid input, timeout,
 competition disable, and cancellation.
 
@@ -119,24 +124,55 @@ const auto path = aon::PathJerryIO::decode(
 
 `aon::jerryio::RunPathJerryIOAuton(drivetrain)` runs the team's checked-in
 `static/path.jerryio.txt`. It resets odometry to `(0, 0, 0°)`,
-follows the complete exported speed profile at a first-test RPM ceiling of
-`150`, aligns to `0°`, and returns `1` only after successful completion. The
-GUI exposes it as Red option 1 (`JerryIO Path`) and preselects it at startup.
+follows the complete exported speed profile with a `350` RPM ceiling, a
+10-inch lookahead, and a conservative 40 in/s² lateral-acceleration cap. It
+aligns to `0°` and returns `1` only after successful completion. The GUI
+exposes the same wrapper as Red 4 and Blue 4 (`JerryIO Path`) and preselects
+Red 4 at startup.
 It accepts the drivetrain explicitly so the JerryIO module does not depend on
 one robot's globals.
+
+## Zero-speed action markers
+
+An internal point with speed `0` is a numbered stop marker. Markers are
+one-based in path order; the final zero-speed point is only the route endpoint
+and is not a marker. At a marker, `followPathWithActions()` stops the drive,
+runs every matching action in declaration order, waits for each duration,
+always calls its cleanup callback, and then resumes the path. An unbound marker
+still produces an immediate stop and resume.
+
+```cpp
+std::vector<aon::PathAction> actions{
+    {1, 750,
+     [&] { intake.activateScan(); },
+     [&] { intake.stopScan(); }},
+    {2, 0,
+     [&] { intake.dropCart(); },
+     {}},
+};
+
+const aon::MotionResult result =
+    drivetrain.followPathWithActions(decoded.path, actions, options);
+```
+
+Use duration `0` for an instantaneous piston/state change. The one overall
+`FollowPathOptions::timeoutMs` covers both driving and action waits. Disable,
+cancellation, or timeout stops the drivetrain, invokes cleanup for the active
+action, and returns a readable failure status. An action referencing a marker
+that does not exist returns `InvalidOptions` before motion starts.
 
 ## Creating an autonomous routine
 
 1. Create and simulate the route in PATH.JERRYIO with the settings above.
-2. Split the route into separate files wherever an intake, piston, scoring, or
-   other mechanism action must run between movements.
-3. Export each leg into `static/` as
-   `<routine-name>-<leg-name>.jerryio.txt`.
-4. Declare each file with `AON_JERRYIO_ASSET`, decode it, and stop immediately
+2. Put an internal speed-`0` point wherever the robot must pause for an intake,
+   piston, scoring, or other mechanism action. Keep the final point at speed
+   `0` when the route should settle at its endpoint.
+3. Export the route into `static/` as `<routine-name>.jerryio.txt`.
+4. Declare the file with `AON_JERRYIO_ASSET`, decode it, and stop immediately
    if decoding fails.
-5. Reset AON odometry to the first leg's documented starting pose.
-6. Follow each leg with `drivetrain.followPath()` and check its `MotionResult`
-   before starting the next movement or mechanism action.
+5. Reset AON odometry to the path's documented starting pose.
+6. Bind `PathAction` callbacks by marker ordinal and call
+   `drivetrain.followPathWithActions()`.
 7. Stop all drivetrain and mechanism outputs when any required phase fails.
 
 An autonomous wrapper can keep the same convenient shape as the former
@@ -162,28 +198,34 @@ int RedLeftPathAuton() {
   options.positionTolerance = 1.5;
   options.finalHeading = 270.0;
 
-  if (!drivetrain.followPath(decoded.path, options)) return 0;
-
-  intake.move();
-  pros::delay(500);
-  intake.stop();
-  return 1;
+  std::vector<aon::PathAction> actions{
+      {1, 500,
+       [&] { intake.activateScan(); },
+       [&] { intake.stopScan(); }},
+  };
+  return drivetrain.followPathWithActions(decoded.path, actions, options)
+             ? 1
+             : 0;
 }
 ```
 
-For multiple legs, decode every required asset before commanding the first
-movement. This prevents a malformed later file from leaving the robot halfway
-through an autonomous sequence.
+Separate files remain useful for unrelated routes. Decode every required asset
+before commanding the first movement so a malformed later file cannot leave
+the robot halfway through an autonomous sequence.
 
 ## Tuning guide
 
-- Start with `maximumRpm` between `100` and `200`, then increase it only after
+- Start with `maximumRpm` between `200` and `350`, then increase it only after
   the robot tracks the geometry repeatedly.
 - Increase `lookaheadDistance` for smoother, wider turns. Decrease it for
   tighter tracking, watching for steering oscillation.
 - Set `trackWidth` to the effective left-to-right drive width used by AON.
 - Keep `maximumAcceleration` at or below the measured no-slip limit.
 - Keep `maximumDeceleration` low enough to avoid tipping or wheel slip.
+- Set `driveWheelDiameter` and `motorToWheelRatio` to the real drivetrain;
+  braking distances are wrong when either value is wrong.
+- Start `maximumLateralAcceleration` around `40` in/s². Lower it if corners
+  slide or oscillate; raise it gradually if curved sections are needlessly slow.
 - Use `positionTolerance` around 1.5 to 2 inches for initial tests.
 - Keep `terminalRecoveryRpm` just high enough to correct residual endpoint
   error after an exported zero-speed sample; set it to `0` only after proving

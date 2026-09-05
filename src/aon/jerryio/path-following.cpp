@@ -26,6 +26,10 @@ bool FollowPathOptions::isValid() const {
   return finitePositive(lookaheadDistance) && finitePositive(trackWidth) &&
          finitePositive(maximumRpm) && finitePositive(maximumAcceleration) &&
          finitePositive(maximumDeceleration) &&
+         finitePositive(driveWheelDiameter) &&
+         finitePositive(motorToWheelRatio) &&
+         std::isfinite(maximumLateralAcceleration) &&
+         maximumLateralAcceleration >= 0.0 &&
          std::isfinite(terminalRecoveryRpm) && terminalRecoveryRpm >= 0.0 &&
          terminalRecoveryRpm <= maximumRpm &&
          finitePositive(positionTolerance) && projectionWindowSegments > 0 &&

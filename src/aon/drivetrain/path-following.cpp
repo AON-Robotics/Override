@@ -22,6 +22,10 @@ MotionResult Drivetrain::followPathFromStart(
   followerConfig.maximumRpm = options.maximumRpm;
   followerConfig.maximumAcceleration = options.maximumAcceleration;
   followerConfig.maximumDeceleration = options.maximumDeceleration;
+  followerConfig.driveWheelDiameter = options.driveWheelDiameter;
+  followerConfig.motorToWheelRatio = options.motorToWheelRatio;
+  followerConfig.maximumLateralAcceleration =
+      options.maximumLateralAcceleration;
   followerConfig.terminalRecoveryRpm = options.terminalRecoveryRpm;
   followerConfig.positionTolerance = options.positionTolerance;
   followerConfig.projectionWindowSegments = options.projectionWindowSegments;

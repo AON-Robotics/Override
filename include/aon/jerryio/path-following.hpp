@@ -31,6 +31,10 @@ struct FollowPathOptions {
   double maximumRpm = MAX_RPM;
   double maximumAcceleration = MAX_ACCEL;
   double maximumDeceleration = MAX_DECEL;
+  double driveWheelDiameter = DRIVE_WHEEL_DIAMETER;
+  double motorToWheelRatio = MOTOR_TO_DRIVE_RATIO;
+  // Inches/s^2. Zero disables curvature-based speed limiting.
+  double maximumLateralAcceleration = 0.0;
   double terminalRecoveryRpm = 30.0;
   double positionTolerance = 2.0;
   std::size_t projectionWindowSegments = 8;
