@@ -10,6 +10,12 @@ namespace aon {
 
 MotionResult Drivetrain::followPath(const Path& path,
                                     const FollowPathOptions& options) {
+  return followPathFromStart(path, options, pros::millis());
+}
+
+MotionResult Drivetrain::followPathFromStart(
+    const Path& path, const FollowPathOptions& options,
+    std::uint32_t startedAt) {
   PathFollowerConfig followerConfig;
   followerConfig.lookaheadDistance = options.lookaheadDistance;
   followerConfig.trackWidth = options.trackWidth;
@@ -26,7 +32,6 @@ MotionResult Drivetrain::followPath(const Path& path,
     this->stop();
     return MotionResult{status};
   };
-  const std::uint32_t startedAt = pros::millis();
   std::uint64_t lastUpdate = pros::micros();
 
   while (true) {
@@ -69,6 +74,71 @@ MotionResult Drivetrain::followPath(const Path& path,
     if (!shouldAlignFinalHeading(status, options)) return {status};
     return alignToHeading(*options.finalHeading, options, startedAt);
   }
+}
+
+MotionResult Drivetrain::followPathWithActions(
+    const Path& path, const std::vector<PathAction>& actions,
+    const FollowPathOptions& options) {
+  const PathActionPlan plan = buildPathActionPlan(path);
+  const auto finish = [this](MotionStatus status) {
+    this->stop();
+    return MotionResult{status};
+  };
+  if (!options.isValid() || !validatePathActions(plan, actions)) {
+    return finish(MotionStatus::InvalidOptions);
+  }
+
+  const std::uint32_t startedAt = pros::millis();
+  for (std::size_t legIndex = 0; legIndex < plan.legs.size(); ++legIndex) {
+    FollowPathOptions legOptions = options;
+    if (legIndex + 1 < plan.legs.size()) legOptions.finalHeading.reset();
+    const MotionResult driveResult =
+        followPathFromStart(plan.legs[legIndex].path, legOptions, startedAt);
+    if (!driveResult) return driveResult;
+
+    const auto marker = plan.legs[legIndex].markerOrdinalAfter;
+    if (!marker.has_value()) continue;
+    for (const PathAction& action : actions) {
+      if (action.markerOrdinal != *marker) continue;
+
+      MotionLoopSnapshot beforeAction;
+      beforeAction.pathValid = true;
+      beforeAction.optionsValid = true;
+      beforeAction.disabled = pros::competition::is_disabled();
+      beforeAction.cancelled =
+          options.cancelRequested && options.cancelRequested();
+      beforeAction.elapsedMs = pros::millis() - startedAt;
+      beforeAction.timeoutMs = options.timeoutMs;
+      const MotionStatus beforeStatus = evaluateMotionStatus(beforeAction);
+      if (beforeStatus != MotionStatus::Running) return finish(beforeStatus);
+
+      this->stop();
+      if (action.start) action.start();
+      const std::uint32_t actionStartedAt = pros::millis();
+      while (true) {
+        MotionLoopSnapshot snapshot;
+        snapshot.pathValid = true;
+        snapshot.optionsValid = true;
+        snapshot.complete =
+            pros::millis() - actionStartedAt >= action.durationMs;
+        snapshot.disabled = pros::competition::is_disabled();
+        snapshot.cancelled =
+            options.cancelRequested && options.cancelRequested();
+        snapshot.elapsedMs = pros::millis() - startedAt;
+        snapshot.timeoutMs = options.timeoutMs;
+        const MotionStatus status = evaluateMotionStatus(snapshot);
+        if (status == MotionStatus::Running) {
+          pros::delay(options.loopPeriodMs);
+          continue;
+        }
+
+        if (action.cleanup) action.cleanup();
+        if (status != MotionStatus::Completed) return finish(status);
+        break;
+      }
+    }
+  }
+  return finish(MotionStatus::Completed);
 }
 
 MotionResult Drivetrain::moveToPose(const Pose& target,

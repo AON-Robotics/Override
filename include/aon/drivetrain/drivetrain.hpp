@@ -8,6 +8,7 @@
 #include "../math/timer.hpp"
 #include "../controls/pure-pursuit.hpp"
 #include "../jerryio/path-following.hpp"
+#include "../jerryio/path-actions.hpp"
 #include "../jerryio/path.hpp"
 #include <cfloat>
 
@@ -761,6 +762,12 @@ class Drivetrain {
   MotionResult followPath(const Path& path,
                           const FollowPathOptions& options = {});
 
+  /// @brief Follows a path and runs callbacks at internal zero-speed markers.
+  /// @return A terminal status describing completion or the safe-stop cause.
+  MotionResult followPathWithActions(
+      const Path& path, const std::vector<PathAction>& actions,
+      const FollowPathOptions& options = {});
+
   /// @brief Moves to a pose through the AON path follower and aligns heading.
   /// @return A terminal status describing completion or the safe-stop cause.
   MotionResult moveToPose(const Pose& target,
@@ -818,6 +825,9 @@ class Drivetrain {
   }
 
  private:
+  MotionResult followPathFromStart(const Path& path,
+                                   const FollowPathOptions& options,
+                                   std::uint32_t startedAt);
   MotionResult alignToHeading(double heading, const FollowPathOptions& options,
                               std::uint32_t startedAt);
 };

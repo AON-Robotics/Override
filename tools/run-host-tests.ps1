@@ -53,6 +53,11 @@ Invoke-CppTest -Name 'path-execution-policy-test' -Sources @(
     'src/aon/jerryio/path-following.cpp'
 )
 
+Invoke-CppTest -Name 'path-actions-test' -Sources @(
+    'tests/path-actions-test.cpp',
+    'src/aon/jerryio/path-actions.cpp'
+)
+
 Invoke-CppTest -Name 'path-jerryio-asset-test' -Sources @(
     'tests/path-jerryio-asset-test.cpp',
     'src/aon/jerryio/path-jerryio.cpp',
