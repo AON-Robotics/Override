@@ -83,7 +83,7 @@ public:
   bool autonCompleted = false;
   
   // Preselected auton indices (1-4 alliance, 1-3 skills, 0 = none)
-  int selectedRedAut = 4;
+  int selectedRedAut = 3;
   int selectedBlueAut = 0;
   int selectedSkill = 0;
 

@@ -8,7 +8,7 @@ Code related to the driver controlled portion of the match and the autonomous ro
 ## JerryIO comparison test
 
 Select **Red 3 or Blue 3: Basic U-turn (BAS)**. Red/Blue 4 still runs
-JerryIO; Red 4 remains the startup selection. Both BAS alliance selections
+JerryIO; Red 3 (BAS) is the startup selection. Both BAS alliance selections
 run the same right-hand routine, without mirroring or intake actions.
 
 BAS uses timed AON tank RPM commands, without reading the path file, pose,
