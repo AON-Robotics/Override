@@ -13,7 +13,7 @@ void report(const char* stage) {
   pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "BASIC U-TURN");
   pros::screen::print(pros::E_TEXT_MEDIUM_CENTER, 3, "%s", stage);
-  pros::screen::print(pros::E_TEXT_MEDIUM_CENTER, 5, "Timed drive - B stops");
+  pros::screen::print(pros::E_TEXT_MEDIUM_CENTER, 5, "AON move / arc / move");
   pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "BAS: %-13s", stage);
 }
 
@@ -23,35 +23,44 @@ bool shouldStop() {
                                           pros::E_CONTROLLER_DIGITAL_B);
 }
 
-}  // namespace
-
-int runBasicUTurn(Drivetrain& drivetrain) {
-  bool aborted = false;
-  for (const auto& leg : basicUTurnPlan()) {
-    report(leg.name);
-    const auto started = pros::millis();
-    while (pros::millis() - started < leg.durationMs) {
-      if (shouldStop()) {
-        aborted = true;
-        break;
-      }
-      drivetrain.tank(leg.leftRpm, leg.rightRpm);
-      pros::delay(10);
-    }
-    if (aborted) break;
-  }
+bool settle(Drivetrain& drivetrain) {
+  bool stopped = false;
   // SmartMotorGroup applies slew to zero as well; keep requesting zero so
   // the last nonzero command cannot remain active after this routine returns.
   const auto stopping = pros::millis();
   do {
     drivetrain.stop();
+    stopped = shouldStop() || stopped;
     pros::delay(10);
   } while (pros::millis() - stopping < 300);
-  report(aborted ? "Stopped" : "Timing finished");
-  // Pose is observation only: it never determines the motor commands above.
+  return !stopped;
+}
+
+bool runSequence(Drivetrain& drivetrain) {
+  if (shouldStop()) return false;
+  report("Forward");
+  drivetrain.move(33);                  // Drive out along the first lane.
+  if (!settle(drivetrain)) return false;
+
+  report("Right U-turn");
+  drivetrain.driveAngleOfArc(8.5, 180);  // Semicircle: 17-inch lane spacing.
+  if (!settle(drivetrain)) return false;
+
+  report("Return");
+  drivetrain.move(33);                  // Drive forward along the return lane.
+  return settle(drivetrain);
+}
+
+}  // namespace
+
+int runBasicUTurn(Drivetrain& drivetrain) {
+  const bool finished = runSequence(drivetrain);
+  drivetrain.stop();
+  // Legacy move/arc methods return void, including when their timeout expires.
+  report(finished ? "Sequence ended" : "Stopped");
   pros::screen::print(pros::E_TEXT_SMALL, 30, 190, "Odom: %.1f, %.1f, %.1f",
                       drivetrain.getX(), drivetrain.getY(), drivetrain.getTheta());
-  return aborted ? 0 : 1;
+  return finished ? 1 : 0;
 }
 
 }  // namespace aon
