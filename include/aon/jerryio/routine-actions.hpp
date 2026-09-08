@@ -7,7 +7,7 @@
 
 namespace aon::jerryio {
 
-/// Builds the three mechanism actions required by the checked-in route while
+/// Builds an optional three-marker intake/outtake/intake action sequence while
 /// keeping robot-specific intake hardware outside the JerryIO module.
 std::vector<PathAction> makePathJerryIOActions(
     std::function<void()> intake, std::function<void()> outtake,

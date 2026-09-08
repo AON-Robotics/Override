@@ -26,22 +26,22 @@ int main() {
 
   const auto decoded = aon::PathJerryIO::decode(bytes.str());
   CHECK(decoded);
-  CHECK(decoded.path.size() == 87);
-  CHECK(std::hypot(decoded.path.front().pose.x + 66.325,
-                   decoded.path.front().pose.y + 0.706) < 0.001);
-  CHECK(std::hypot(decoded.path.back().pose.x + 61.497,
-                   decoded.path.back().pose.y + 59.566) < 0.001);
-  CHECK(decoded.path.front().speed == 90.064);
+  CHECK(decoded.path.size() == 48);
+  CHECK(std::hypot(decoded.path.front().pose.x + 66.739,
+                   decoded.path.front().pose.y + 0.674) < 0.001);
+  CHECK(std::hypot(decoded.path.back().pose.x + 66.429,
+                   decoded.path.back().pose.y + 17.710) < 0.001);
+  CHECK(decoded.path.front().speed == 100.0);
   CHECK(decoded.path.back().speed == 0.0);
-  CHECK(decoded.path[12].speed == 0.0);
-  CHECK(decoded.path[32].speed == 0.0);
-  CHECK(decoded.path[65].speed == 0.0);
+  for (std::size_t index = 0; index + 1 < decoded.path.size(); ++index) {
+    CHECK(decoded.path[index].speed > 0.0);
+  }
 
   const aon::PathActionPlan actionPlan =
       aon::buildPathActionPlan(decoded.path);
   CHECK(actionPlan.valid);
-  CHECK(actionPlan.markerCount == 3);
-  CHECK(actionPlan.legs.size() == 4);
+  CHECK(actionPlan.markerCount == 0);
+  CHECK(actionPlan.legs.size() == 1);
 
   for (std::size_t index = 1; index < decoded.path.size(); ++index) {
     CHECK(decoded.path[index - 1].pose.distanceTo(decoded.path[index].pose) <=

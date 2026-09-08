@@ -205,18 +205,15 @@ runs every matching action in declaration order, waits for each duration,
 always calls its cleanup callback, and then resumes the path. An unbound marker
 still produces an immediate stop and resume.
 
-The checked-in competition routine binds these concrete actions:
+The current checked-in competition path contains no internal zero-speed
+markers. Red 4 and Blue 4 therefore follow it as one continuous motion-only
+leg, stop at `(-66.429, -17.710)`, and do not run the intake or outtake. The
+competition wrapper calls `intake.stop()` after the runner returns, including
+decode and path failures.
 
-| Marker | Exported sample | Action |
-|---|---:|---|
-| 1 | `(-46.040, -13.527)` | Intake forward for 2 seconds, then stop |
-| 2 | `(-39.078, -46.661)` | Intake reverse/outtake for 2 seconds, then stop |
-| 3 | `(-56.063, -23.987)` | Intake forward for 2 seconds, then stop |
-| Final | `(-61.497, -59.566)` | Stop and complete; no extra delay |
-
-The six seconds of mechanism activity count toward the same 30-second overall
-timeout as path motion. The competition wrapper calls `intake.stop()` again
-after the runner returns, including decode and path failures.
+To add mechanism work to a future export, put an internal zero-speed sample at
+each desired stop and pass one `PathAction` for each marker. Action durations
+count toward the same 30-second overall timeout as path motion.
 
 ```cpp
 std::vector<aon::PathAction> actions{
