@@ -26,7 +26,7 @@ RelativePath makePathRelative(const Path& path) {
     return result;
   }
 
-  const double initialHeading = std::atan2(initialDx, initialDy);
+  const double initialHeading = std::atan2(initialDy, initialDx);
   const double cosine = std::cos(initialHeading);
   const double sine = std::sin(initialHeading);
   result.path.reserve(path.size());
@@ -34,8 +34,8 @@ RelativePath makePathRelative(const Path& path) {
     const double translatedX = point.pose.x - path.front().pose.x;
     const double translatedY = point.pose.y - path.front().pose.y;
     PathPoint relative = point;
-    relative.pose.x = translatedX * cosine - translatedY * sine;
-    relative.pose.y = translatedX * sine + translatedY * cosine;
+    relative.pose.x = translatedX * cosine + translatedY * sine;
+    relative.pose.y = -translatedX * sine + translatedY * cosine;
     result.path.push_back(relative);
   }
   result.path.front().pose.x = 0.0;
@@ -48,7 +48,7 @@ RelativePath makePathRelative(const Path& path) {
   if (std::hypot(finalDx, finalDy) <= 1e-9) return {};
 
   result.finalHeading = normalizeHeading(
-      std::atan2(finalDx, finalDy) * 180.0 / kPi);
+      std::atan2(finalDy, finalDx) * 180.0 / kPi);
   result.valid = true;
   return result;
 }

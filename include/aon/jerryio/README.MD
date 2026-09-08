@@ -45,7 +45,7 @@ whole; callers never receive a partially decoded path.
 Exported coordinates are expressed in inches, but the checked-in routine
 converts them to a robot-relative frame before driving. The first point becomes
 `(0, 0)`, and the first sampled travel direction becomes AON heading `0°`
-(`+Y`). Translation and rotation do not change path length, shape, speed, or
+(`+X`). Translation and rotation do not change path length, shape, speed, or
 zero-speed action markers. The final heading is derived from the transformed
 final segment.
 

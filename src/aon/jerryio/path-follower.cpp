@@ -322,7 +322,7 @@ PathFollowerOutput PathFollower::step(const Pose& current,
 
   const double dx = lookahead.pose.x - current.x;
   const double dy = lookahead.pose.y - current.y;
-  double desiredHeading = std::atan2(dx, dy) * 180.0 / kPi;
+  double desiredHeading = std::atan2(dy, dx) * 180.0 / kPi;
   if (!config.forwards) desiredHeading += 180.0;
   const double headingError =
       normalizeDegrees(desiredHeading - current.theta);

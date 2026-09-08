@@ -35,15 +35,15 @@ aon::PathFollowerConfig immediateConfig() {
 }
 
 void followsStraightPathsAtExportedSpeed() {
-  const aon::Path path{{{0, 0, 0}, 63.5}, {{0, 10, 0}, 63.5}};
+  const aon::Path path{{{0, 0, 0}, 63.5}, {{10, 0, 0}, 63.5}};
   aon::PathFollower follower(path, immediateConfig());
 
   const auto output = follower.step({0, 0, 0}, 0.02);
 
   CHECK(output.valid);
   CHECK(!output.complete);
-  CHECK(near(output.target.x, 0.0));
-  CHECK(near(output.target.y, 5.0));
+  CHECK(near(output.target.x, 5.0));
+  CHECK(near(output.target.y, 0.0));
   CHECK(near(output.leftRpm, 300.0));
   CHECK(near(output.rightRpm, 300.0));
   CHECK(near(output.remainingDistance, 10.0));
@@ -91,7 +91,7 @@ void limitsAccelerationAndDeceleration() {
 }
 
 void supportsReverseFollowing() {
-  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 127}};
+  const aon::Path path{{{0, 0, 0}, 127}, {{10, 0, 0}, 127}};
   aon::PathFollowerConfig config = immediateConfig();
   config.forwards = false;
   aon::PathFollower follower(path, config);
@@ -293,11 +293,11 @@ void rejectsInvalidAdaptiveLookaheadConfiguration() {
 }
 
 void reportsControlTelemetryFromEachStep() {
-  const aon::Path path{{{0, 0, 0}, 127}, {{0, 10, 0}, 127},
-                       {{0, 20, 0}, 127}};
+  const aon::Path path{{{0, 0, 0}, 127}, {{10, 0, 0}, 127},
+                       {{20, 0, 0}, 127}};
   aon::PathFollower follower(path, immediateConfig());
 
-  const auto output = follower.step({3, 0, 0}, 0.02);
+  const auto output = follower.step({0, 3, 0}, 0.02);
   CHECK(output.valid);
   CHECK(near(output.crossTrackErrorInches, 3.0));
   CHECK(near(output.plannedSpeedRpm, 600.0));

@@ -11,7 +11,7 @@ struct RelativePath {
 };
 
 /// Moves a path's first point to the origin and rotates its initial direction
-/// to AON heading zero (+Y). Distances, speeds, and stop markers are preserved.
+/// to AON heading zero (+X). Distances, speeds, and stop markers are preserved.
 RelativePath makePathRelative(const Path& path);
 
 }  // namespace aon

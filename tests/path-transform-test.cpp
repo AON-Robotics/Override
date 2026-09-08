@@ -31,15 +31,15 @@ void rebasesAndRotatesWithoutChangingTheRoute() {
   CHECK(relative.path.size() == absolute.size());
   CHECK(near(relative.path[0].pose.x, 0.0));
   CHECK(near(relative.path[0].pose.y, 0.0));
-  CHECK(near(relative.path[1].pose.x, 0.0));
-  CHECK(near(relative.path[1].pose.y, 10.0));
+  CHECK(near(relative.path[1].pose.x, 10.0));
+  CHECK(near(relative.path[1].pose.y, 0.0));
   CHECK(near(relative.path[2].pose.x, 10.0));
-  CHECK(near(relative.path[2].pose.y, 10.0));
+  CHECK(near(relative.path[2].pose.y, -10.0));
   CHECK(relative.path[1].speed == 0.0);
   CHECK(relative.path[2].speed == 80.0);
   CHECK(near(relative.path[0].pose.distanceTo(relative.path[1].pose), 10.0));
   CHECK(near(relative.path[1].pose.distanceTo(relative.path[2].pose), 10.0));
-  CHECK(near(relative.finalHeading, 90.0));
+  CHECK(near(relative.finalHeading, 270.0));
 }
 
 void rejectsAPathWithoutAnInitialDirection() {
