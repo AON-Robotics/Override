@@ -4,9 +4,10 @@ namespace aon {
 
 Odometry::Odometry(short left, short right, short back, short gps, short gyro)
     : conversionFactor(M_PI * TRACKING_WHEEL_DIAMETER / DEGREES_PER_REVOLUTION),
-      encoderLeft(abs(left)),
-      encoderRight(abs(right)),
-      encoderBack(abs(back)),
+      // PROS uses a negative smart port to reverse a rotation sensor.
+      encoderLeft(left),
+      encoderRight(right),
+      encoderBack(back),
       gps(gps, GPS_INITIAL_X, GPS_INITIAL_Y, GPS_INITIAL_HEADING, GPS_X_OFFSET,
           GPS_Y_OFFSET)
 #if GYRO_ENABLED
