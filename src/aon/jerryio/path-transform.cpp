@@ -35,7 +35,9 @@ RelativePath makePathRelative(const Path& path) {
     const double translatedY = point.pose.y - path.front().pose.y;
     PathPoint relative = point;
     relative.pose.x = translatedX * cosine + translatedY * sine;
-    relative.pose.y = -translatedX * sine + translatedY * cosine;
+    // Exported field Y uses the opposite handedness to AON: AON's
+    // clockwise-positive IMU heading makes local +Y point right at theta=0.
+    relative.pose.y = translatedX * sine - translatedY * cosine;
     result.path.push_back(relative);
   }
   result.path.front().pose.x = 0.0;

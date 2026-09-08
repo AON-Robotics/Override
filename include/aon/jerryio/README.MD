@@ -45,15 +45,27 @@ whole; callers never receive a partially decoded path.
 Exported coordinates are expressed in inches, but the checked-in routine
 converts them to a robot-relative frame before driving. The first point becomes
 `(0, 0)`, and the first sampled travel direction becomes AON heading `0°`
-(`+X`). Translation and rotation do not change path length, shape, speed, or
-zero-speed action markers. The final heading is derived from the transformed
-final segment.
+(`+X`). AON uses clockwise-positive headings, so relative `+Y` is to the
+robot's right at heading zero. The conversion also flips the export's lateral
+axis to preserve physical left/right turns. Length, speed, and zero-speed
+action markers are preserved. The final heading is derived from the transformed
+final segment (about 182 degrees clockwise for the checked-in right U-turn).
 
 This means an exported route may be drawn anywhere in PATH.JERRYIO. On the
 robot, place it at the desired physical starting location and point it in the
 desired initial travel direction; the routine resets odometry to `(0, 0, 0°)`.
 This removes editor-origin dependence, but it does not replace correct tracking
 wheel calibration or compensate automatically for severe wheel slip.
+
+The host regression suite checks the exported right-turn motor direction and
+runs the complete checked-in route through the production odometry and follower
+with simulated tracking wheels, IMU, and motor slew. Odometry tests cover both
+directions across the 180-degree heading boundary and arc integration from the
+starting orientation. These tests catch software geometry errors; they do not
+validate real sensor signs, mounting, traction, or task scheduling on the robot.
+Run `tools/run-host-tests.ps1` for all tests, or pass `-Test odometry-test` for
+the odometry/route simulation alone. After uploading, select Red/Blue 4 (JIO)
+to test JerryIO; Red 3 (BAS) remains the startup selection.
 
 ## PATH.JERRYIO editor configuration
 

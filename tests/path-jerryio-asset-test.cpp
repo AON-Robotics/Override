@@ -67,5 +67,16 @@ int main() {
   CHECK(firstCommand.valid);
   CHECK(firstCommand.leftRpm + firstCommand.rightRpm > 0.0);
 
+  // This export bends physically right. AON tank() turns clockwise when
+  // the left wheels are faster; test the decoder -> transform -> follower seam.
+  auto approachingBend = followerTemplate;
+  const auto bendCommand = approachingBend.step({24.0, 0.0, 0.0}, 0.02);
+  std::cout << "Right bend command: left=" << bendCommand.leftRpm
+            << " right=" << bendCommand.rightRpm << '\n';
+  CHECK(bendCommand.valid);
+  CHECK(bendCommand.leftRpm > bendCommand.rightRpm);
+  CHECK(relative.path.back().pose.y > 16.0);
+  CHECK(relative.path.back().pose.y < 18.0);
+
   std::cout << "PATH.JERRYIO embedded asset tests passed\n";
 }
