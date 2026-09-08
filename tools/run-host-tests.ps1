@@ -77,6 +77,10 @@ Invoke-CppTest -Name 'auton-selection-test' -Sources @(
     'tests/auton-selection-test.cpp'
 )
 
+Invoke-CppTest -Name 'basic-uturn-test' -Sources @(
+    'tests/basic-uturn-test.cpp'
+)
+
 Invoke-CppTest -Name 'path-jerryio-asset-test' -Sources @(
     'tests/path-jerryio-asset-test.cpp',
     'src/aon/jerryio/path-jerryio.cpp',

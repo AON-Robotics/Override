@@ -33,6 +33,7 @@ namespace aon {
     int SkillsRoutine2();
     int SkillsRoutine3();
     int PathJerryIORoutine();
+    int BasicUTurnRoutine();
   }
     
   // Add other auton routine declarations as needed
@@ -95,14 +96,14 @@ public:
   AutonOption redAutonOptions[allianceAutonOptionsCount] = {
     {"Black Beard", aon::routines::RedRoutine1, "BB"},
     {"Jack Sparrow", aon::routines::RedRoutine2, "JS"},
-    {"Red AUT3", aon::routines::RedRoutine3, "RA3"},
+    {"Basic U-turn", aon::routines::BasicUTurnRoutine, "BAS"},
     {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
   };
   
   AutonOption blueAutonOptions[allianceAutonOptionsCount] = {
     {"Black Beard", aon::routines::BlueRoutine1, "BB"},
     {"Jack Sparrow", aon::routines::BlueRoutine2, "JS"},
-    {"Blue AUT3", aon::routines::BlueRoutine3, "BA3"},
+    {"Basic U-turn", aon::routines::BasicUTurnRoutine, "BAS"},
     {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
   };
   
