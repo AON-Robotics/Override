@@ -1,3 +1,5 @@
+param([string[]] $Test = @())
+
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
@@ -15,6 +17,8 @@ function Invoke-CppTest {
         [Parameter(Mandatory)] [string] $Name,
         [Parameter(Mandatory)] [string[]] $Sources
     )
+
+    if ($Test.Count -gt 0 -and $Name -notin $Test) { return }
 
     $executable = Join-Path $buildDirectory "$Name.exe"
     $quotedSources = $Sources | ForEach-Object {
@@ -79,6 +83,13 @@ Invoke-CppTest -Name 'auton-selection-test' -Sources @(
 
 Invoke-CppTest -Name 'basic-uturn-test' -Sources @(
     'tests/basic-uturn-test.cpp'
+)
+
+Invoke-CppTest -Name 'odometry-test' -Sources @(
+    'tests/odometry-test.cpp',
+    'src/aon/jerryio/path-jerryio.cpp',
+    'src/aon/jerryio/path-transform.cpp',
+    'src/aon/jerryio/path-follower.cpp'
 )
 
 Invoke-CppTest -Name 'path-jerryio-asset-test' -Sources @(
