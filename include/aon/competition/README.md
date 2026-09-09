@@ -7,8 +7,9 @@ Code related to the driver controlled portion of the match and the autonomous ro
 
 ## Working autonomous baseline
 
-Select **Red 3 or Blue 3: Basic U-turn (BAS)**. Red 3 is the startup selection.
-The previous JIO option 4 and its integration have been removed. Both BAS selections
+Select **Red 3 or Blue 3: Basic U-turn (BAS)** for the normal autonomous.
+**Red 4: AON Static Path (PTH)** is preselected for the static-file test.
+Blue 4 runs the same static route. Both BAS selections
 run the same right-hand routine, without mirroring or intake actions.
 
 BAS uses the ordinary AON autonomous commands:
@@ -32,6 +33,6 @@ The existing move/arc calls are blocking; B/disable is checked between commands
 and during the settling pauses, not inside those calls. Sequence ended means
 the calls returned; those legacy commands do not report whether they timed out.
 
-The original static export is preserved as source data, but this firmware does
-not load or run it. See [AON static-path requirements](./static-path-requirements.md)
-for the findings and the smallest proposed integration with the existing AON follower.
+The static export is converted during the build and executed through the existing
+AON follower. See [AON static-path integration](./static-path-requirements.md)
+for the speed policy, test procedure, and limitations.
