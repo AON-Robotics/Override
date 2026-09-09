@@ -13,6 +13,8 @@
   } while (false)
 
 int main() {
+  CHECK(aon::clampAutonIndex(4, 4) == 4);
+  CHECK(aon::clampAutonIndex(5, 4) == 4);
   CHECK(aon::clampAutonIndex(3, 3) == 3);
   CHECK(aon::clampAutonIndex(4, 3) == 3);
   CHECK(aon::clampAutonIndex(5, 3) == 3);

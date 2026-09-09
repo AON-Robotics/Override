@@ -33,6 +33,7 @@ namespace aon {
     int SkillsRoutine2();
     int SkillsRoutine3();
     int BasicUTurnRoutine();
+    int StaticPathRoutine();
   }
     
   // Add other auton routine declarations as needed
@@ -66,7 +67,7 @@ struct AutonOption {
 };
 
 // Constants
-static constexpr int allianceAutonOptionsCount = 3;
+static constexpr int allianceAutonOptionsCount = 4;
 static constexpr int skillsAutonOptionsCount = 3;
 
 // Base Gui class - handles core GUI functionality without debug features
@@ -81,8 +82,8 @@ public:
   bool autonRunning = false;
   bool autonCompleted = false;
   
-  // Preselected auton indices (1-3 alliance/skills, 0 = none)
-  int selectedRedAut = 3;
+  // Preselected auton indices (1-4 alliance, 1-3 skills, 0 = none)
+  int selectedRedAut = 4;
   int selectedBlueAut = 0;
   int selectedSkill = 0;
 
@@ -96,12 +97,14 @@ public:
     {"Black Beard", aon::routines::RedRoutine1, "BB"},
     {"Jack Sparrow", aon::routines::RedRoutine2, "JS"},
     {"Basic U-turn", aon::routines::BasicUTurnRoutine, "BAS"},
+    {"AON Static Path", aon::routines::StaticPathRoutine, "PTH"},
   };
   
   AutonOption blueAutonOptions[allianceAutonOptionsCount] = {
     {"Black Beard", aon::routines::BlueRoutine1, "BB"},
     {"Jack Sparrow", aon::routines::BlueRoutine2, "JS"},
     {"Basic U-turn", aon::routines::BasicUTurnRoutine, "BAS"},
+    {"AON Static Path", aon::routines::StaticPathRoutine, "PTH"},
   };
   
   AutonOption skillsAutonOptions[skillsAutonOptionsCount] = {

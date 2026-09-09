@@ -1,4 +1,6 @@
 #pragma once
+#ifndef AON_DRIVETRAIN_HPP_
+#define AON_DRIVETRAIN_HPP_
 
 #include "pros/motors.hpp"
 #include "../odometry/odometry.hpp"
@@ -77,7 +79,7 @@ class Drivetrain {
   /// @brief Starts the underlying odometry thread
   void initialize() { this->odometry->initialize(); }
   
-  Pose getPose() { return this->pose; }
+  Pose getPose() { return this->odometry->getPose(); }
   void setPose(Pose p) { this->pose = p; }
 
   double getX() { 
@@ -757,41 +759,14 @@ class Drivetrain {
   /// @brief Follows a path using a pure pursuit controller
   /// @param path The path to follow
   /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
+  enum class FollowResult { Completed, InvalidPath, InvalidOptions, TimedOut, Disabled, Cancelled };
+
+  // Existing one-argument callers and derived-drive overrides stay compatible.
   virtual void follow(const std::vector<Pose>& path) {
-    PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
-
-    std::pair<double, double> output = {-1, -1};
-
-    double dt = 0.02;
-    double now = pros::micros() / 1E6;
-    double lastTime = now;
-
-    // Generous timeout
-    const uint32_t timeoutMs = (math::length(path)) * 1E3;
-    Timer timer;
-    timer.start(timeoutMs);
-
-    while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted()) {
-      now = pros::micros() / 1E6;
-      dt = now - lastTime;
-      output = controller.follow(path, this->odometry->getPose(), dt);
-      lastTime = now;
-      this->tank(output.first, output.second);
-
-      pros::lcd::print(0, "Current: Pose(%.2f, %.2f, %.2f)", odometry->getX(), odometry->getY(), odometry->getDegrees());
-      pros::lcd::print(1, "Target: Pose(%.2f, %.2f, %.2f)", path.back().x, path.back().y, path.back().theta);
-      pros::lcd::print(2, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
-      pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
-
-      if (output.first == 0 && output.second == 0) { break; }
-
-      pros::delay(10);
-    }
-
-    this->turnToHeading(path.back().theta);
-
-    this->stop();
+    (void)follow(path, 30000, MAX_RPM);
   }
+  FollowResult follow(const std::vector<Pose>& path, std::uint32_t timeoutMs,
+                      double maximumRpm);
 
   /// @brief Scales a joystick input to drivetrain motor intensity according to a percentage
   /// @param input The joystick input to be scaled
@@ -804,3 +779,5 @@ class Drivetrain {
 };
 
 }  // namespace aon
+
+#endif  // AON_DRIVETRAIN_HPP_

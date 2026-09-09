@@ -12,6 +12,15 @@ if (-not (Test-Path -LiteralPath $vcVars)) {
 
 New-Item -ItemType Directory -Force -Path $buildDirectory | Out-Null
 
+if ($Test.Count -eq 0 -or 'static-path-generator-test' -in $Test) {
+    & python (Join-Path $repositoryRoot 'tests/static-path-generator-test.py')
+    if ($LASTEXITCODE -ne 0) { throw 'Static path converter tests failed' }
+}
+& python (Join-Path $repositoryRoot 'tools/generate-static-path.py') `
+    (Join-Path $repositoryRoot 'static/path.jerryio.txt') `
+    (Join-Path $repositoryRoot 'include/aon/generated/static-path.hpp')
+if ($LASTEXITCODE -ne 0) { throw 'Static path generation failed' }
+
 function Invoke-CppTest {
     param(
         [Parameter(Mandatory)] [string] $Name,
@@ -48,4 +57,12 @@ Invoke-CppTest -Name 'auton-selection-test' -Sources @(
 
 Invoke-CppTest -Name 'odometry-test' -Sources @(
     'tests/odometry-test.cpp'
+)
+
+Invoke-CppTest -Name 'native-follower-test' -Sources @(
+    'tests/native-follower-test.cpp'
+)
+
+Invoke-CppTest -Name 'follow-runtime-test' -Sources @(
+    'tests/follow-runtime-test.cpp'
 )
