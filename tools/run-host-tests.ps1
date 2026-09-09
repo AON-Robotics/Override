@@ -3,7 +3,7 @@ param([string[]] $Test = @())
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-$buildDirectory = Join-Path $env:TEMP 'override-pathjerry-host-tests'
+$buildDirectory = Join-Path $env:TEMP 'override-aon-host-tests'
 $vcVars = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\VC\Auxiliary\Build\vcvars64.bat'
 
 if (-not (Test-Path -LiteralPath $vcVars)) {
@@ -42,56 +42,10 @@ function Invoke-CppTest {
     }
 }
 
-Invoke-CppTest -Name 'path-jerryio-test' -Sources @(
-    'tests/path-jerryio-test.cpp',
-    'src/aon/jerryio/path-jerryio.cpp'
-)
-
-Invoke-CppTest -Name 'path-follower-test' -Sources @(
-    'tests/path-follower-test.cpp',
-    'src/aon/jerryio/path-follower.cpp'
-)
-
-Invoke-CppTest -Name 'path-execution-policy-test' -Sources @(
-    'tests/path-execution-policy-test.cpp',
-    'src/aon/jerryio/path-following.cpp'
-)
-
-Invoke-CppTest -Name 'path-actions-test' -Sources @(
-    'tests/path-actions-test.cpp',
-    'src/aon/jerryio/path-actions.cpp'
-)
-
-Invoke-CppTest -Name 'path-telemetry-test' -Sources @(
-    'tests/path-telemetry-test.cpp',
-    'src/aon/jerryio/path-telemetry.cpp'
-)
-
-Invoke-CppTest -Name 'path-transform-test' -Sources @(
-    'tests/path-transform-test.cpp',
-    'src/aon/jerryio/path-transform.cpp'
-)
-
-Invoke-CppTest -Name 'routine-actions-test' -Sources @(
-    'tests/routine-actions-test.cpp',
-    'src/aon/jerryio/routine-actions.cpp'
-)
-
 Invoke-CppTest -Name 'auton-selection-test' -Sources @(
     'tests/auton-selection-test.cpp'
 )
 
 Invoke-CppTest -Name 'odometry-test' -Sources @(
-    'tests/odometry-test.cpp',
-    'src/aon/jerryio/path-jerryio.cpp',
-    'src/aon/jerryio/path-transform.cpp',
-    'src/aon/jerryio/path-follower.cpp'
-)
-
-Invoke-CppTest -Name 'path-jerryio-asset-test' -Sources @(
-    'tests/path-jerryio-asset-test.cpp',
-    'src/aon/jerryio/path-jerryio.cpp',
-    'src/aon/jerryio/path-follower.cpp',
-    'src/aon/jerryio/path-transform.cpp',
-    'src/aon/jerryio/path-actions.cpp'
+    'tests/odometry-test.cpp'
 )

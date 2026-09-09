@@ -12,7 +12,6 @@
 #include "../tools/simple-filter.hpp"
 #include "../tools/general.hpp"
 #include "../math/misc/misc.hpp"
-#include "../jerryio/routines.hpp"
 #include "./basic-uturn.hpp"
 
 // TODO: for modularity we will have odometry, drivetrain, navigator, orbit, intake, and claw (the last two will most likely change with each game and modules may be added or removed as needed)
@@ -906,12 +905,6 @@ int SkillsRoutine3(){
 }
 
 #endif
-
-int PathJerryIORoutine() {
-  const int result = aon::jerryio::RunPathJerryIOAuton(drivetrain, {});
-  intake.stop();
-  return result;
-}
 
 int BasicUTurnRoutine() {
   intake.stop();

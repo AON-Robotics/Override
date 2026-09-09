@@ -7,9 +7,6 @@
 #include "../controls/s-curve-profile.hpp"
 #include "../math/timer.hpp"
 #include "../controls/pure-pursuit.hpp"
-#include "../jerryio/path-following.hpp"
-#include "../jerryio/path-actions.hpp"
-#include "../jerryio/path.hpp"
 #include <cfloat>
 
 
@@ -757,26 +754,6 @@ class Drivetrain {
   /// @note Uses coordinate system from GPS in \b meters
   virtual void goToPose(const Pose &pose) = 0;
 
-  /// @brief Follows a speed-aware path with AON odometry and pure pursuit.
-  /// @return A terminal status describing completion or the safe-stop cause.
-  MotionResult followPath(const Path& path,
-                          const FollowPathOptions& options = {});
-
-  /// @brief Follows a path and runs callbacks at internal zero-speed markers.
-  /// @return A terminal status describing completion or the safe-stop cause.
-  MotionResult followPathWithActions(
-      const Path& path, const std::vector<PathAction>& actions,
-      const FollowPathOptions& options = {});
-
-  /// @brief Moves to a pose through the AON path follower and aligns heading.
-  /// @return A terminal status describing completion or the safe-stop cause.
-  MotionResult moveToPose(const Pose& target,
-                          FollowPathOptions options = {});
-
-  /// @brief Turns to an absolute heading with timeout, disable, and cancellation checks.
-  MotionResult turnToHeadingMonitored(double heading,
-                                      FollowPathOptions options = {});
-
   /// @brief Follows a path using a pure pursuit controller
   /// @param path The path to follow
   /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
@@ -824,12 +801,6 @@ class Drivetrain {
     return input * MAX_RPM * percentage;
   }
 
- private:
-  MotionResult followPathFromStart(const Path& path,
-                                   const FollowPathOptions& options,
-                                   std::uint32_t startedAt);
-  MotionResult alignToHeading(double heading, const FollowPathOptions& options,
-                              std::uint32_t startedAt);
 };
 
 }  // namespace aon

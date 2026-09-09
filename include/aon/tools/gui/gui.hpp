@@ -32,7 +32,6 @@ namespace aon {
     int SkillsRoutine1();
     int SkillsRoutine2();
     int SkillsRoutine3();
-    int PathJerryIORoutine();
     int BasicUTurnRoutine();
   }
     
@@ -67,7 +66,7 @@ struct AutonOption {
 };
 
 // Constants
-static constexpr int allianceAutonOptionsCount = 4;
+static constexpr int allianceAutonOptionsCount = 3;
 static constexpr int skillsAutonOptionsCount = 3;
 
 // Base Gui class - handles core GUI functionality without debug features
@@ -82,7 +81,7 @@ public:
   bool autonRunning = false;
   bool autonCompleted = false;
   
-  // Preselected auton indices (1-4 alliance, 1-3 skills, 0 = none)
+  // Preselected auton indices (1-3 alliance/skills, 0 = none)
   int selectedRedAut = 3;
   int selectedBlueAut = 0;
   int selectedSkill = 0;
@@ -97,14 +96,12 @@ public:
     {"Black Beard", aon::routines::RedRoutine1, "BB"},
     {"Jack Sparrow", aon::routines::RedRoutine2, "JS"},
     {"Basic U-turn", aon::routines::BasicUTurnRoutine, "BAS"},
-    {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
   };
   
   AutonOption blueAutonOptions[allianceAutonOptionsCount] = {
     {"Black Beard", aon::routines::BlueRoutine1, "BB"},
     {"Jack Sparrow", aon::routines::BlueRoutine2, "JS"},
     {"Basic U-turn", aon::routines::BasicUTurnRoutine, "BAS"},
-    {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
   };
   
   AutonOption skillsAutonOptions[skillsAutonOptionsCount] = {

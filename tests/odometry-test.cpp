@@ -5,12 +5,6 @@
 #include <cmath>
 #include <cassert>
 #include <iostream>
-#include <algorithm>
-#include <fstream>
-#include <sstream>
-#include "aon/jerryio/path-jerryio.hpp"
-#include "aon/jerryio/path-transform.hpp"
-#include "aon/jerryio/path-follower.hpp"
 
 namespace pros {
 struct Mutex {
@@ -51,67 +45,6 @@ template <typename... Args> void print(int, const char*, Args...) {}
 #pragma warning(pop)
 #endif
 
-void followsExportWithRealOdometry() {
-  std::ifstream input("static/path.jerryio.txt");
-  assert(input.is_open());
-  std::ostringstream bytes;
-  bytes << input.rdbuf();
-  const auto decoded = aon::PathJerryIO::decode(bytes.str());
-  assert(decoded);
-  const auto relative = aon::makePathRelative(decoded.path);
-  assert(relative.valid);
-  aon::PathFollowerConfig config;
-  config.trackWidth = DRIVE_WIDTH;
-  config.driveWheelDiameter = DRIVE_WHEEL_DIAMETER;
-  config.motorToWheelRatio = MOTOR_TO_DRIVE_RATIO;
-  config.maximumRpm = 500;
-  config.maximumAcceleration = MAX_ACCEL;
-  config.maximumDeceleration = MAX_DECEL;
-  config.maximumLateralAcceleration = 60;
-  config.lookaheadDistance = 10;
-  config.adaptiveLookahead.enabled = true;
-  config.adaptiveLookahead.minimumDistance = 5;
-  config.adaptiveLookahead.maximumDistance = 14;
-  config.adaptiveLookahead.speedWeight = 0.6;
-  config.adaptiveLookahead.curvatureWeight = 1.2;
-  aon::PathFollower follower(relative.path, config);
-  aon::Odometry odom(1, 2, 3, 4, 5);
-  odom.resetCurrent(0, 0, 0);
-  aon::Pose physical;
-  double leftRpm = 0, rightRpm = 0;
-  bool complete = false;
-  constexpr double dt = 0.01;
-  const double inchesPerRpmSecond = M_PI * DRIVE_WHEEL_DIAMETER * MOTOR_TO_DRIVE_RATIO / 60;
-  const double sensorUnits = 36000 / (M_PI * TRACKING_WHEEL_DIAMETER);
-  for (int iteration = 0; iteration < 3000; ++iteration) {
-    const auto command = follower.step(odom.getPose(), dt);
-    assert(command.valid);
-    if (command.complete) { complete = true; break; }
-    // Model the configured motor slew and ideal differential-drive kinematics.
-    leftRpm += std::clamp(command.leftRpm - leftRpm, -MAX_ACCEL * dt, MAX_ACCEL * dt);
-    rightRpm += std::clamp(command.rightRpm - rightRpm, -MAX_ACCEL * dt, MAX_ACCEL * dt);
-    const double distance = (leftRpm + rightRpm) / 2 * inchesPerRpmSecond * dt;
-    const double delta = (leftRpm - rightRpm) * inchesPerRpmSecond * dt / DRIVE_WIDTH;
-    const double chord = std::abs(delta) < 1e-9 ? distance : distance * 2 * std::sin(delta / 2) / delta;
-    const double midpoint = physical.theta * M_PI / 180 + delta / 2;
-    physical.x += chord * std::cos(midpoint);
-    physical.y += chord * std::sin(midpoint);
-    physical.theta += delta * 180 / M_PI;
-    odom.encoderLeft.position += (distance + delta * DISTANCE_LEFT_TRACKING_WHEEL_CENTER) * sensorUnits;
-    odom.encoderRight.position += (distance - delta * DISTANCE_RIGHT_TRACKING_WHEEL_CENTER) * sensorUnits;
-    odom.gyroscope.heading = std::fmod(physical.theta + 720, 360);
-    odom.update();
-  }
-  const double error = physical.distanceTo(relative.path.back().pose);
-  std::cout << "Full route simulation: complete=" << complete
-            << " endpoint error=" << error
-            << " odometry error=" << physical.distanceTo(odom.getPose()) << std::endl;
-  assert(complete);
-  assert(error <= config.positionTolerance + 0.1);
-  assert(physical.y > 15); // actual right-hand return lane
-  assert(physical.distanceTo(odom.getPose()) < 0.1);
-}
-
 int main() {
   aon::Odometry odom(1, 2, 3, 4, 5);
   odom.resetCurrent(0, 0, 0);
@@ -151,6 +84,5 @@ int main() {
   odom.update();
   assert(std::abs(odom.getX() - 10 * std::sin(turn)) < 0.00001);
   assert(std::abs(odom.getY() - 10 * (1 - std::cos(turn))) < 0.00001);
-  followsExportWithRealOdometry();
   std::cout << "AON odometry tests passed\n";
 }

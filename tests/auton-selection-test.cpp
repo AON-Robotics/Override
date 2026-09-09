@@ -13,9 +13,9 @@
   } while (false)
 
 int main() {
-  CHECK(aon::clampAutonIndex(4, 4) == 4);
-  CHECK(aon::clampAutonIndex(5, 4) == 4);
+  CHECK(aon::clampAutonIndex(3, 3) == 3);
   CHECK(aon::clampAutonIndex(4, 3) == 3);
-  CHECK(aon::clampAutonIndex(0, 4) == 1);
+  CHECK(aon::clampAutonIndex(5, 3) == 3);
+  CHECK(aon::clampAutonIndex(0, 3) == 1);
   std::cout << "AON auton selection tests passed\n";
 }

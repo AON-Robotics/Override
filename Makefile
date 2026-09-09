@@ -23,14 +23,6 @@ USE_PACKAGE:=1
 # EXCLUDE_COLD_LIBRARIES:= $(FWDIR)/your_library.a
 EXCLUDE_COLD_LIBRARIES:= 
 
-# Embed PATH.JERRYIO and other static files without depending on LemLib's
-# asset header. The generated symbols are consumed by aon/jerryio/asset.hpp.
-STATIC_DIR:=$(ROOT)/static
-STATIC_FILES:=$(wildcard $(STATIC_DIR)/*)
-STATIC_OBJECTS:=$(patsubst $(STATIC_DIR)/%,$(BINDIR)/static/%.o,$(STATIC_FILES))
-STATIC_LIBRARY:=$(BINDIR)/aon-static-assets.a
-LIBRARIES+=$(STATIC_LIBRARY)
-
 # Set this to 1 to add additional rules to compile your project as a PROS library template
 IS_LIBRARY:=0
 # TODO: CHANGE THIS! 
@@ -53,14 +45,3 @@ TEMPLATE_FILES=$(INCDIR)/$(LIBNAME)/*.h $(INCDIR)/$(LIBNAME)/*.hpp
 ################################################################################
 ########## Nothing below this line should be edited by typical users ###########
 -include ./common.mk
-
-$(BINDIR)/static/%.o: $(STATIC_DIR)/%
-	$(VV)mkdir -p $(dir $@)
-	$(call test_output_2,Embedded $< ,cd "$(ROOT)" && $(ARCHTUPLE)ld -r -b binary "static/$*" -o "$@",$(OK_STRING))
-
-$(STATIC_LIBRARY): $(STATIC_OBJECTS)
-	$(VV)mkdir -p $(dir $@)
-	-$(VV)rm -f $@
-	$(call test_output_2,Archived static assets ,$(AR) rcs $@ $^,$(OK_STRING))
-
-$(HOT_ELF) $(MONOLITH_ELF): $(STATIC_LIBRARY)
