@@ -65,7 +65,7 @@ starting orientation. These tests catch software geometry errors; they do not
 validate real sensor signs, mounting, traction, or task scheduling on the robot.
 Run `tools/run-host-tests.ps1` for all tests, or pass `-Test odometry-test` for
 the odometry/route simulation alone. After uploading, select Red/Blue 4 (JIO)
-to test JerryIO; Red 3 (BAS) remains the startup selection.
+to test JerryIO; Red 4 (JIO) is the startup selection.
 
 ## PATH.JERRYIO editor configuration
 
