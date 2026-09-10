@@ -11,7 +11,7 @@
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
-#include "aon/generated/static-path.hpp"
+#include "../src/aon/paths/static-path.cpp"
 
 aon::PurePursuit controller() {
   return {aon::MotionProfile(200, MAX_ACCEL, MAX_DECEL, MAX_ACCEL),

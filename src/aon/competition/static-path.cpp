@@ -1,6 +1,6 @@
 #include "aon/competition/static-path.hpp"
 #include "aon/drivetrain/drivetrain.hpp"
-#include "aon/generated/static-path.hpp"
+#include "aon/paths/static-path.hpp"
 #include "pros/misc.h"
 #include "pros/screen.hpp"
 

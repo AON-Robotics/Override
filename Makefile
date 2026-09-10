@@ -48,12 +48,10 @@ TEMPLATE_FILES=$(INCDIR)/$(LIBNAME)/*.h $(INCDIR)/$(LIBNAME)/*.hpp
 
 # Build-time data conversion; execution stays in AON's existing follower.
 PYTHON ?= python
-STATIC_PATH_HEADER := $(INCDIR)/aon/generated/static-path.hpp
-STATIC_PATH_COORDINATES := $(ROOT)/static/path.coordinates.txt
-$(STATIC_PATH_COORDINATES): $(ROOT)/static/path.jerryio.txt $(ROOT)/tools/generate-static-path.py
-	$(PYTHON) tools/generate-static-path.py static/path.jerryio.txt $@ --coordinates-only
-
-$(STATIC_PATH_HEADER): $(ROOT)/static/path.jerryio.txt $(ROOT)/tools/generate-static-path.py $(STATIC_PATH_COORDINATES)
+STATIC_PATH_SOURCE := $(SRCDIR)/aon/paths/static-path.cpp
+$(STATIC_PATH_SOURCE): $(ROOT)/static/path.jerryio.txt $(ROOT)/tools/generate-static-path.py
 	$(PYTHON) tools/generate-static-path.py static/path.jerryio.txt $@
 
-$(BINDIR)/aon/competition/static-path.cpp.o: $(STATIC_PATH_HEADER)
+# Include the generated object even when its source is missing at make startup.
+$(HOT_ELF) $(MONOLITH_ELF): $(BINDIR)/aon/paths/static-path.cpp.o
+$(BINDIR)/aon/paths/static-path.cpp.o: $(STATIC_PATH_SOURCE)

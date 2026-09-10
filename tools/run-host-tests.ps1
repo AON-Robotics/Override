@@ -18,7 +18,7 @@ if ($Test.Count -eq 0 -or 'static-path-generator-test' -in $Test) {
 }
 & python (Join-Path $repositoryRoot 'tools/generate-static-path.py') `
     (Join-Path $repositoryRoot 'static/path.jerryio.txt') `
-    (Join-Path $repositoryRoot 'include/aon/generated/static-path.hpp')
+    (Join-Path $repositoryRoot 'src/aon/paths/static-path.cpp')
 if ($LASTEXITCODE -ne 0) { throw 'Static path generation failed' }
 
 function Invoke-CppTest {

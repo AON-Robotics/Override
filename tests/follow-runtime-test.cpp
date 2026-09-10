@@ -61,7 +61,7 @@ public:
 };
 }
 #include "../src/aon/drivetrain/follow.cpp"
-#include "aon/generated/static-path.hpp"
+#include "../src/aon/paths/static-path.cpp"
 
 int main() {
   using Result = aon::Drivetrain::FollowResult;

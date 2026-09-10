@@ -32,11 +32,12 @@ The previous separate JerryIO follower, runtime parser, linker asset archive,
 marker-action framework, and telemetry framework remain removed. The exporter
 label LemLib v0.5 is only a text format; there is no LemLib runtime dependency.
 
-`tools/generate-static-path.py` validates and converts the file into the ignored
-`include/aon/generated/static-path.hpp`. The Makefile regenerates it when the
+`tools/generate-static-path.py` validates and converts the file into
+`src/aon/paths/static-path.cpp`. The Makefile regenerates it when the
 export or converter changes, including on a fresh checkout. Python 3 must be
 on PATH (`PYTHON` can be overridden when invoking make). Do not edit the generated
-header; edit/export `static/path.jerryio.txt` and rebuild.
+C++ file; paste the complete export into `static/path.jerryio.txt` and rebuild. The C++ hub contains only route poses and
+the start-pose transform, with no exported speeds or editor/version metadata.
 
 The converter rejects malformed/non-finite rows, invalid speeds, duplicate
 consecutive positions, missing endData, and unsupported internal zero-speed

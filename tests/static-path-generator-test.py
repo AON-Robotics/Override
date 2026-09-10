@@ -11,13 +11,6 @@ spec.loader.exec_module(generator)
 
 
 class StaticPathTests(unittest.TestCase):
-    def test_coordinate_export_removes_trailer_and_metadata(self):
-        text = "10,20,100\n10,30,0\n10,30,0\n99,99,0\nendData\nversion metadata"
-        self.assertEqual(generator.coordinates(text), "10.0, 20.0\n10.0, 30.0\n")
-        # A replacement export must yield its own original coordinates.
-        self.assertEqual(generator.coordinates("-5,2,50\n3,4,0\nendData"),
-                         "-5.0, 2.0\n3.0, 4.0\n")
-
     def test_checked_in_route(self):
         points = generator.convert((ROOT / "static/path.jerryio.txt").read_text())
         self.assertEqual(len(points), 48)
