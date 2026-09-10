@@ -7,7 +7,7 @@ Blue 4 runs the identical right-hand route. Red/Blue 3 keeps the working ordinar
 move/arc/move U-turn for comparison. No intake actions run in either path test.
 
 Place the robot at the marked start facing the desired initial direction.
-The generated route is placed at its current odometry pose; no pose reset or
+The manually entered route is placed at its current odometry pose; no pose reset or
 IMU tare occurs. `Drivetrain::getPose()` now reads live odometry rather than the
 old stored constructor pose. The static route has 48 poses and about 92.85 inches
 of travel, ending approximately 17 inches right of the starting position and
@@ -26,32 +26,28 @@ and speed profiles, so matching their exact timing is not expected.
 
 ## One execution stack
 
-`static/path.jerryio.txt -> build-time converter -> vector<Pose> -> Drivetrain::follow() -> PurePursuit -> AON MotionProfile / tank()`
+`src/aon/paths/static-path.cpp -> vector<Pose> -> Drivetrain::follow() -> PurePursuit -> AON MotionProfile / tank()`
 
 The previous separate JerryIO follower, runtime parser, linker asset archive,
 marker-action framework, and telemetry framework remain removed. The exporter
 label LemLib v0.5 is only a text format; there is no LemLib runtime dependency.
 
-`tools/generate-static-path.py` validates and converts the file into
-`src/aon/paths/static-path.cpp`. The Makefile regenerates it when the
-export or converter changes, including on a fresh checkout. Python 3 must be
-on PATH (`PYTHON` can be overridden when invoking make). Do not edit the generated
-C++ file; paste the complete export into `static/path.jerryio.txt` and rebuild. The C++ hub contains only route poses and
-the start-pose transform, with no exported speeds or editor/version metadata.
+Edit the `path` list in `src/aon/paths/static-path.cpp` directly. Paste C++
+`{x, y},` rows using the original JerryIO coordinates in inches. Omit speeds,
+metadata, the duplicate endpoint, and the editor-only trailer point. Rebuild
+and upload after editing. Nothing reads the `.txt` file or regenerates this C++
+file during a build or host test.
 
-The converter rejects malformed/non-finite rows, invalid speeds, duplicate
-consecutive positions, missing endData, and unsupported internal zero-speed
-markers. It recognizes this export variant's duplicate zero-speed endpoint plus
-editor-only trailer. Coordinates are inches; local +X is forward, +Y is right,
-and headings increase clockwise. The conversion changes handedness once and
-derives final heading from the final distinct segment.
+The hub anchors the first point to the live robot pose, aligns the first segment
+forward, converts JerryIO handedness to AON once, and derives the final heading
+from the last segment. Non-finite or consecutive duplicate points return an
+empty route for the follower to reject.
 
 ## Explicit speed policy
 
 This first version follows geometry at an AON profile limit of **200 RPM**.
-The exported speed column is validated but does not set motor speed. `Pose` has
-no speed field. The converter requires a zero-speed endpoint and rejects internal
-stops instead of silently skipping mechanism actions. Sampled speed support, if
+Only X/Y coordinates are entered; motor speed comes from AON. The route list
+has no speed markers or internal mechanism stops. Sampled speed support, if
 needed later, belongs in the existing controller/profile.
 
 ## Changes to the existing AON follower
@@ -78,7 +74,7 @@ this static-path routine.
 
 ## Verification and limits
 
-`tools/run-host-tests.ps1` runs converter validation, selector tests, real odometry
+`tools/run-host-tests.ps1` runs selector tests, real odometry
 math with fake hardware, the existing follower on straight/right-turn/U-turn
 routes (also from a rotated start), and the real execution loop under completion,
 timeout, invalid-input, cancellation, and disable conditions. Use `-Test` with a

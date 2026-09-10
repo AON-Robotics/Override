@@ -8,7 +8,7 @@ namespace aon {
 
 int runStaticPath(Drivetrain& drivetrain) {
   // Anchor to the current pose without resetting/taring the running odometry.
-  const auto path = generated::staticPathAt(drivetrain.getPose());
+  const auto path = paths::staticPathAt(drivetrain.getPose());
   pros::screen::set_eraser(pros::Color::black);
   pros::screen::erase();
   pros::screen::set_pen(pros::Color::white);

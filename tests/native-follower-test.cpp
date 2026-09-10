@@ -81,7 +81,7 @@ int main() {
   assert(!duplicate.valid());
   simulate({{0,0,0},{12,0,0},{24,0,0}}, {});
   simulate({{0,0,0},{10,0,0},{18,2,0},{23,7,0},{25,15,90}}, {});
-  simulate(aon::generated::staticPathAt({}), {});
-  simulate(aon::generated::staticPathAt({40,-20,137}), {40,-20,137});
+  simulate(aon::paths::staticPathAt({}), {});
+  simulate(aon::paths::staticPathAt({40,-20,137}), {40,-20,137});
   std::cout << "Native AON follower tests passed\n";
 }
