@@ -83,14 +83,17 @@ Implement the function in [autonomous-routines.hpp](../../competition/autonomous
 In [gui.hpp](gui.hpp), update the relevant array:
 
 ```cpp
-AutonOption redAutonOptions[autonOptionsCount] = {
+AutonOption redAutonOptions[allianceAutonOptionsCount] = {
   {"Red AUT1", aon::MyNewRedRoutine},
   {"Red AUT2", aon::RedRoutine},
   {"Red AUT3", aon::RedRoutine},
+  {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
 };
 ```
 
-`autonOptionsCount` is 3 — don't change it unless you resize all three arrays (`redAutonOptions`, `blueAutonOptions`, `skillsAutonOptions`) together.
+Red and Blue use `allianceAutonOptionsCount` (4); Skills uses
+`skillsAutonOptionsCount` (3). Resize the matching arrays and button layout
+together when changing those counts.
 
 ### 3. Rebuild
 
@@ -606,14 +609,14 @@ Access via `aon::gui->propertyName` (unique_ptr dereference).
 | `selectedAuton` | `AutonOption` | `{"None", nullptr}` | Currently selected preset auton |
 | `selectedAutonName` | `std::string` | `"None"` | Display name of selected auton |
 | `selectedAutonInvoker` | `std::function<int()>` | `nullptr` | Invoker for debug-registered autons |
-| `selectedRedAut` | `int` | `0` | Preselect Red auton index (1–3, 0=none) |
-| `selectedBlueAut` | `int` | `0` | Preselect Blue auton index (1–3, 0=none) |
+| `selectedRedAut` | `int` | `4` | Preselect Red auton index (1–4, 0=none); JerryIO is Red 4 |
+| `selectedBlueAut` | `int` | `0` | Preselect Blue auton index (1–4, 0=none); JerryIO is Blue 4 |
 | `selectedSkill` | `int` | `0` | Preselect Skills auton index (1–3, 0=none) |
 
 To preselect an auton before the GUI starts (skips manual selection—useful during testing):
 
 ```cpp
-aon::gui->selectedRedAut = 1;  // preselect Red AUT1 — jump straight to Auton Runner
+aon::gui->selectedRedAut = 4;  // preselect JerryIO as Red 4
 pros::Task guiLoopTask([]{ aon::gui->initialize(); });
 ```
 
@@ -759,19 +762,21 @@ namespace aon {
 
 
 // Auton option arrays (instance members of the Gui class — no static/inline)
-AutonOption redAutonOptions[autonOptionsCount] = {
+AutonOption redAutonOptions[allianceAutonOptionsCount] = {
   {"Red ForwardBackTurn", aon::ForwardBackTurnRoutine},
   {"Red AUT2", aon::RedRoutine},
   {"Red AUT3", aon::RedRoutine},
+  {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
 };
 
-AutonOption blueAutonOptions[autonOptionsCount] = {
+AutonOption blueAutonOptions[allianceAutonOptionsCount] = {
   {"Blue AUT1", aon::BlueRoutine},
   {"Blue AUT2", aon::BlueRoutine},
   {"Blue AUT3", aon::BlueRoutine},
+  {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
 };
 
-AutonOption skillsAutonOptions[autonOptionsCount] = {
+AutonOption skillsAutonOptions[skillsAutonOptionsCount] = {
   {"Skills AUT1", aon::RedRoutine},
   {"Skills AUT2", aon::RedRoutine},
   {"Skills AUT3", aon::RedRoutine},
@@ -785,10 +790,11 @@ AutonOption skillsAutonOptions[autonOptionsCount] = {
 
 Example:
 ```cpp
-AutonOption redAutonOptions[autonOptionsCount] = {
+AutonOption redAutonOptions[allianceAutonOptionsCount] = {
   {"Red AUT1", aon::MyNewRedRoutine},      // Changed function
   {"Red AUT2", aon::RedRoutine},
   {"Red Safe", aon::RedSafeRoutine},       // Changed name
+  {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
 };
 ```
 
@@ -963,7 +969,7 @@ The **Auton Runner** (Debug Menu 2) allows you to execute autonomous routines **
 
 ### Workflow Example
 
-> **Testing tip**: Set `aon::gui->selectedRedAut = 1;` (or whichever index) before `pros::Task guiLoopTask(...)` to have a preset auton already selected on boot — skip step 1 entirely.
+> **Testing tip**: JerryIO is preselected as Red 4. Set `aon::gui->selectedRedAut = 4;` before `pros::Task guiLoopTask(...)` to restore that preset after changing selection defaults.
 
 1. **Select an Auton** *(or skip with preselect above)*:
    - Go to **Debug Menu → Registered Autons** and tap a test function, OR
@@ -1336,8 +1342,8 @@ void opcontrol() {
 | `aon::gui->selectedAuton` | `AutonOption` | `{ "None", nullptr }` | Currently selected auton (name + routine) |
 | `aon::gui->selectedAutonName` | `std::string` | `"None"` | Display name of selected auton |
 | `aon::gui->selectedAutonInvoker` | `std::function<int()>` | `nullptr` | Optional invoker used by debug-registered autons |
-| `aon::gui->selectedRedAut` | `int` | `0` | Preselect Red auton (1-3, 0=none) |
-| `aon::gui->selectedBlueAut` | `int` | `0` | Preselect Blue auton (1-3, 0=none) |
+| `aon::gui->selectedRedAut` | `int` | `4` | Preselect Red auton (1-4, 0=none); JerryIO is 4 |
+| `aon::gui->selectedBlueAut` | `int` | `0` | Preselect Blue auton (1-4, 0=none); JerryIO is 4 |
 | `aon::gui->selectedSkill` | `int` | `0` | Preselect Skills auton (1-3, 0=none) |
 
 ---
@@ -1390,7 +1396,7 @@ This is expected behavior. Execution is **synchronous** — the selected functio
 - **Keep registrations in callbacks**: Use `setTestRegister()`, `setVariableRegister()`, and `setDataRegister()` callbacks to keep registration logic clean. Call all `set*Register` functions **before** starting the GUI task.
 - **Use `inline double` globals**: For variables to be tunable, declare them as `inline double` at global scope in `globals.hpp` and use them inside the autonomous routine.
 - **Guard against multiple registration**: The GUI deduplicates by name, so duplicate registrations are safe but unnecessary
-- **Preselect autons**: Set `aon::gui->selectedRedAut`, `aon::gui->selectedBlueAut`, or `aon::gui->selectedSkill` (1–3) before starting the GUI task. Default is `0` (none). Set to `1` during testing to have Red AUT1 already selected on boot, skipping manual selection.
+- **Preselect autons**: Set `aon::gui->selectedRedAut` or `aon::gui->selectedBlueAut` to 1–4, or `aon::gui->selectedSkill` to 1–3, before starting the GUI task. This project defaults to Red 4 (`JerryIO Path`).
 - **Competition mode**: Set `TESTING_AUTONOMOUS` to `false` in constants.hpp to disable the debug menu
 
 ---

@@ -1,7 +1,7 @@
 {
   "py/object": "pros.conductor.project.Project",
   "py/state": {
-    "project_name": "Override",
+    "project_name": "PathJerrIo",
     "target": "v5",
     "templates": {
       "kernel": {

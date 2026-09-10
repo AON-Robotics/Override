@@ -48,7 +48,7 @@ void Gui::displayAutonMenu() {
 }
 
 void Gui::displayRedAutonMenu() {
-  // Red-side autons list with three option buttons
+  // Red-side autons list with four option buttons
   pros::screen::set_eraser(pros::Color::black);
   pros::screen::erase();
 
@@ -71,12 +71,14 @@ void Gui::displayRedAutonMenu() {
   pros::screen::print(pros::E_TEXT_LARGE_CENTER, 4, "RED");
 
   // Draw auton selection buttons with red theme colors
-  ui::Button aut1 = aut1Btn; aut1.bg = pros::Color::light_pink; aut1.label = redAutonOptions[0].buttonLabel;
-  ui::Button aut2 = Aut2Btn; aut2.bg = pros::Color::crimson; aut2.label = redAutonOptions[1].buttonLabel;
-  ui::Button aut3 = Aut3Btn; aut3.bg = pros::Color::red; aut3.label = redAutonOptions[2].buttonLabel;
+  ui::Button aut1 = allianceAut1Btn; aut1.bg = pros::Color::light_pink; aut1.label = redAutonOptions[0].buttonLabel;
+  ui::Button aut2 = allianceAut2Btn; aut2.bg = pros::Color::crimson; aut2.label = redAutonOptions[1].buttonLabel;
+  ui::Button aut3 = allianceAut3Btn; aut3.bg = pros::Color::red; aut3.label = redAutonOptions[2].buttonLabel;
+  ui::Button aut4 = allianceAut4Btn; aut4.bg = pros::Color::dark_red; aut4.label = redAutonOptions[3].buttonLabel;
   aut1.draw(pros::E_TEXT_LARGE);
   aut2.draw(pros::E_TEXT_LARGE);
   aut3.draw(pros::E_TEXT_LARGE);
+  aut4.draw(pros::E_TEXT_LARGE);
 }
 
 void Gui::displayBlueAutonMenu() {
@@ -103,12 +105,14 @@ void Gui::displayBlueAutonMenu() {
   pros::screen::print(pros::E_TEXT_LARGE_CENTER, 4, "BLUE");
 
   // Draw auton selection buttons with blue theme colors
-  ui::Button aut1 = aut1Btn; aut1.bg = pros::Color::sky_blue; aut1.label = blueAutonOptions[0].buttonLabel;
-  ui::Button aut2 = Aut2Btn; aut2.bg = pros::Color::steel_blue; aut2.label = blueAutonOptions[1].buttonLabel;
-  ui::Button aut3 = Aut3Btn; aut3.bg = pros::Color::blue; aut3.label = blueAutonOptions[2].buttonLabel;
+  ui::Button aut1 = allianceAut1Btn; aut1.bg = pros::Color::sky_blue; aut1.label = blueAutonOptions[0].buttonLabel;
+  ui::Button aut2 = allianceAut2Btn; aut2.bg = pros::Color::steel_blue; aut2.label = blueAutonOptions[1].buttonLabel;
+  ui::Button aut3 = allianceAut3Btn; aut3.bg = pros::Color::blue; aut3.label = blueAutonOptions[2].buttonLabel;
+  ui::Button aut4 = allianceAut4Btn; aut4.bg = pros::Color::dark_blue; aut4.label = blueAutonOptions[3].buttonLabel;
   aut1.draw(pros::E_TEXT_LARGE);
   aut2.draw(pros::E_TEXT_LARGE);
   aut3.draw(pros::E_TEXT_LARGE);
+  aut4.draw(pros::E_TEXT_LARGE);
 }
 
 void Gui::displaySkillsMenu() {

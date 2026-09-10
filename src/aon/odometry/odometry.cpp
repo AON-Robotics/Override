@@ -4,9 +4,10 @@ namespace aon {
 
 Odometry::Odometry(short left, short right, short back, short gps, short gyro)
     : conversionFactor(M_PI * TRACKING_WHEEL_DIAMETER / DEGREES_PER_REVOLUTION),
-      encoderLeft(abs(left)),
-      encoderRight(abs(right)),
-      encoderBack(abs(back)),
+      // PROS uses a negative smart port to reverse a rotation sensor.
+      encoderLeft(left),
+      encoderRight(right),
+      encoderBack(back),
       gps(gps, GPS_INITIAL_X, GPS_INITIAL_Y, GPS_INITIAL_HEADING, GPS_X_OFFSET,
           GPS_Y_OFFSET),
       leftReversed(left < 0),
@@ -194,7 +195,10 @@ void Odometry::update() { // TODO: implement odometer functions both for linear 
     gyro_data.currentDegrees += 360;
   }
   // Calculate delta
-  gyro_data.deltaDegrees = gyro_data.currentDegrees - gyro_data.prevDegrees;
+  // The heading wraps at +/-180. Crossing that boundary is a small turn,
+  // not a near-360-degree arc (which also corrupts the integrated distance).
+  gyro_data.deltaDegrees = std::remainder(
+      gyro_data.currentDegrees - gyro_data.prevDegrees, 360.0);
   gyro_data.deltaRadians = gyro_data.deltaDegrees * (M_PI / 180.0);
 
   // Save current data for future calculations
@@ -253,10 +257,12 @@ void Odometry::update() { // TODO: implement odometer functions both for linear 
 
   // Updating global position using 2D matrix transformation (previous way to
   // update to global coordinates)
-  SetPosition(getX() + deltaDlocal.GetX() * std::cos(getRadians()) -
-                  deltaDlocal.GetY() * std::sin(getRadians()),
-              getY() + deltaDlocal.GetX() * std::sin(getRadians()) +
-                  deltaDlocal.GetY() * std::cos(getRadians()));
+  // deltaDlocal already includes this step's turn. Rotate it by the starting
+  // orientation; using the updated orientation applies the turn twice.
+  SetPosition(getX() + deltaDlocal.GetX() * std::cos(previousTheta) -
+                  deltaDlocal.GetY() * std::sin(previousTheta),
+              getY() + deltaDlocal.GetX() * std::sin(previousTheta) +
+                  deltaDlocal.GetY() * std::cos(previousTheta));
 
   // Save current values as previous for future updates
   encoderLeft_data.prevValue = encoderLeft_data.currentValue;

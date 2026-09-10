@@ -20,4 +20,9 @@ temp.errors
 
 # Python env
 env/
+__pycache__/
+include/aon/generated/
 .DS_Store
+
+# Local agent design and execution notes
+docs/superpowers/
