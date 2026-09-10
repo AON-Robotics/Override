@@ -1,6 +1,5 @@
-#include "aon/competition/static-path.hpp"
 #include "aon/drivetrain/drivetrain.hpp"
-#include "aon/paths/static-path.hpp"
+#include "aon/generated/static-path.hpp"
 #include "pros/misc.h"
 #include "pros/screen.hpp"
 
@@ -8,7 +7,7 @@ namespace aon {
 
 int runStaticPath(Drivetrain& drivetrain) {
   // Anchor to the current pose without resetting/taring the running odometry.
-  const auto path = paths::staticPathAt(drivetrain.getPose());
+  const auto path = generated::staticPathAt(drivetrain.getPose());
   pros::screen::set_eraser(pros::Color::black);
   pros::screen::erase();
   pros::screen::set_pen(pros::Color::white);

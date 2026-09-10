@@ -12,6 +12,11 @@ if (-not (Test-Path -LiteralPath $vcVars)) {
 
 New-Item -ItemType Directory -Force -Path $buildDirectory | Out-Null
 
+& python (Join-Path $repositoryRoot 'tools/generate-static-path.py') `
+    (Join-Path $repositoryRoot 'static/path.jerryio.txt') `
+    (Join-Path $repositoryRoot 'include/aon/generated/static-path.hpp')
+if ($LASTEXITCODE -ne 0) { throw 'Static path generation failed' }
+
 function Invoke-CppTest {
     param(
         [Parameter(Mandatory)] [string] $Name,

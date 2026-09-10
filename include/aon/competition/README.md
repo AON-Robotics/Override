@@ -34,5 +34,7 @@ and during the settling pauses, not inside those calls. Sequence ended means
 the calls returned; those legacy commands do not report whether they timed out.
 
 The static export is converted during the build and executed through the existing
-AON follower. See [AON static-path integration](./static-path-requirements.md)
-for the speed policy, test procedure, and limitations.
+AON follower. Paste the complete export into `static/path.jerryio.txt`, then
+build and upload. The generated header is disposable; do not edit it. Exported
+speeds are omitted; this routine uses a 200 RPM limit and a 30-second timeout.
+B or competition disable cancels following. Internal stop markers are unsupported.

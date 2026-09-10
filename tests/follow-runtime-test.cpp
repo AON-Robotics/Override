@@ -61,7 +61,7 @@ public:
 };
 }
 #include "../src/aon/drivetrain/follow.cpp"
-#include "../src/aon/paths/static-path.cpp"
+#include "aon/generated/static-path.hpp"
 
 int main() {
   using Result = aon::Drivetrain::FollowResult;
@@ -89,7 +89,7 @@ int main() {
   aon::Drivetrain moving;
   pros::timeMs = 0;
   pros::advance = [&](unsigned ms) { moving.advance(ms); };
-  const auto route = aon::paths::staticPathAt({});
+  const auto route = aon::generated::staticPathAt({});
   const auto result = moving.follow(route, 30000, 200);
   pros::advance = nullptr;
   std::cout << "Execution simulation: result=" << static_cast<int>(result)
