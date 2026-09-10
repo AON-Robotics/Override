@@ -4,7 +4,7 @@ import math
 from pathlib import Path
 
 
-def convert(text):
+def parse_rows(text):
     rows = []
     for number, line in enumerate(text.splitlines(), 1):
         if line.strip() == "endData":
@@ -27,6 +27,15 @@ def convert(text):
         raise ValueError("internal stop markers are not supported by geometry-only following")
     if any(a[:2] == b[:2] for a, b in zip(rows, rows[1:])):
         raise ValueError("consecutive duplicate positions")
+    return rows
+
+
+def coordinates(text):
+    return "".join(f"{x}, {y}\n" for x, y, _ in parse_rows(text))
+
+
+def convert(text):
+    rows = parse_rows(text)
     x0, y0, _ = rows[0]
     angle = math.atan2(rows[1][1] - y0, rows[1][0] - x0)
     c, s = math.cos(angle), math.sin(angle)
@@ -67,9 +76,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
     parser.add_argument("output", type=Path)
+    parser.add_argument("--coordinates-only", action="store_true",
+                        help="write original X/Y coordinates instead of the robot header")
     args = parser.parse_args()
     try:
-        output = render(convert(args.source.read_text(encoding="utf-8-sig")))
+        text = args.source.read_text(encoding="utf-8-sig")
+        output = coordinates(text) if args.coordinates_only else render(convert(text))
     except (ValueError, OSError) as error:
         parser.exit(1, f"Static path conversion failed: {error}\n")
     args.output.parent.mkdir(parents=True, exist_ok=True)
