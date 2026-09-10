@@ -39,7 +39,7 @@ bool settle(Drivetrain& drivetrain) {
 bool runSequence(Drivetrain& drivetrain) {
   if (shouldStop()) return false;
   report("Forward");
-  drivetrain.move(33);                  // Drive out along the first lane.
+  drivetrain.move(24);                  // Drive out 24 inches along the first lane.
   if (!settle(drivetrain)) return false;
 
   report("Right U-turn");

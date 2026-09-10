@@ -15,7 +15,7 @@ run the same right-hand routine, without mirroring or intake actions.
 BAS uses the ordinary AON autonomous commands:
 
 ```cpp
-drivetrain.move(33);
+drivetrain.move(24);
 drivetrain.driveAngleOfArc(8.5, 180);
 drivetrain.move(33);
 drivetrain.stop();
@@ -23,7 +23,8 @@ drivetrain.stop();
 
 It pauses briefly at each transition. The 8.5-inch-radius right semicircle
 produces a nominal 17-inch lane spacing and 180-degree final heading, with
-about 92.7 inches of travel. The user reports that this routine works physically.
+about 83.7 inches of travel. The user reported that the earlier 33-inch first
+leg worked physically; the first leg is now shortened to 24 inches.
 
 Unlike the earlier timed BAS test, `move()` uses odometry position and
 `driveAngleOfArc()` uses the tracking wheels directly. It uses AON's ordinary
