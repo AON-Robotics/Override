@@ -53,5 +53,20 @@ int main() {
   mirrored.resetCurrent(0, 0, 0);
   mirrored.update();
   assert(std::abs(mirrored.getX()) < 0.00001);
+  // With a stationary IMU, no tracking wheel may change heading.
+  const double fixedHeading = mirrored.getDegrees();
+  mirrored.encoderLeft.position += units;
+  mirrored.update();
+  assert(std::abs(mirrored.getDegrees() - fixedHeading) < 0.00001);
+  mirrored.encoderRight.position -= units;
+  mirrored.update();
+  assert(std::abs(mirrored.getDegrees() - fixedHeading) < 0.00001);
+  mirrored.encoderBack.position += units;
+  mirrored.update();
+  assert(std::abs(mirrored.getDegrees() - fixedHeading) < 0.00001);
+  mirrored.gyroscope.heading = 15;
+  mirrored.update();
+  assert(std::abs(mirrored.getDegrees() - fixedHeading - 15) < 0.00001);
+  std::cout << "Tracking wheels leave heading unchanged; IMU controls heading\n";
   std::cout << "AON odometry tests passed\n";
 }
