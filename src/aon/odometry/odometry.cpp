@@ -4,12 +4,15 @@ namespace aon {
 
 Odometry::Odometry(short left, short right, short back, short gps, short gyro)
     : conversionFactor(M_PI * TRACKING_WHEEL_DIAMETER / DEGREES_PER_REVOLUTION),
-      // PROS uses a negative smart port to reverse a rotation sensor.
-      encoderLeft(left),
-      encoderRight(right),
-      encoderBack(back),
+      // Pablo's convention: PROS gets positive ports; odometry applies reversal.
+      encoderLeft(static_cast<short>(std::abs(left))),
+      encoderRight(static_cast<short>(std::abs(right))),
+      encoderBack(static_cast<short>(std::abs(back))),
       gps(gps, GPS_INITIAL_X, GPS_INITIAL_Y, GPS_INITIAL_HEADING, GPS_X_OFFSET,
-          GPS_Y_OFFSET)
+          GPS_Y_OFFSET),
+      leftReversed(left < 0),
+      rightReversed(right < 0),
+      backReversed(back < 0)
 #if GYRO_ENABLED
       ,
       gyroscope(gyro)
@@ -22,7 +25,10 @@ Odometry::Odometry(const Odometry& other)
       encoderLeft(other.encoderLeft),
       encoderRight(other.encoderRight),
       encoderBack(other.encoderBack),
-      gps(other.gps)
+      gps(other.gps),
+      leftReversed(other.leftReversed),
+      rightReversed(other.rightReversed),
+      backReversed(other.backReversed)
 #if GYRO_ENABLED
       ,
       gyroscope(other.gyroscope)
@@ -142,11 +148,11 @@ void Odometry::initialize() {
 /// @brief Fundamental function for Odometry.
 /// @details Uses changes in encoder (right and left) and gyro to calculate position
 void Odometry::update() { // TODO: implement odometer functions both for linear and rotational movement
-  // PROS already applies the signed-port reversal. Only convert centidegrees
-  // to degrees here; reversing again makes forward wheel distances cancel.
-  encoderRight_data.currentValue = encoderRight.get_position() / 100.0;
-  encoderLeft_data.currentValue = encoderLeft.get_position() / 100.0;
-  // encoderBack_data.currentValue = encoderBack.get_position() / 100.0;
+  // Convert centidegrees to degrees and apply the requested direction once.
+  // PROS sensors use positive ports, so their readings are not reversed.
+  encoderRight_data.currentValue = (encoderRight.get_position() / 100.0) * (rightReversed ? -1.0 : 1.0);
+  encoderLeft_data.currentValue = (encoderLeft.get_position() / 100.0) * (leftReversed ? -1.0 : 1.0);
+  // encoderBack_data.currentValue = (encoderBack.get_position() / 100.0) * (backReversed ? -1.0 : 1.0);
 
   // Convert to distances
   encoderRight_data.currentDistance =
@@ -274,9 +280,9 @@ void Odometry::update() { // TODO: implement odometer functions both for linear 
 /// @param y Y position in \b inches
 /// @param theta Angular position in \b degrees
 void Odometry::resetCurrent(double x, double y, double theta) {
-  const double currentAngleRight = encoderRight.get_position() / 100.0;
-  const double currentAngleLeft = encoderLeft.get_position() / 100.0;
-  const double currentAngleBack = encoderBack.get_position() / 100.0;
+  const double currentAngleRight = (encoderRight.get_position() / 100.0) * (rightReversed ? -1.0 : 1.0);
+  const double currentAngleLeft = (encoderLeft.get_position() / 100.0) * (leftReversed ? -1.0 : 1.0);
+  const double currentAngleBack = (encoderBack.get_position() / 100.0) * (backReversed ? -1.0 : 1.0);
   const double currentAngleGyro = gyroscope.get_heading();
   std::cout << "currentAngleGyro: " << currentAngleGyro << "\n";
 
