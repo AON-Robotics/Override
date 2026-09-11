@@ -39,5 +39,18 @@ int main() {
   odom.update();
   assert(std::abs(odom.getX() - 10 * std::sin(turn)) < 0.00001);
   assert(std::abs(odom.getY() - 10 * (1 - std::cos(turn))) < 0.00001);
+  // Mirrored right tracker: the negative port makes PROS reverse its raw sign.
+  aon::Odometry mirrored(19, -18, 5, 0, 16);
+  mirrored.resetCurrent(0, 0, 0);
+  mirrored.encoderLeft.position = 24 * units;
+  mirrored.encoderRight.position = -24 * units;
+  mirrored.update();
+  std::cout << "24-inch forward with reversed right tracker: " << mirrored.getX() << std::endl;
+  assert(std::abs(mirrored.getX() - 24) < 0.00001);
+  assert(std::abs(mirrored.getY()) < 0.00001);
+  // Reset while encoders are nonzero must use the same signed readings.
+  mirrored.resetCurrent(0, 0, 0);
+  mirrored.update();
+  assert(std::abs(mirrored.getX()) < 0.00001);
   std::cout << "AON odometry tests passed\n";
 }

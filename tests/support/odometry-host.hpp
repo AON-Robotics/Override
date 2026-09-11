@@ -13,10 +13,11 @@ struct Mutex {
   void give() {}
 };
 struct Rotation {
-  explicit Rotation(short) {}
+  explicit Rotation(short port) : reversed(port < 0) {}
+  bool reversed;
   double position = 0;
-  double get_position() const { return position; }
-  void set_position(double value) { position = value; }
+  double get_position() const { return reversed ? -position : position; }
+  void set_position(double value) { position = reversed ? -value : value; }
   void reset() { position = 0; }
 };
 struct Imu {

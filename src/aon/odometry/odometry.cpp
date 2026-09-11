@@ -9,10 +9,7 @@ Odometry::Odometry(short left, short right, short back, short gps, short gyro)
       encoderRight(right),
       encoderBack(back),
       gps(gps, GPS_INITIAL_X, GPS_INITIAL_Y, GPS_INITIAL_HEADING, GPS_X_OFFSET,
-          GPS_Y_OFFSET),
-      leftReversed(left < 0),
-      rightReversed(right < 0),
-      backReversed(back < 0)
+          GPS_Y_OFFSET)
 #if GYRO_ENABLED
       ,
       gyroscope(gyro)
@@ -25,10 +22,7 @@ Odometry::Odometry(const Odometry& other)
       encoderLeft(other.encoderLeft),
       encoderRight(other.encoderRight),
       encoderBack(other.encoderBack),
-      gps(other.gps),
-      leftReversed(other.leftReversed),
-      rightReversed(other.rightReversed),
-      backReversed(other.backReversed)
+      gps(other.gps)
 #if GYRO_ENABLED
       ,
       gyroscope(other.gyroscope)
@@ -148,10 +142,11 @@ void Odometry::initialize() {
 /// @brief Fundamental function for Odometry.
 /// @details Uses changes in encoder (right and left) and gyro to calculate position
 void Odometry::update() { // TODO: implement odometer functions both for linear and rotational movement
-  /// Read encoder values, divided by 100 to convert centidegrees to degrees
-  encoderRight_data.currentValue = (encoderRight.get_position() / 100.0) * (rightReversed ? -1.0 : 1.0);
-  encoderLeft_data.currentValue = (encoderLeft.get_position() / 100.0) * (leftReversed ? -1.0 : 1.0);
-  // encoderBack_data.currentValue = (encoderBack.get_position() / 100.0) * (backReversed ? -1.0 : 1.0);
+  // PROS already applies the signed-port reversal. Only convert centidegrees
+  // to degrees here; reversing again makes forward wheel distances cancel.
+  encoderRight_data.currentValue = encoderRight.get_position() / 100.0;
+  encoderLeft_data.currentValue = encoderLeft.get_position() / 100.0;
+  // encoderBack_data.currentValue = encoderBack.get_position() / 100.0;
 
   // Convert to distances
   encoderRight_data.currentDistance =
