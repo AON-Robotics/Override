@@ -35,8 +35,12 @@ and during the settling pauses, not inside those calls. Sequence ended means
 the calls returned; those legacy commands do not report whether they timed out.
 
 The static export is converted during the build and executed through the existing
-AON follower. Paste the complete export into `static/path.jerryio.txt`, then
-build and upload. The generated header is disposable; do not edit it. Exported
+AON follower. Paste each complete export into `static/<name>.jerryio.txt`, then
+build and upload. All matching files are discovered automatically. Choose the
+route in `src/aon/competition/static-path.cpp` with
+`generated::staticPathAt(drivetrain.getPose(), "name")`. The current name is
+`"path"`; a missing name returns an invalid empty route rather than another path.
+Each route is anchored independently to the supplied start pose. The generated header is disposable; do not edit it. Exported
 speeds are omitted; this routine uses a 200 RPM limit and a 30-second timeout.
 B or competition disable cancels following. Internal stop markers are unsupported.
 

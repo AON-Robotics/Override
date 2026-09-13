@@ -7,7 +7,8 @@ namespace aon {
 
 int runStaticPath(Drivetrain& drivetrain) {
   // Anchor to the current pose without resetting/taring the running odometry.
-  const auto path = generated::staticPathAt(drivetrain.getPose());
+  // Choose a filename without .jerryio.txt; e.g. "red-left".
+  const auto path = generated::staticPathAt(drivetrain.getPose(), "path");
   pros::screen::set_eraser(pros::Color::black);
   pros::screen::erase();
   pros::screen::set_pen(pros::Color::white);
