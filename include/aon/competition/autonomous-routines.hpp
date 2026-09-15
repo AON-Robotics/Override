@@ -17,6 +17,7 @@
 namespace aon {
 class Drivetrain;
 int runStaticPath(Drivetrain&, const std::function<void(int)>&, const std::function<void()>&);
+int runPathDiagnostic(Drivetrain&, int);
 }
 
 // TODO: for modularity we will have odometry, drivetrain, navigator, orbit, intake, and claw (the last two will most likely change with each game and modules may be added or removed as needed)
@@ -925,6 +926,12 @@ int StaticPathRoutine() {
       [](int rpm) { intake.move(rpm); }, [] { arrow.activate(); });
   intake.stop();
   return result;
+}
+
+int PathDiagnostic(int index) {
+  intake.stopScan();
+  intake.stop();
+  return aon::runPathDiagnostic(drivetrain,index);
 }
 
 } // namespace aon::routines

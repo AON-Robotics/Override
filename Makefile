@@ -56,3 +56,4 @@ $(STATIC_PATH_HEADER): check-static-paths $(ROOT)/tools/generate-static-path.py
 	$(PYTHON) tools/generate-static-path.py static $@
 
 $(BINDIR)/aon/competition/static-path.cpp.o: $(STATIC_PATH_HEADER)
+$(BINDIR)/aon/competition/path-diagnostics.cpp.o: $(STATIC_PATH_HEADER)

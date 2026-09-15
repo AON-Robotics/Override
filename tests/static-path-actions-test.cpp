@@ -1,3 +1,4 @@
+#define _CRT_SECURE_NO_WARNINGS
 #define AON_DRIVETRAIN_HPP_
 #define _PROS_MISC_H_
 #define _PROS_RTOS_HPP_
@@ -12,7 +13,7 @@
 #pragma warning(push)
 #pragma warning(disable: 4458)
 #endif
-#include "aon/math/pose.hpp"
+#include "aon/controls/path.hpp"
 #ifdef _MSC_VER
 #pragma warning(pop)
 #endif
@@ -41,7 +42,12 @@ public:
   int failLeg = -1;
   Pose getPose() { return pose; }
   void stop() {}
-  FollowResult follow(const std::vector<Pose>& path, std::uint32_t timeout, double rpm) {
+  FollowResult follow(PathView view, const FollowOptions& options, FollowHooks hooks = {}) {
+    const std::vector<Pose> path(view.data(), view.data()+view.size());
+    const auto timeout = options.timeoutMs;
+    const double rpm = options.maximumRpm;
+    if (hooks.update) { hooks.update(hooks.context, 0); hooks.update(hooks.context, 1000); }
+
     assert(timeout > 0 && timeout <= 30000 && rpm == 200);
     legs.push_back(path); pros::timeMs += 500;
     if (static_cast<int>(legs.size()) == failLeg) return FollowResult::TimedOut;
@@ -49,9 +55,36 @@ public:
   }
 };
 }
+#include "../src/aon/competition/path-sequence.cpp"
 #include "../src/aon/competition/static-path.cpp"
 
 int main() {
+  {
+    aon::Drivetrain drive;
+    const std::vector<aon::Pose> points{{0,0,0},{10,0,0}};
+    int events = 0;
+    aon::PathEvent event{5, [](void* context) { ++*static_cast<int*>(context); }, &events};
+    aon::PathStep step;
+    step.path = points;
+    step.events = &event;
+    step.eventCount = 1;
+    step.waitMs = 100;
+    step.ready = [](void*) { return false; };
+    assert(aon::runPathSequence(drive, &step, 1, 30000) == aon::Drivetrain::FollowResult::TimedOut);
+    assert(events == 1); // marker fires once; sensor timeout blocks the next step
+    pros::timeMs = 0;
+    events = 0;
+    event.distance = -1;
+    assert(aon::runPathSequence(drive, &step, 1, 30000) == aon::Drivetrain::FollowResult::InvalidOptions);
+    assert(events == 0);
+    event.distance = 5;
+    aon::PathStep invalidSteps[] = {step,step};
+    invalidSteps[1].options.lookahead = 0;
+    drive.legs.clear();
+    assert(aon::runPathSequence(drive,invalidSteps,2,30000) == aon::Drivetrain::FollowResult::InvalidOptions);
+    assert(drive.legs.empty());
+  }
+
   for (int scenario = 0; scenario < 4; ++scenario) {
     pros::timeMs = 0; pros::cancelAt = UINT32_MAX; pros::disableAt = UINT32_MAX;
     aon::Drivetrain drive;

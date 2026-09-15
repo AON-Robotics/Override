@@ -38,10 +38,11 @@ The static export is converted during the build and executed through the existin
 AON follower. Paste each complete export into `static/<name>.jerryio.txt`, then
 build and upload. All matching files are discovered automatically. Choose the
 route in `src/aon/competition/static-path.cpp` with
-`generated::staticPathAt(drivetrain.getPose(), "name")`. A missing name returns an invalid empty route rather than another path.
+`generated::staticRouteAt(drivetrain.getPose(), "name")`. A missing name returns an invalid empty route rather than another path.
 The current action test below uses `"testing"`.
 Each route is anchored independently to the supplied start pose. The generated header is disposable; do not edit it. Exported
-speeds are omitted; this routine uses a 200 RPM limit and a 30-second timeout.
+speeds are retained as normalized caps (127 = the configured maximum); this routine
+uses a 200 RPM limit and a 30-second timeout.
 B or competition disable cancels following. Internal stop markers are unsupported.
 
 Latest physical test: the user reports the automatic JerryIO route only drove
@@ -70,3 +71,10 @@ in `src/aon/competition/static-path.cpp`; unmatched stops reject the routine.
 
 The testing route legs are now 12, 10, and 20 inches along the sampled curves.
 Stop coordinates were moved with the scaled legs; action durations stay at 2 seconds.
+
+## Improved following and diagnostics
+
+See [the path autonomous guide](../../../docs/path-autons.md) for speed mapping,
+per-leg tuning, progress actions, sensor waits, the three debug diagnostics,
+SD traces, calibration and repeatability checks. The current action order is
+preserved; copied legs are replaced with views into one anchored route.

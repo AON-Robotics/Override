@@ -70,6 +70,9 @@ class HDrive : public Drivetrain {
   /// @brief Calculates average RPM forward
   /// @return The RPM of the motors with respect to the front of the robot
   double getRPM() override;
+  std::pair<double,double> wheelRpm() override {
+    return {leftMotors.get_actual_velocity(), rightMotors.get_actual_velocity()};
+  }
 
   /// @brief Goes to the target point
   /// @param target The intended destination using the gps coordinate system (x, y) both need to be in the range (-1.8, 1.8)

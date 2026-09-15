@@ -14,6 +14,17 @@ spec.loader.exec_module(generator)
 
 
 class MultiPathTests(unittest.TestCase):
+    def test_speed_export_is_preserved_and_rounded_to_bytes(self):
+        points = generator.convert("0,0,127\n10,0,31.6\n20,0,0\nendData")
+        self.assertEqual([p[3] for p in points], [127, 32, 0])
+        self.assertEqual(points[-1][:3], (20.0, 0.0, 0.0))
+
+    def test_invalid_motion_rows_are_rejected(self):
+        for data in ("0,0,100\n0,0,0", "0,0,100\n1,0,0\n2,0,0",
+                     "0,0,128\n1,0,0", "0,0,nan\n1,0,0"):
+            with self.subTest(data=data), self.assertRaises(ValueError):
+                generator.convert(data + "\nendData")
+
     def test_add_edit_rename_remove_and_unchanged(self):
         with tempfile.TemporaryDirectory() as folder:
             directory = Path(folder)
@@ -30,7 +41,8 @@ class MultiPathTests(unittest.TestCase):
             content = output.read_text()
             self.assertIn('name == "path"', content)
             self.assertIn('name == "red-left"', content)
-            self.assertIn('-10.000000000, 270.000000000', content)
+            self.assertIn('-10.000000000f', content)
+            self.assertIn('270.000000000', content)
             self.assertNotIn('metadata', content)
             first.write_text("0,0,100\n24,0,0\nendData")
             generator.generate(directory, output)
