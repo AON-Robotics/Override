@@ -8,7 +8,7 @@ Code related to the driver controlled portion of the match and the autonomous ro
 ## Working autonomous baseline
 
 Select **Red 3 or Blue 3: Basic U-turn (BAS)** for the normal autonomous.
-**Red 3: Basic U-turn (BAS)** is preselected for the comparison test.
+**Red 4: AON Static Path (PTH)** is preselected for the JerryIO test.
 Blue 4 runs the same static route. Both BAS selections
 run the same right-hand routine, without mirroring or intake actions.
 
@@ -45,5 +45,5 @@ speeds are omitted; this routine uses a 200 RPM limit and a 30-second timeout.
 B or competition disable cancels following. Internal stop markers are unsupported.
 
 Latest physical test: the user reports the automatic JerryIO route only drove
-straight. Red 3 (Basic U-turn / BAS) is preselected again for comparison.
+straight. Red 3 (Basic U-turn / BAS) remains available for comparison.
 The cause of the static-path failure is not yet established.
