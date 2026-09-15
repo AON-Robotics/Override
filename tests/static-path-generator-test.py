@@ -1,5 +1,7 @@
 """Exercise named export discovery and safe incremental generation."""
 import importlib.util
+import json
+import math
 from pathlib import Path
 import sys
 import tempfile
@@ -55,8 +57,15 @@ class MultiPathTests(unittest.TestCase):
 
     def test_existing_route_geometry(self):
         points = generator.convert((ROOT / "static/path.jerryio.txt").read_text())
-        self.assertEqual(len(points), 48)
-        self.assertAlmostEqual(points[-1][1], 17.04, delta=0.05)
+        export = (ROOT / "static/path.jerryio.txt").read_text()
+        metadata = json.loads(export.split("#PATH.JERRYIO-DATA ", 1)[1])
+        start, end = metadata["paths"][0]["segments"][-1]["controls"]
+        self.assertAlmostEqual(math.hypot(end["x"]-start["x"], end["y"]-start["y"]), 24)
+        rows = export.split("endData", 1)[0].splitlines()
+        terminal = tuple(map(float, rows[-3].split(",")[:2]))
+        self.assertLess(math.dist(terminal, (end["x"], end["y"])), 0.001)
+        self.assertEqual(len(points), 47)
+        self.assertAlmostEqual(points[-1][1], 17.12, delta=0.05)
         self.assertAlmostEqual(points[-1][2], 182.1, delta=0.2)
 
 

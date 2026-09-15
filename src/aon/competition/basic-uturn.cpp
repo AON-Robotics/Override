@@ -47,7 +47,7 @@ bool runSequence(Drivetrain& drivetrain) {
   if (!settle(drivetrain)) return false;
 
   report("Return");
-  drivetrain.move(33);                  // Drive forward along the return lane.
+  drivetrain.move(24);                  // Drive 24 inches along the return lane.
   return settle(drivetrain);
 }
 
