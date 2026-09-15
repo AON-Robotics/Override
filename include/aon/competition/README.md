@@ -38,8 +38,8 @@ The static export is converted during the build and executed through the existin
 AON follower. Paste each complete export into `static/<name>.jerryio.txt`, then
 build and upload. All matching files are discovered automatically. Choose the
 route in `src/aon/competition/static-path.cpp` with
-`generated::staticPathAt(drivetrain.getPose(), "name")`. The current name is
-`"path"`; a missing name returns an invalid empty route rather than another path.
+`generated::staticPathAt(drivetrain.getPose(), "name")`. A missing name returns an invalid empty route rather than another path.
+The current action test below uses `"testing"`.
 Each route is anchored independently to the supplied start pose. The generated header is disposable; do not edit it. Exported
 speeds are omitted; this routine uses a 200 RPM limit and a 30-second timeout.
 B or competition disable cancels following. Internal stop markers are unsupported.
@@ -47,3 +47,23 @@ B or competition disable cancels following. Internal stop markers are unsupporte
 Latest physical test: the user reports the automatic JerryIO route only drove
 straight. Red 3 (Basic U-turn / BAS) remains available for comparison.
 The cause of the static-path failure is not yet established.
+
+## Current JerryIO action test
+
+Red 4 / PTH now runs `static/testing.jerryio.txt`, stopping at these editor poses:
+
+| X | Y | Heading | Action after arrival |
+| --- | --- | --- | --- |
+| -30.842 | -14.325 | 0 | Intake forward for 2 seconds, then stop |
+| -35.223 | 8.090 | 270 | Reverse intake for 2 seconds, then stop |
+| -57.133 | -13.483 | 270 | Extend Arrow (port C) |
+
+All legs and stop headings use one transform from the robot's initial live pose;
+intermediate stops do not reset or rebase odometry. The first sampled segment
+must align with the robot's initial forward direction, as with the existing path
+conversion. Stop targets use the follower's existing 2-inch/2-degree tolerances.
+The intake scanner is disabled for this test so it does not override timed actions.
+B, disable, or a failed leg stops the intake and prevents remaining actions.
+The whole sequence has a 30-second deadline. Arrow stays extended after success.
+Re-exporting a different test shape also requires updating the three stop poses
+in `src/aon/competition/static-path.cpp`; unmatched stops reject the routine.

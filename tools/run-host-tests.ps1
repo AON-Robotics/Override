@@ -67,3 +67,7 @@ Invoke-CppTest -Name 'native-follower-test' -Sources @(
 Invoke-CppTest -Name 'follow-runtime-test' -Sources @(
     'tests/follow-runtime-test.cpp'
 )
+
+Invoke-CppTest -Name 'static-path-actions-test' -Sources @(
+    'tests/static-path-actions-test.cpp'
+)
