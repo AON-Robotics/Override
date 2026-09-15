@@ -66,8 +66,16 @@ int main() {
     if (scenario == 0) {
       assert(result == 1 && piston == 1 && drive.legs.size() == 3);
       assert(pros::timeMs == 5500);
-      const aon::Pose editor[] = {{-30.842,-14.325,0},{-35.223,8.09,270},{-57.133,-13.483,270}};
+      const aon::Pose editor[] = {{-53.304526,2.487347,0}, {-55.223097,12.301576,270}, {-67.370706,0.340853,270}};
+      const double lengths[] = {12,10,20};
       for (std::size_t i = 0; i < 3; ++i) {
+        double traveled = 0;
+        for (std::size_t j = 1; j < drive.legs[i].size(); ++j) {
+          const double step = drive.legs[i][j-1].distanceTo(drive.legs[i][j]);
+          assert(step > 1e-6);
+          traveled += step;
+        }
+        assert(std::abs(traveled-lengths[i]) < 0.001);
         auto expected = aon::generated::staticWaypointAt({40,-20,137},editor[i],"testing");
         assert(drive.legs[i].back().distanceTo(expected) < 1e-6);
         assert(std::abs(drive.legs[i].back().theta-expected.theta) < 1e-6);

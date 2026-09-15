@@ -54,9 +54,9 @@ Red 4 / PTH now runs `static/testing.jerryio.txt`, stopping at these editor pose
 
 | X | Y | Heading | Action after arrival |
 | --- | --- | --- | --- |
-| -30.842 | -14.325 | 0 | Intake forward for 2 seconds, then stop |
-| -35.223 | 8.090 | 270 | Reverse intake for 2 seconds, then stop |
-| -57.133 | -13.483 | 270 | Extend Arrow (port C) |
+| -53.304526 | 2.487347 | 0 | Intake forward for 2 seconds, then stop |
+| -55.223097 | 12.301576 | 270 | Reverse intake for 2 seconds, then stop |
+| -67.370706 | 0.340853 | 270 | Extend Arrow (port C) |
 
 All legs and stop headings use one transform from the robot's initial live pose;
 intermediate stops do not reset or rebase odometry. The first sampled segment
@@ -67,3 +67,6 @@ B, disable, or a failed leg stops the intake and prevents remaining actions.
 The whole sequence has a 30-second deadline. Arrow stays extended after success.
 Re-exporting a different test shape also requires updating the three stop poses
 in `src/aon/competition/static-path.cpp`; unmatched stops reject the routine.
+
+The testing route legs are now 12, 10, and 20 inches along the sampled curves.
+Stop coordinates were moved with the scaled legs; action durations stay at 2 seconds.

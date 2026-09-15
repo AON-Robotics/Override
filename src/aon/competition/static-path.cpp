@@ -12,8 +12,7 @@ using Result = Drivetrain::FollowResult;
 std::vector<std::vector<Pose>> testingLegs(const Pose& start) {
   const auto path = generated::staticPathAt(start, "testing");
   if (path.size() < 2) return {};
-  const Pose editorStops[] = {{-30.842,-14.325,0}, {-35.223,8.090,270},
-                              {-57.133,-13.483,270}};
+  const Pose editorStops[] = {{-53.304526,2.487347,0}, {-55.223097,12.301576,270}, {-67.370706,0.340853,270}};
   std::vector<std::vector<Pose>> legs;
   std::size_t cursor = 0;
   for (std::size_t stage = 0; stage < 3; ++stage) {
@@ -21,7 +20,14 @@ std::vector<std::vector<Pose>> testingLegs(const Pose& start) {
     std::size_t end = cursor;
     // First approach matters: the last curve passes near the second stop again.
     if (stage == 2) end = path.size()-1;
-    else while (end < path.size() && path[end].distanceTo(stop) > 0.8) ++end;
+    else {
+      // Prefer an explicit endpoint sample, avoiding a duplicate at the next leg.
+      while (end < path.size() && path[end].distanceTo(stop) > 0.005) ++end;
+      if (end == path.size()) {
+        end = cursor;
+        while (end < path.size() && path[end].distanceTo(stop) > 0.8) ++end;
+      }
+    }
     if (end >= path.size() || !std::isfinite(stop.x) ||
         path[end].distanceTo(stop) > 0.8) return {};
     std::vector<Pose> leg;
