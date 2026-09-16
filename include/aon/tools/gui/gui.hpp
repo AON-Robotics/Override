@@ -12,7 +12,6 @@
 #include "aon/math/pose.hpp"
 #include "../function-reader.hpp"
 #include "../gui-image-generator/gui-images.hpp"
-#include "./auton-selection.hpp"
 
 extern volatile Alliance ALLIANCE;
 
@@ -32,8 +31,6 @@ namespace aon {
     int SkillsRoutine1();
     int SkillsRoutine2();
     int SkillsRoutine3();
-    int BasicUTurnRoutine();
-    int StaticPathRoutine();
   }
     
   // Add other auton routine declarations as needed
@@ -67,8 +64,7 @@ struct AutonOption {
 };
 
 // Constants
-static constexpr int allianceAutonOptionsCount = 4;
-static constexpr int skillsAutonOptionsCount = 3;
+static constexpr int autonOptionsCount = 3;
 
 // Base Gui class - handles core GUI functionality without debug features
 class Gui {
@@ -82,8 +78,8 @@ public:
   bool autonRunning = false;
   bool autonCompleted = false;
   
-  // Preselected auton indices (1-4 alliance, 1-3 skills, 0 = none)
-  int selectedRedAut = 3;
+  // Preselected auton indices (1-3, 0 = none)
+  int selectedRedAut = 0;
   int selectedBlueAut = 0;
   int selectedSkill = 0;
 
@@ -93,21 +89,19 @@ public:
 
   // 3rd option is for button label keep it to less than 4 characters
   // Auton routines for each alliance
-  AutonOption redAutonOptions[allianceAutonOptionsCount] = {
+  AutonOption redAutonOptions[autonOptionsCount] = {
     {"Black Beard", aon::routines::RedRoutine1, "BB"},
     {"Jack Sparrow", aon::routines::RedRoutine2, "JS"},
-    {"Basic U-turn", aon::routines::BasicUTurnRoutine, "BAS"},
-    {"AON Static Path", aon::routines::StaticPathRoutine, "PTH"},
+    {"Red AUT3", aon::routines::RedRoutine3, "RA3"},
   };
   
-  AutonOption blueAutonOptions[allianceAutonOptionsCount] = {
+  AutonOption blueAutonOptions[autonOptionsCount] = {
     {"Black Beard", aon::routines::BlueRoutine1, "BB"},
     {"Jack Sparrow", aon::routines::BlueRoutine2, "JS"},
-    {"Basic U-turn", aon::routines::BasicUTurnRoutine, "BAS"},
-    {"AON Static Path", aon::routines::StaticPathRoutine, "PTH"},
+    {"Blue AUT3", aon::routines::BlueRoutine3, "BA3"},
   };
   
-  AutonOption skillsAutonOptions[skillsAutonOptionsCount] = {
+  AutonOption skillsAutonOptions[autonOptionsCount] = {
     {"Skills AUT1", aon::routines::SkillsRoutine1, "SA1"},
     {"Skills AUT2", aon::routines::SkillsRoutine2, "SA2"},
     {"Skills AUT3", aon::routines::SkillsRoutine3, "SA3"},

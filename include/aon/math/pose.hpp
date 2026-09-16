@@ -1,7 +1,5 @@
 #pragma once
 
-#include <cmath>
-
 namespace aon {
 
 class Pose {

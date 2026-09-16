@@ -61,6 +61,7 @@ namespace aon {
         ENCODER encoderLeft_data;
         GYRO gyro_data;
 
+        // Reversal flags for encoders
         bool leftReversed;
         bool rightReversed;
         bool backReversed;
