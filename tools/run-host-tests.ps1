@@ -12,17 +12,8 @@ if (-not (Test-Path -LiteralPath $vcVars)) {
 
 New-Item -ItemType Directory -Force -Path $buildDirectory | Out-Null
 
-if ($Test.Count -eq 0 -or 'static-path-generator-test' -in $Test) {
-    & python (Join-Path $repositoryRoot 'tests/static-path-generator-test.py')
-    if ($LASTEXITCODE -ne 0) { throw 'Static path generator tests failed' }
-}
-if ($Test.Count -eq 0 -or 'path-report-test' -in $Test) {
-    & python (Join-Path $repositoryRoot 'tests/path-report-test.py')
-    if ($LASTEXITCODE -ne 0) { throw 'Path report tests failed' }
-}
-
 & python (Join-Path $repositoryRoot 'tools/generate-static-path.py') `
-    (Join-Path $repositoryRoot 'static') `
+    (Join-Path $repositoryRoot 'static/path.jerryio.txt') `
     (Join-Path $repositoryRoot 'include/aon/generated/static-path.hpp')
 if ($LASTEXITCODE -ne 0) { throw 'Static path generation failed' }
 
@@ -45,18 +36,15 @@ function Invoke-CppTest {
         " /Fe:`"$executable`""
     $command = "call `"$vcVars`" >nul && $compile"
 
-    Push-Location $buildDirectory
-    try {
-        & $env:ComSpec /d /s /c $command
-        if ($LASTEXITCODE -ne 0) {
-            throw "$Name compilation failed with exit code $LASTEXITCODE"
-        }
+    & $env:ComSpec /d /s /c $command
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name compilation failed with exit code $LASTEXITCODE"
+    }
 
-        & $executable
-        if ($LASTEXITCODE -ne 0) {
-            throw "$Name failed with exit code $LASTEXITCODE"
-        }
-    } finally { Pop-Location }
+    & $executable
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Name failed with exit code $LASTEXITCODE"
+    }
 }
 
 Invoke-CppTest -Name 'auton-selection-test' -Sources @(
@@ -74,9 +62,3 @@ Invoke-CppTest -Name 'native-follower-test' -Sources @(
 Invoke-CppTest -Name 'follow-runtime-test' -Sources @(
     'tests/follow-runtime-test.cpp'
 )
-
-Invoke-CppTest -Name 'static-path-actions-test' -Sources @(
-    'tests/static-path-actions-test.cpp'
-)
-
-Invoke-CppTest -Name 'path-trace-test' -Sources @('tests/path-trace-test.cpp')

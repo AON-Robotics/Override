@@ -1,11 +1,6 @@
 #include "../include/main.hpp"
 
 void initialize() {
-  aon::gui->setTestRegister([] {
-    aon::gui->registerTestFunction(std::function<int()>([] { return aon::routines::PathDiagnostic(0); }), "Path: straight");
-    aon::gui->registerTestFunction(std::function<int()>([] { return aon::routines::PathDiagnostic(1); }), "Path: gentle curve");
-    aon::gui->registerTestFunction(std::function<int()>([] { return aon::routines::PathDiagnostic(2); }), "Path: U-turn");
-  });
   pros::Task guiLoopTask([]{aon::gui->initialize();});
   aon::logging::Initialize();
   aon::Configure(false);

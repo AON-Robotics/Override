@@ -58,8 +58,6 @@ public:
     odometry->pose.theta += delta*180/M_PI;
   }
   FollowResult follow(const std::vector<Pose>&, std::uint32_t, double);
-  FollowResult follow(PathView, const FollowOptions&, FollowHooks = {});
-  std::pair<double,double> wheelRpm() { return {actualLeft,actualRight}; }
 };
 }
 #include "../src/aon/drivetrain/follow.cpp"
@@ -69,32 +67,6 @@ int main() {
   using Result = aon::Drivetrain::FollowResult;
   const std::vector<aon::Pose> path{{0,0,0},{20,0,90}};
   aon::Drivetrain drive;
-  aon::FollowOptions options;
-  options.timeoutMs = 1000;
-  options.lookahead = 0;
-  assert(drive.follow(path, options) == Result::InvalidOptions);
-  options.lookahead = 6;
-  options.finalHeading = 0;
-  int observations = 0;
-  aon::FollowHooks hooks;
-  hooks.context = &observations;
-  hooks.sample = [](void* ctx, const aon::FollowSample& sample) {
-    ++*static_cast<int*>(ctx);
-    assert(std::isfinite(sample.target.x) && std::isfinite(sample.measuredLeft));
-  };
-  hooks.update = [](void*, double) { return pros::millis() < 40; };
-  pros::timeMs = 0;
-  assert(drive.follow(path, options, hooks) == Result::Cancelled);
-  assert(observations > 0);
-  hooks.update = nullptr;
-  pros::timeMs = 0;
-  const std::vector<aon::Pose> near{{0,0,0},{1,0,90}};
-  assert(drive.follow(near, options, hooks) == Result::Completed); // explicit final heading
-  assert(drive.opposedCommands == 0);
-  pros::timeMs = 0;
-  drive.actualLeft = drive.actualRight = 50;
-  assert(drive.follow(near, options) == Result::TimedOut); // position alone isn't settled
-  drive.actualLeft = drive.actualRight = 0;
   assert(drive.follow({}, 100, 200) == Result::InvalidPath);
   assert(drive.follow(path, 0, 200) == Result::InvalidOptions);
   pros::timeMs = 0;
@@ -127,20 +99,5 @@ int main() {
   assert(moving.odometry->pose.distanceTo(route.back()) < 2.2);
   assert(std::abs(std::remainder(moving.odometry->pose.theta-route.back().theta,360)) <= 2.01);
   assert(moving.actualLeft == 0 && moving.actualRight == 0);
-  for (const char* name : {"diagnostic-straight","diagnostic-curve","path"}) {
-    aon::Drivetrain diagnostic;
-    diagnostic.odometry->pose = {20,-40,137};
-    const auto exported = aon::generated::staticRouteAt(diagnostic.odometry->pose,name);
-    pros::timeMs = 0;
-    pros::advance = [&](unsigned ms) { diagnostic.advance(ms); };
-    aon::FollowOptions diagnosticOptions;
-    diagnosticOptions.maximumRpm = 120;
-    diagnosticOptions.lookahead = 4;
-    diagnosticOptions.lookaheadAtSpeed = 8;
-    diagnosticOptions.positionTolerance = 0.75;
-    assert(diagnostic.follow(exported.view(),diagnosticOptions) == Result::Completed);
-    assert(diagnostic.odometry->pose.distanceTo(exported.points.back()) <= 0.8);
-    pros::advance = nullptr;
-  }
   std::cout << "AON execution loop tests passed\n";
 }

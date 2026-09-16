@@ -761,9 +761,6 @@ class Drivetrain {
   /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
   enum class FollowResult { Completed, InvalidPath, InvalidOptions, TimedOut, Disabled, Cancelled };
 
-  virtual std::pair<double,double> wheelRpm() { const double rpm = getRPM(); return {rpm,rpm}; }
-  FollowResult follow(PathView path, const FollowOptions& options, FollowHooks hooks = {});
-
   // Existing one-argument callers and derived-drive overrides stay compatible.
   virtual void follow(const std::vector<Pose>& path) {
     (void)follow(path, 30000, MAX_RPM);

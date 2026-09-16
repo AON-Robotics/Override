@@ -13,12 +13,7 @@
 #include "../tools/general.hpp"
 #include "../math/misc/misc.hpp"
 #include "./basic-uturn.hpp"
-#include <functional>
-namespace aon {
-class Drivetrain;
-int runStaticPath(Drivetrain&, const std::function<void(int)>&, const std::function<void()>&);
-int runPathDiagnostic(Drivetrain&, int);
-}
+namespace aon { class Drivetrain; int runStaticPath(Drivetrain& drivetrain); }
 
 // TODO: for modularity we will have odometry, drivetrain, navigator, orbit, intake, and claw (the last two will most likely change with each game and modules may be added or removed as needed)
 // TODO: add support for a drive mode that is videogame-like (i think rocket league has it). Basically with reference to where the driver is standing on the field, the direction towards which you move the joystick is where the robot will turn to and drive to at the same time. This should greatly facilitate general directional movement if implemented correctly. Leave a toggle available for traditional driving in accordance to the chosen drivetrain for better fine grained control in tight spaces.
@@ -920,18 +915,10 @@ int BasicUTurnRoutine() {
 }
 
 int StaticPathRoutine() {
-  intake.stopScan();
   intake.stop();
-  const int result = aon::runStaticPath(drivetrain,
-      [](int rpm) { intake.move(rpm); }, [] { arrow.activate(); });
+  const int result = aon::runStaticPath(drivetrain);
   intake.stop();
   return result;
-}
-
-int PathDiagnostic(int index) {
-  intake.stopScan();
-  intake.stop();
-  return aon::runPathDiagnostic(drivetrain,index);
 }
 
 } // namespace aon::routines

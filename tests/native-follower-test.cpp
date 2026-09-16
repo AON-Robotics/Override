@@ -65,64 +65,6 @@ void simulate(const std::vector<aon::Pose>& path, aon::Pose pose) {
 }
 
 int main() {
-  // Catch ignored exported speed caps, wrong steering sign, and fixed lookahead.
-  const std::vector<aon::Pose> straight{{0,0,0},{40,0,0},{80,0,0}};
-  const std::uint8_t slow[] = {32,32,0};
-  auto limited = controller();
-  limited.setMaximumRpm(200);
-  std::pair<double,double> command;
-  for (int i=0; i<200; ++i) command = limited.follow(aon::PathView{straight.data(),3,slow}, {});
-  assert(command.first > 0 && command.first <= 200.0*32/127+0.01);
-  assert(std::abs(command.first-command.second) < 1e-9);
-  // A sliced leg may end at a positive export cap; retain that approach speed.
-  const std::uint8_t approach[] = {127,32,8};
-  auto approaching = controller();
-  approaching.setMaximumRpm(200);
-  for (int i=0; i<100; ++i)
-    command = approaching.follow(aon::PathView{straight.data(),3,approach},{76,0,0});
-  assert(command.first <= 200.0*(8+24*0.1)/127+0.01);
-  const std::vector<aon::Pose> speedDrop{{0,0,0},{2,0,0},{100,0,0}};
-  const std::uint8_t drop[] = {127,16,0};
-  auto preview = controller();
-  preview.setMaximumRpm(200);
-  for (int i=0; i<100; ++i) command = preview.follow({speedDrop.data(),3,drop},{});
-  assert(command.first < 100); // braking starts before reaching the low-speed sample
-  auto steering = controller();
-  command = steering.follow(straight, {0,-2,0});
-  assert(command.first > command.second); // native positive lateral = clockwise
-  aon::FollowOptions tuning;
-  tuning.lookahead = 3;
-  tuning.lookaheadAtSpeed = 10;
-  tuning.maximumRpm = 200;
-  auto adaptive = controller();
-  adaptive.configure(tuning);
-  adaptive.follow(straight, {});
-  const double initialTarget = adaptive.target().x;
-  for (int i=0; i<200; ++i) adaptive.follow(straight, {});
-  assert(initialTarget < 3.1 && adaptive.target().x > 9);
-  auto invalidSpeed = controller();
-  const std::uint8_t stopped[] = {127,0,0};
-  invalidSpeed.follow(aon::PathView{straight.data(),3,stopped}, {});
-  assert(!invalidSpeed.valid());
-  auto configured = controller();
-  tuning.positionTolerance = 0.25;
-  configured.configure(tuning);
-  configured.follow(straight, {79,0,0});
-  assert(!configured.complete());
-  const std::vector<aon::Pose> bend{{0,0,0},{5,1,0},{8,4,0},{10,10,90}};
-  auto gentle = controller();
-  tuning.lateralAcceleration = 0.5;
-  gentle.configure(tuning);
-  auto unrestricted = controller();
-  tuning.lateralAcceleration = 0;
-  unrestricted.configure(tuning);
-  std::pair<double,double> faster;
-  for (int i=0; i<100; ++i) {
-    command = gentle.follow(bend,{});
-    faster = unrestricted.follow(bend,{});
-  }
-  assert(command.first+command.second < faster.first+faster.second);
-
   auto follower = controller();
   const std::vector<aon::Pose> closeLanes{{0,0,0},{20,0,0},{20,1,0},{0,1,180}};
   follower.follow(closeLanes, {0,0.9,0});
@@ -135,11 +77,10 @@ int main() {
   empty.follow({}, {});
   assert(!empty.valid());
   auto duplicate = controller();
-  duplicate.follow(std::vector<aon::Pose>{{0,0,0},{0,0,0}}, {});
+  duplicate.follow({{0,0,0},{0,0,0}}, {});
   assert(!duplicate.valid());
   simulate({{0,0,0},{12,0,0},{24,0,0}}, {});
   simulate({{0,0,0},{10,0,0},{18,2,0},{23,7,0},{25,15,90}}, {});
-  assert(aon::generated::staticPathAt({}, "missing-route").empty());
   simulate(aon::generated::staticPathAt({}), {});
   simulate(aon::generated::staticPathAt({40,-20,137}), {40,-20,137});
   std::cout << "Native AON follower tests passed\n";
