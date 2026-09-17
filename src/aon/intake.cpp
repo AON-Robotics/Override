@@ -368,21 +368,17 @@ void Intake::lever(const uint32_t timeout) {
 }
 
 void Intake::extendLever() {
-  // TODO: Implement async position control for lever using move_absolute() or custom controller
-  // this->leverController->setTarget(150);
-  scorerMG.move_absolute(150, 100);
+  leverTarget = 150;
+  scorerMG.move_absolute(leverTarget, 100);
 }
 
 void Intake::resetLever() {
-  // TODO: Implement async position control for lever using move_absolute() or custom controller
-  // this->leverController->setTarget(0);
-  scorerMG.move_absolute(0, 100);
+  leverTarget = 0;
+  scorerMG.move_absolute(leverTarget, 100);
 }
 
 bool Intake::leverFinished() {
-  // TODO: Implement proper position tracking for async position control
-  // return this->leverController->getError() < 10;
-  return true;  // Placeholder
+  return std::abs(scorerMG.get_position() - leverTarget) < 10;
 }
 
 void Intake::score(const Height& height, const int& delay) {
