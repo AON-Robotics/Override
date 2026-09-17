@@ -45,3 +45,15 @@ TEMPLATE_FILES=$(INCDIR)/$(LIBNAME)/*.h $(INCDIR)/$(LIBNAME)/*.hpp
 ################################################################################
 ########## Nothing below this line should be edited by typical users ###########
 -include ./common.mk
+
+# Paste exports into static/<name>.jerryio.txt, then build and upload.
+# Convert once on the computer; the robot uses AON's existing follower.
+PYTHON ?= python
+STATIC_PATH_HEADER := $(INCDIR)/aon/generated/static-path.hpp
+.PHONY: check-static-paths
+check-static-paths:
+$(STATIC_PATH_HEADER): check-static-paths $(ROOT)/tools/generate-static-path.py
+	$(PYTHON) tools/generate-static-path.py static $@
+
+$(BINDIR)/aon/competition/static-path.cpp.o: $(STATIC_PATH_HEADER)
+$(BINDIR)/aon/competition/path-diagnostics.cpp.o: $(STATIC_PATH_HEADER)
