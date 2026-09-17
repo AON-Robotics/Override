@@ -70,6 +70,12 @@ inline const ui::Button aut1Btn = {50, BRAIN_SCREEN_HEIGHT - 100, 150, BRAIN_SCR
 inline       ui::Button Aut2Btn = {BRAIN_SCREEN_WIDTH / 2 - 50, BRAIN_SCREEN_HEIGHT - 100, BRAIN_SCREEN_WIDTH / 2 + 50, BRAIN_SCREEN_HEIGHT - 50, "AUT2", pros::Color::black, pros::Color::black};
 inline const ui::Button Aut3Btn = {BRAIN_SCREEN_WIDTH - 150, BRAIN_SCREEN_HEIGHT - 100, BRAIN_SCREEN_WIDTH - 50, BRAIN_SCREEN_HEIGHT - 50, "AUT3", pros::Color::black, pros::Color::black};
 
+// Four-option alliance grid. Skills retains the three buttons above.
+inline const ui::Button allianceAut1Btn = {35, 105, 220, 150, "AUT1", pros::Color::black, pros::Color::white};
+inline const ui::Button allianceAut2Btn = {260, 105, 445, 150, "AUT2", pros::Color::black, pros::Color::white};
+inline const ui::Button allianceAut3Btn = {35, 165, 220, 210, "AUT3", pros::Color::black, pros::Color::white};
+inline const ui::Button allianceAut4Btn = {260, 165, 445, 210, "AUT4", pros::Color::black, pros::Color::white};
+
 }  // namespace aon
 
 #endif  // AON_TOOLS_GUI_LAYOUT_HPP_
