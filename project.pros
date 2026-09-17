@@ -1,7 +1,7 @@
 {
   "py/object": "pros.conductor.project.Project",
   "py/state": {
-    "project_name": "PathJerrIo",
+    "project_name": "PathJerryIo",
     "target": "v5",
     "templates": {
       "kernel": {
