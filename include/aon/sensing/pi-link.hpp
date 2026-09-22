@@ -3,14 +3,14 @@
 #ifndef AON_SENSING_PI_LINK_HPP_
 #define AON_SENSING_PI_LINK_HPP_
 
+#include <cstdint>
 #include <string>
 #include "pros/rtos.hpp"
 
 namespace aon {
 
-/// @brief Reads "<color>,<distance_in>\n" packets sent by a Raspberry Pi wired
-/// to the brain's USB (debug/user serial) port, e.g. "R,14\n" for a red
-/// object detected 14 inches away.
+/// @brief Reads the RaspberryPi red_tracker's "R,<inches>\n" and "N,0\n"
+/// packets from the brain's USB (debug/user serial) port.
 class PiLink {
  public:
   enum class Color : char { Red = 'R', Blue = 'B', Green = 'G', Unknown = '?' };
@@ -26,12 +26,14 @@ class PiLink {
   /// never returns.
   void run();
 
-  /// @brief Thread-safe copy of the most recent successfully parsed reading
+  /// @brief Thread-safe reading; invalid after 300 ms without a packet.
   Reading latest();
 
  private:
   std::string buffer_;
   Reading latest_;
+  std::uint32_t lastPacketMs_ = 0;
+  bool hasPacket_ = false;
   pros::Mutex mutex_;
 
   /// @brief Parses a single "<color>,<distance>" line (no trailing newline)

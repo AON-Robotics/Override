@@ -132,7 +132,9 @@ pros::ADIPotentiometer potentiometer('Z');
 
 // Raspberry Pi camera link (over USB debug serial) and the motor it drives for testing
 aon::PiLink piLink;
+#if !USING_BIG_ROBOT
 pros::Motor visionTestMotor(10);
+#endif
 
 /// PIDs
 aon::PID drivePID = aon::PID(0.02, 0, 0);
@@ -201,28 +203,36 @@ void autonSafety(){
   }
 }
 
-/// @brief Drives `visionTestMotor` from the latest Pi camera reading ("R,14\n" format)
-/// @note Red spins the motor forward, blue spins it backward, both scaled so closer
-/// objects spin faster; anything else stops the motor. This is only for wiring tests.
+#if !USING_BIG_ROBOT
+/// @brief Drives the small robot's test motor from red_tracker packets.
+/// Red spins forward, scaled so closer targets spin faster. Missing or stale
+/// packets stop the motor. Port 10 is occupied by the big robot's intake.
 void visionMotorTest(){
   constexpr double MAX_TEST_DISTANCE = 24.0; // inches, beyond this the motor stops
   constexpr int MAX_TEST_VELOCITY = 200; // rpm
+  std::uint32_t lastDisplayMs = 0;
   while(true){
     const PiLink::Reading reading = piLink.latest();
-    if(reading.valid){
+    if(reading.valid && reading.color == PiLink::Color::Red){
       const double clampedDistance = std::clamp(reading.distanceInches, 0.0, MAX_TEST_DISTANCE);
       const int speed = static_cast<int>(MAX_TEST_VELOCITY * (1.0 - clampedDistance / MAX_TEST_DISTANCE));
-      if(reading.color == PiLink::Color::Red){
-        visionTestMotor.move_velocity(speed);
-      } else if(reading.color == PiLink::Color::Blue){
-        visionTestMotor.move_velocity(-speed);
+      visionTestMotor.move_velocity(speed);
+    } else {
+      visionTestMotor.move_velocity(0);
+    }
+    const std::uint32_t nowMs = pros::millis();
+    if (nowMs - lastDisplayMs >= 250) {
+      if (reading.valid && reading.color == PiLink::Color::Red) {
+        mainController.print(2, 0, "Pi R %d in", static_cast<int>(reading.distanceInches));
       } else {
-        visionTestMotor.move_velocity(0);
+        mainController.print(2, 0, "Pi no target   ");
       }
+      lastDisplayMs = nowMs;
     }
     pros::delay(20);
   }
 }
+#endif
 
 }  // namespace aon
 

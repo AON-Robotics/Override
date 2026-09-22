@@ -1,6 +1,10 @@
 #include "../include/main.hpp"
+#include "pros/apix.h"
 
 void initialize() {
+  // The Pi sends raw ASCII over USB; PROS's COBS stream multiplexing would
+  // prevent stdin from seeing those unframed bytes.
+  pros::c::serctl(SERCTL_DISABLE_COBS, nullptr);
   pros::Task guiLoopTask([]{aon::gui->initialize();});
   aon::logging::Initialize();
   aon::Configure(false);
@@ -12,7 +16,9 @@ void initialize() {
   pros::Task intakeScanning([]{intake.scan();});
   pros::Task intakeSorting([]{intake.sort();});
   pros::Task piLinkReadTask([]{piLink.run();});
+#if !USING_BIG_ROBOT
   pros::Task visionTestTask([]{aon::visionMotorTest();});
+#endif
 }
 
 void disabled() {}
