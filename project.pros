@@ -591,7 +591,9 @@
         "version": "9.2.0"
       }
     },
-    "upload_options": {},
+    "upload_options": {
+      "slot": 2
+    },
     "use_early_access": false
   }
 }

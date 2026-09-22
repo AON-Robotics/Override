@@ -3,6 +3,7 @@
 #ifndef AON_GLOBALS_HPP_
 #define AON_GLOBALS_HPP_
 
+#include <algorithm>
 #include "./constants.hpp"
 #include "../api.h"
 #include "pros/motors.hpp"
@@ -17,6 +18,7 @@
 #include "./piston/piston.hpp"
 #include "./math/scaling/pilons-scaler.hpp"
 #include "./math/scaling/exponential-scaler.hpp"
+#include "./sensing/pi-link.hpp"
 #include "./math/scaling/cubic-scaler.hpp"
 
 namespace aon::operator_control {
@@ -128,6 +130,10 @@ volatile Alliance ALLIANCE = Alliance::Red;
 // Potentiometer
 pros::ADIPotentiometer potentiometer('Z');
 
+// Raspberry Pi camera link (over USB debug serial) and the motor it drives for testing
+aon::PiLink piLink;
+pros::Motor visionTestMotor(10);
+
 /// PIDs
 aon::PID drivePID = aon::PID(0.02, 0, 0);
 aon::PID turnPID = aon::PID(0.002, 0, 0);
@@ -192,6 +198,29 @@ void autonSafety(){
       STOP();
     }
     pros::delay(50);
+  }
+}
+
+/// @brief Drives `visionTestMotor` from the latest Pi camera reading ("R,14\n" format)
+/// @note Red spins the motor forward, blue spins it backward, both scaled so closer
+/// objects spin faster; anything else stops the motor. This is only for wiring tests.
+void visionMotorTest(){
+  constexpr double MAX_TEST_DISTANCE = 24.0; // inches, beyond this the motor stops
+  constexpr int MAX_TEST_VELOCITY = 200; // rpm
+  while(true){
+    const PiLink::Reading reading = piLink.latest();
+    if(reading.valid){
+      const double clampedDistance = std::clamp(reading.distanceInches, 0.0, MAX_TEST_DISTANCE);
+      const int speed = static_cast<int>(MAX_TEST_VELOCITY * (1.0 - clampedDistance / MAX_TEST_DISTANCE));
+      if(reading.color == PiLink::Color::Red){
+        visionTestMotor.move_velocity(speed);
+      } else if(reading.color == PiLink::Color::Blue){
+        visionTestMotor.move_velocity(-speed);
+      } else {
+        visionTestMotor.move_velocity(0);
+      }
+    }
+    pros::delay(20);
   }
 }
 

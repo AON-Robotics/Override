@@ -11,6 +11,8 @@ void initialize() {
   // pros::Task turretScanTask([]{orbit.scan();}); // TODO: combine this with the follow task
   pros::Task intakeScanning([]{intake.scan();});
   pros::Task intakeSorting([]{intake.sort();});
+  pros::Task piLinkReadTask([]{piLink.run();});
+  pros::Task visionTestTask([]{aon::visionMotorTest();});
 }
 
 void disabled() {}
