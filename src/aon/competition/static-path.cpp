@@ -1,4 +1,5 @@
 #include "aon/competition/path-sequence.hpp"
+#include "aon/competition/path-tuning.hpp"
 #include "aon/generated/static-path.hpp"
 #include "aon/tools/path-trace.hpp"
 #include "pros/misc.h"
@@ -33,6 +34,15 @@ struct MechanismAction {
 int runStaticPath(Drivetrain& drivetrain, const std::function<void(int)>& intake,
                   const std::function<void()>& piston) {
   // Transform once, then borrow overlapping slices. No copies or re-anchoring.
+  FollowOptions tuned;
+  std::uint32_t profile = 0;
+  const auto loaded = loadPathTuning(tuned,profile,"/usd/aon-path-approved.csv");
+  if (loaded == TuningLoad::Invalid) {
+    intake(0);
+    drivetrain.stop();
+    pros::screen::print(pros::E_TEXT_MEDIUM_CENTER,3,"Invalid approved tuning - no motion");
+    return 0;
+  }
   const auto start = drivetrain.getPose();
   const auto route = generated::staticRouteAt(start,"testing");
   const auto started = pros::millis();
@@ -46,6 +56,7 @@ int runStaticPath(Drivetrain& drivetrain, const std::function<void(int)>& intake
     const auto& stop = route.stops[stage];
     const auto last = stop.index;
     steps[stage].path = route.view().slice(first,last);
+    if (loaded == TuningLoad::Loaded) steps[stage].options = tuned;
     steps[stage].options.finalHeading = stop.heading;
     steps[stage].arrived = MechanismAction::run;
     if (stage < 2) steps[stage].afterWait = MechanismAction::stop;

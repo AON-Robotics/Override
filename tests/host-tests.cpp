@@ -5,6 +5,7 @@
 #include "follow-runtime-test.cpp"
 #include "static-path-actions-test.cpp"
 #include "gui-selection-test.cpp"
+#include "path-tuning-test.cpp"
 
 void testPoseSetters() {
   pros::reset();
@@ -48,6 +49,7 @@ void testGeneratedStops() {
 }
 
 int main() {
+  testTuning();
   testGeneratedStops();
   testSelection();
   testPoseSetters();
