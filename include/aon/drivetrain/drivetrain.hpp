@@ -1,6 +1,4 @@
 #pragma once
-#ifndef AON_DRIVETRAIN_HPP_
-#define AON_DRIVETRAIN_HPP_
 
 #include "pros/motors.hpp"
 #include "../odometry/odometry.hpp"
@@ -46,7 +44,6 @@ class Drivetrain {
   protected:
 
   std::unique_ptr<Odometry> odometry;
-  Pose pose;
   bool turbo = false;
 
   /// @brief This applies only while using curvature drive to allow for turning without forward motion. Any forward motion below this will cause curvature drive to behave like arcade.
@@ -62,8 +59,8 @@ class Drivetrain {
 
   Drivetrain(Pose pose, std::unique_ptr<Odometry> odom, SpeedFactors speedFactors, 
              std::unique_ptr<MotionProfile> xProfile, std::unique_ptr<MotionProfile> yProfile, std::unique_ptr<MotionProfile> thetaProfile): 
-             pose(pose), odometry(std::move(odom)), speedFactors(speedFactors),
-             xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) {}
+             odometry(std::move(odom)), speedFactors(speedFactors),
+             xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) { if (odometry) setPose(pose); }
 
   enum DriveMode {
     TANK,
@@ -80,22 +77,23 @@ class Drivetrain {
   void initialize() { this->odometry->initialize(); }
   
   Pose getPose() { return this->odometry->getPose(); }
-  void setPose(Pose p) { this->pose = p; }
+  // Change the odometry frame without resetting sensors or waiting for the IMU.
+  void setPose(Pose p) { odometry->SetPosition(p.x, p.y); odometry->setDegrees(p.theta); }
 
   double getX() { 
     return this->odometry->getX();
   }
-  void setX(double x) { this->pose.x = x; }
+  void setX(double x) { odometry->SetPosition(x, getY()); }
 
   double getY() { 
     return this->odometry->getY();
   }
-  void setY(double y) { this->pose.y = y; }
+  void setY(double y) { odometry->SetPosition(getX(), y); }
 
   double getTheta() { 
     return this->odometry->getDegrees();
   }
-  void setTheta(double theta) { this->pose.theta = theta; }
+  void setTheta(double theta) { odometry->setDegrees(theta); }
 
   void resetPose(double x = 0.0, double y = 0.0, double theta = 0.0) {
     this->odometry->resetCurrent(x, y, theta);
@@ -782,5 +780,3 @@ class Drivetrain {
 };
 
 }  // namespace aon
-
-#endif  // AON_DRIVETRAIN_HPP_

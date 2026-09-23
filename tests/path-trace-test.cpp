@@ -1,4 +1,3 @@
-#define _CRT_SECURE_NO_WARNINGS
 #include <cassert>
 #include <cstdio>
 #include <fstream>
@@ -12,7 +11,7 @@
 #pragma warning(pop)
 #endif
 
-int main() {
+void testTrace() {
   const char* base = "path-trace-test";
   std::remove("path-trace-test.csv");
   std::remove("path-trace-test-runs.csv");

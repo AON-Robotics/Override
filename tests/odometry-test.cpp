@@ -1,6 +1,6 @@
 #include "support/odometry-host.hpp"
 
-int main() {
+void testOdometry() {
   aon::Odometry odom(1, 2, 3, 4, 5);
   odom.resetCurrent(0, 0, 0);
   odom.gyroscope.heading = 179;

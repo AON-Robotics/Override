@@ -19,7 +19,7 @@ aon::PurePursuit controller() {
           6, 2, 2};
 }
 
-void simulate(const std::vector<aon::Pose>& path, aon::Pose pose) {
+void simulate(aon::PathView path, aon::Pose pose) {
   auto follower = controller();
   follower.setMaximumRpm(200);
   const double initialHeading = pose.theta;
@@ -64,7 +64,7 @@ void simulate(const std::vector<aon::Pose>& path, aon::Pose pose) {
   assert(std::abs(std::remainder(pose.theta-path.back().theta,360)) <= 2.01);
 }
 
-int main() {
+void testFollower() {
   // Catch ignored exported speed caps, wrong steering sign, and fixed lookahead.
   const std::vector<aon::Pose> straight{{0,0,0},{40,0,0},{80,0,0}};
   const std::uint8_t slow[] = {32,32,0};
@@ -137,10 +137,10 @@ int main() {
   auto duplicate = controller();
   duplicate.follow(std::vector<aon::Pose>{{0,0,0},{0,0,0}}, {});
   assert(!duplicate.valid());
-  simulate({{0,0,0},{12,0,0},{24,0,0}}, {});
-  simulate({{0,0,0},{10,0,0},{18,2,0},{23,7,0},{25,15,90}}, {});
-  assert(aon::generated::staticPathAt({}, "missing-route").empty());
-  simulate(aon::generated::staticPathAt({}), {});
-  simulate(aon::generated::staticPathAt({40,-20,137}), {40,-20,137});
+  simulate(std::vector<aon::Pose>{{0,0,0},{12,0,0},{24,0,0}}, {});
+  simulate(std::vector<aon::Pose>{{0,0,0},{10,0,0},{18,2,0},{23,7,0},{25,15,90}}, {});
+  assert(aon::generated::staticRouteAt({}, "missing-route").points.empty());
+  simulate(aon::generated::staticRouteAt({}).view(), {});
+  simulate(aon::generated::staticRouteAt({40,-20,137}).view(), {40,-20,137});
   std::cout << "Native AON follower tests passed\n";
 }

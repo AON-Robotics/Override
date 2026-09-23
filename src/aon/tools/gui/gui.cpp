@@ -2,6 +2,7 @@
 #include "../../../../include/aon/tools/gui/gui-debug.hpp"
 #include "../../../../include/aon/constants.hpp"
 #include "../../../../include/aon/tools/gui/ui/gui-layout.hpp"
+#include <algorithm>
 
 namespace aon {
 
@@ -132,7 +133,8 @@ void Gui::selectAutonByList(Alliance alliance, int index1Based) {
       optionCount = skillsAutonOptionsCount;
       break;
   }
-  index1Based = clampAutonIndex(index1Based, optionCount);
+  if (!options || optionCount <= 0) return;
+  index1Based = std::clamp(index1Based, 1, optionCount);
   switch (alliance) {
     case Alliance::Red:
       selectedRedAut = index1Based;

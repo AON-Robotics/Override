@@ -1,5 +1,18 @@
 # JerryIO autonomous guide
 
+## Autonomous selections
+
+Red/Blue 3 (**BAS**) run the in-tree `basicUTurn` test routine: move 24 inches, drive a
+right semicircle of radius 8.5 inches, then move 24 inches. Both alliances use
+the same route. The routine brakes between commands and checks B/disable during
+those pauses. The legacy move/arc calls are blocking and do not report timeout
+success, so cancellation is checked between commands.
+
+Red/Blue 4 (**PTH**) run the generated `testing` route. The intake scanner is
+disabled while this routine controls intake actions. Unknown route names return
+empty routes and are rejected before motion. Internal zero-speed markers are
+unsupported.
+
 ## Run the diagnostics
 
 With `TESTING_AUTONOMOUS` enabled, open the debug registered-function list:
@@ -50,7 +63,7 @@ and heading errors, failure counts, and truncated logs. Errors come from
 odometry: measure physical endpoints too, because incorrect odometry can report
 a perfect arrival at the wrong real position.
 
-For the reported straight-only failure:
+When a route drives straight through an expected turn:
 
 | Trace observation | What to inspect next |
 | --- | --- |
@@ -100,8 +113,7 @@ wheel exceeds its RPM cap. Physical deceleration and grip still require tuning.
 
 The terminal zero is a stop marker, not a command to approach asymptotically at
 zero speed. Internal zero markers remain rejected: split the routine into legs
-instead. The legacy `staticPathAt()` returns geometry only; use `staticRouteAt()`
-and `.view()` to preserve speed caps.
+instead. Use `staticRouteAt()` and `.view()` to preserve speed caps.
 
 Start with fixed lookahead, then change one setting at a time. Smaller lookahead
 can track tighter curves but oscillate; larger lookahead can smooth motion but
@@ -118,15 +130,15 @@ blocking call; do not resize or edit its vectors during execution.
 
 ```cpp
 auto route = aon::generated::staticRouteAt(drivetrain.getPose(), "path");
-const auto middle = route.points.size()/2;
-aon::PathStep steps[2];
-steps[0].path = route.view().slice(0,middle);
-steps[1].path = route.view().slice(middle,route.points.size()-1);
-steps[1].options.maximumRpm = 100;
-steps[1].options.positionTolerance = 0.75;
-// Explicitly set each intermediate leg's desired final heading.
-steps[0].options.finalHeading = 90; // example native absolute heading
-auto result = aon::runPathSequence(drivetrain,steps,2,15000);
+std::vector<aon::PathStep> steps(route.stops.size());
+std::size_t first = 0;
+for (std::size_t i = 0; i < steps.size(); ++i) {
+  const auto& stop = route.stops[i];
+  steps[i].path = route.view().slice(first, stop.index);
+  steps[i].options.finalHeading = stop.heading;
+  first = stop.index;
+}
+auto result = aon::runPathSequence(drivetrain,steps.data(),steps.size(),15000);
 ```
 
 - `events` points to a sorted array of `PathEvent{distance, fire, context}`.
@@ -145,11 +157,22 @@ auto result = aon::runPathSequence(drivetrain,steps,2,15000);
 - All callbacks must be short and nonblocking. The sequencer handles waits and
   checks B, disable and its shared deadline every 10 ms.
 
-The existing action routine in `src/aon/competition/static-path.cpp` is a working
-example. Its stop positions are matched to export samples before any motion;
-changing that route also requires updating the three editor stop poses there.
-`generated::staticWaypointAt(start, editorPose, name)` converts editor GPS heading
-and coordinates into the same anchored frame as the route.
+The action routine in `src/aon/competition/static-path.cpp` uses the generated
+`route.stops`: each entry supplies a segment's endpoint index and anchored heading.
+The export's JerryIO JSON owns those endpoints and headings. Include every
+segment endpoint in the exported samples, rounded to the finest decimal place
+present in the coordinate rows (scientific notation is supported). Metadata must
+contain one continuous path of line segments (two controls) or cubic segments
+(four controls), with finite coordinates and endpoint headings. The editor start
+and final endpoint must agree with the samples. When declared, the format must
+be `LemLib v0.5` and `gc.uol` must be `2.54` (inches). The final stop always uses
+the terminal sample, even when that position was visited earlier.
+The generator resolves them in order and rejects missing boundary samples or
+ambiguous earlier crossings at build time; it does not infer or insert stops. No coordinate matching or route
+edits happen on the robot. Re-export the complete file to change the stops. The testing routine
+requires three segments, corresponding to its three actions; other segment
+counts reject the routine before motion. Exports without editor metadata can
+still be followed as whole routes, but do not provide segment stops.
 
 ## Calibrate and establish repeatability
 
@@ -176,32 +199,25 @@ and coordinates into the same anchored frame as the route.
    Choose acceptable tolerances before increasing speed. Then test the full
    mechanism routine repeatedly with its intended time budget.
 
-No calibration constants were guessed or changed by this implementation.
+## Storage and development checks
 
-## Footprint and verification
-
-Export coordinates occupy 8 bytes per point in static float tables, plus one
-byte per speed and one final heading per route. Calculations and anchored poses
-remain double precision. Legs borrow shared storage; the controller allocates
+Export coordinates occupy 16 bytes per point in static double tables, plus one
+byte per speed and one final heading per route. Generated segment stops add
+endpoint indices and headings. Calculations and anchored poses remain double
+precision. Legs borrow shared storage; the controller allocates
 its distance/speed preview once per run and searches only forward from its
 current segment. No new runtime libraries, background logging tasks, or
-per-control-tick allocations were introduced.
+per-control-tick allocations are needed.
 
 The build already uses `-Os` and section garbage collection. The optional log
 buffer is freed after each run and absent from ordinary non-testing action runs.
 Do not compare ELF debug-file length to flashed size; use `arm-none-eabi-size`
 and the produced `.bin` instead.
 
-Run `./tools/run-host-tests.ps1` for numerical, runtime, action, generator,
-recording and report checks. Run `make -j4` with the PROS toolchain on PATH for the
-ARM build. Host simulations check ideal motion and cancellation, not real grip
+Run `python tools/run-host-tests.py` for numerical, runtime, action, generator,
+recording and report checks. The runner uses `CXX` if set, otherwise discovers
+clang++, g++, or MSVC (via Visual Studio Installer on Windows). It builds one
+C++17 test executable with shared hardware stubs in a temporary directory.
+Python-only checks are available with `--python-only`. Run `make -j4` with the
+PROS toolchain on PATH for the ARM build. Host simulations check ideal motion and cancellation, not real grip
 or scoring reliability.
-
-### Verification snapshot (2026-09-15)
-
-All 7 Python tests and 6 C++ host test executables passed; the ARM build passed
-with existing ADIPotentiometer and JSON is_pod deprecation warnings.
-The final hot image is 858,092 bytes. Code plus initialized data is 858,045
-bytes, 4,954 bytes below the starting firmware artifact; BSS is unchanged.
-This comparison includes the existing workspace and is not proof of an absolute
-minimum. Physical calibration and repeated robot trials remain necessary.

@@ -14,6 +14,7 @@ int runPathDiagnostic(Drivetrain& drive, int index) {
   PathTrace trace(started);
   FollowOptions options;
   options.maximumRpm = 120;
+  if (!route.stops.empty()) options.finalHeading = route.stops.back().heading;
   FollowHooks hooks;
   hooks.context = &trace;
   hooks.sample = [](void* context, const FollowSample& sample) {
@@ -22,8 +23,10 @@ int runPathDiagnostic(Drivetrain& drive, int index) {
   pros::screen::print(pros::E_TEXT_LARGE_CENTER,1,"PATH DIAGNOSTIC %d",index+1);
   const auto result = drive.follow(route.view(),options,hooks);
   const auto elapsed = pros::millis()-started;
+  Pose commandedTarget = route.points.empty() ? drive.getPose() : route.points.back();
+  if (!route.stops.empty()) commandedTarget.theta = route.stops.back().heading;
   const bool saved = trace.save(files[index],followResultName(result),drive.getPose(),
-                                route.points.empty() ? drive.getPose() : route.points.back(),elapsed);
+                                commandedTarget,elapsed);
   pros::screen::print(pros::E_TEXT_MEDIUM_CENTER,3,"%s - %.2fs",followResultName(result),elapsed/1000.0);
   pros::screen::print(pros::E_TEXT_MEDIUM_CENTER,6,saved ? "CSV saved to SD" : "CSV not saved (check SD)");
   return result == Drivetrain::FollowResult::Completed;
