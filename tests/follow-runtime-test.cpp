@@ -79,5 +79,31 @@ void testRuntime() {
     assert(diagnostic.actualLeft == 0 && diagnostic.actualRight == 0);
     pros::advance = nullptr;
   }
+  // Per-run tuning changes the real controller, leaving the drive's profiles reusable.
+  auto firstCommand = [](double scale) {
+    pros::reset();
+    SimDrive drive;
+    aon::FollowOptions options;
+    options.accelerationScale = scale;
+    options.timeoutMs = 50;
+    double largest = 0;
+    aon::FollowHooks hooks;
+    hooks.context = &largest;
+    hooks.sample = [](void* ctx, const aon::FollowSample& sample) {
+      *static_cast<double*>(ctx) = std::max(*static_cast<double*>(ctx),sample.left);
+    };
+    const std::vector<aon::Pose> straight{{0,0,0},{100,0,0}};
+    assert(drive.follow(straight,options,hooks) == Result::TimedOut);
+    return largest;
+  };
+  assert(firstCommand(0.5) < firstCommand(1));
+  for (double invalid : {0.0, -1.0, 3.0, double(NAN), double(INFINITY)}) {
+    pros::reset();
+    SimDrive drive;
+    aon::FollowOptions options;
+    options.decelerationScale = invalid;
+    assert(drive.follow(path,options) == Result::InvalidOptions);
+    assert(drive.driveCommands == 0);
+  }
   std::cout << "AON execution loop tests passed\n";
 }
