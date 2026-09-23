@@ -66,12 +66,10 @@ static void computeArc(const Pose* buf, int start, int end,
   double cy = buf[end].y - buf[start].y;
   double chord = std::sqrt(cx * cx + cy * cy);
 
-  // Heading change (radians → degrees), unwrapped to [0, 360)
-  double dTheta = buf[end].theta - buf[start].theta;
-  // Normalise to (−π, π]
-  while (dTheta >  M_PI) dTheta -= 2.0 * M_PI;
-  while (dTheta < -M_PI) dTheta += 2.0 * M_PI;
-  double dDeg = std::fabs(dTheta) * (180.0 / M_PI);
+  // Pose headings are degrees; use the shortest arc before converting to radians.
+  const double dDeg = std::fabs(std::remainder(
+      buf[end].theta - buf[start].theta, 360.0));
+  const double dTheta = dDeg * (M_PI / 180.0);
 
   // Radius from arc-length / angle (circular arc assumption)
   double radius = 0.0;

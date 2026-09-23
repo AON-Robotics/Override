@@ -76,8 +76,10 @@ class Drivetrain {
 
   /// @brief Starts the underlying odometry thread
   void initialize() { this->odometry->initialize(); }
+
+  bool hasFreshPose() { return odometry && odometry->hasFreshPose(); }
   
-  Pose getPose() { return this->pose; }
+  Pose getPose() { return this->odometry->getPose(); }
   void setPose(Pose p) { this->pose = p; }
 
   double getX() { 
@@ -381,6 +383,7 @@ class Drivetrain {
   /// @param dist The distance to be moved in \b inches, positive values will move forward and negative values backwards
   /// @param settle If true, robot will stop after movement, if false, it will proceed at a constant speed
   void driveProfiled(double dist = TILE_WIDTH, bool settle = true) {
+    if (!hasFreshPose()) { stop(); return; }
     if (dist == 0) { return; }
     const int sign = dist / abs(dist);  // Direction of the movement
     dist = abs(dist);                   // Setting the magnitude to positive
@@ -402,6 +405,7 @@ class Drivetrain {
     this->yProfile->setFinalVelocity(settle ? 0 : 100);
 
     while (traveledDist < dist && !timer.isCompleted()) {
+      if (!hasFreshPose()) { stop(); return; }
       traveledDist = (odometry->getPosition() - startPos).GetMagnitude();
       double remainingDist = dist - traveledDist;
       now = pros::micros() / 1E6;
@@ -427,6 +431,7 @@ class Drivetrain {
   /// @param dist The distance to be moved in \b inches, positive values will move right and negative values left
   /// @param settle If true, robot will stop after movement, if false, it will proceed at a constant speed
   void strafeProfiled(double dist = TILE_WIDTH, bool settle = true) {
+    if (!hasFreshPose()) { stop(); return; }
     if(dist == 0) { return; }
     const int sign = dist / abs(dist); // Getting the direction of the movement
     dist = abs(dist); // Setting the magnitude to positive
@@ -448,6 +453,7 @@ class Drivetrain {
     this->xProfile->setFinalVelocity(settle ? 0 : 100);
 
     while(traveledDist < dist && !timer.isCompleted()){
+      if (!hasFreshPose()) { stop(); return; }
       traveledDist = (odometry->getPosition() - startPos).GetMagnitude();
       // traveledDist += getSpeed(this->getRPM()) * dt; //# in case of odom failure
 
@@ -471,6 +477,7 @@ class Drivetrain {
   /// @param angle The angle in \b degrees we wish to rotate the robot, positive is clockwise and negative is counter-clockwise
   /// @param settle If true, robot will stop after movement, if false, it will proceed at a constant speed
   void turnProfiled(double angle = 90, bool settle = true) {
+    if (!hasFreshPose()) { stop(); return; }
     if (angle == 0) { return; }
     const int sign = angle / abs(angle);  // Getting the direction of the movement
     angle = abs(angle);                   // Setting the magnitude to positive
@@ -486,8 +493,7 @@ class Drivetrain {
     double currAngle;
     double traveledAngle = 0;
 
-    double startAngle = odometry->gyroscope.get_rotation(); // TODO: add a function for this in the future odom class
-    // double startAngle = aon::odometry::GetDegrees();  //! this means we need an equivalent for the odometer but for gyro
+    double startAngle = odometry->getDegrees();
 
     double now;
     double lastTime = pros::micros() / 1E6;
@@ -495,9 +501,9 @@ class Drivetrain {
     this->thetaProfile->setFinalVelocity(settle ? 0 : 50);
 
     while (traveledAngle < angle && !timer.isCompleted()) {
-      currAngle = odometry->gyroscope.get_rotation();
+      if (!hasFreshPose()) { stop(); return; }
+      currAngle = odometry->getDegrees();
       traveledAngle = abs(currAngle - startAngle);
-      // traveledAngle = abs(aon::odometry::GetDegrees() - startAngle);
       double remainingAngle = angle - traveledAngle;
       now = pros::micros() / 1E6;
       dt = now - lastTime;
@@ -728,10 +734,8 @@ class Drivetrain {
   /// @param heading The target heading in \b degrees (same convention as odometry)
   /// @param settle If true, robot will stop after movement, if false, it will proceed at a constant speed
   void turnToHeading(const double &heading, bool settle = true) {
-    double delta = heading - odometry->getDegrees();
-    // Normalize to [-180, 180] for the shortest path
-    if (delta > 180) delta -= 360;
-    else if (delta < -180) delta += 360;
+    if (!hasFreshPose()) { stop(); return; }
+    const double delta = std::remainder(heading - odometry->getDegrees(), 360.0);
     turn(delta, settle);
   }
   
@@ -758,6 +762,7 @@ class Drivetrain {
   /// @param path The path to follow
   /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
   virtual void follow(const std::vector<Pose>& path) {
+    if (path.empty() || !hasFreshPose()) { stop(); return; }
     PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
 
     std::pair<double, double> output = {-1, -1};
@@ -772,6 +777,7 @@ class Drivetrain {
     timer.start(timeoutMs);
 
     while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted()) {
+      if (!hasFreshPose()) { stop(); return; }
       now = pros::micros() / 1E6;
       dt = now - lastTime;
       output = controller.follow(path, this->odometry->getPose(), dt);
@@ -788,7 +794,7 @@ class Drivetrain {
       pros::delay(10);
     }
 
-    this->turnToHeading(path.back().theta);
+    if (hasFreshPose()) this->turnToHeading(path.back().theta);
 
     this->stop();
   }

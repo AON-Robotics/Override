@@ -159,6 +159,30 @@ void driveIntoRing(const Colors &color = orbit.getColor()){
 
 namespace tests {
 
+// Editable in DEBUG -> Registered Autons -> OTOS Square Builder -> VARS.
+// Distances are inches; positive turns are clockwise degrees.
+inline double squareMove1 = 12.0;
+inline double squareTurn1 = 0.0;
+inline double squareMove2 = 0.0;
+inline double squareTurn2 = 0.0;
+inline double squareMove3 = 0.0;
+
+/// Build a short path one step at a time from the debug GUI.
+/// Zero-valued steps are skipped; every active step must have fresh OTOS data.
+inline int otosSquareBuilder() {
+  if (!drivetrain.hasFreshPose()) return -1;
+  if (squareMove1 != 0.0) drivetrain.move(squareMove1);
+  if (!drivetrain.hasFreshPose()) return -1;
+  if (squareTurn1 != 0.0) drivetrain.turn(squareTurn1);
+  if (!drivetrain.hasFreshPose()) return -1;
+  if (squareMove2 != 0.0) drivetrain.move(squareMove2);
+  if (!drivetrain.hasFreshPose()) return -1;
+  if (squareTurn2 != 0.0) drivetrain.turn(squareTurn2);
+  if (!drivetrain.hasFreshPose()) return -1;
+  if (squareMove3 != 0.0) drivetrain.move(squareMove3);
+  return drivetrain.hasFreshPose() ? 1 : -1;
+}
+
 /// @brief Basic Routine to make the robot go in circles around the map to test GPS setup.
 void gpsOctagon() {
   drivetrain.goToPoint(.6, -1.2);
@@ -908,4 +932,3 @@ int SkillsRoutine3(){
 } // namespace aon::routines
 
 };  // namespace aon
-

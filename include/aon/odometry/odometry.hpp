@@ -4,6 +4,7 @@
 #define AON_SENSING_ODOMETRY_HPP_
 
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include "../constants.hpp"
 #include "../../api.h"
@@ -68,6 +69,16 @@ namespace aon {
 
         pros::Mutex p_mutex;
         pros::Mutex orientation_mutex;
+        pros::Mutex pose_mutex;
+        Pose currentPose;
+        Pose rawPose;
+        Pose rawOrigin;
+        Pose fieldOrigin;
+        std::uint32_t lastPacketMs = 0;
+        bool hasPacket = false;
+        bool originPending = true;
+
+        void acceptPose(const Pose& raw);
 
     public: 
         Odometry(short left, short right, short back, short gps, short gyro);
@@ -92,6 +103,8 @@ namespace aon {
         void resetCurrent(double x, double y, double theta);
         Vector gpsPosition();
         Pose getPose();
+        /// Valid only while OTOS packets arrive within 300 ms.
+        bool hasFreshPose();
 
 
         //Debugging/Testing

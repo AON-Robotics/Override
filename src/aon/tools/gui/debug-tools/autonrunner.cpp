@@ -97,6 +97,7 @@ void GuiDebug::DisplayAutonRunner() {
   const bool hasDebugAuton = static_cast<bool>(selectedAutonInvoker);
   const bool hasNormalAuton = (selectedAuton.routine != nullptr);
   const bool hasAuton = hasDebugAuton || hasNormalAuton;
+  const bool otosReady = !poseReady || poseReady();
   const int cardX1 = 16, cardY1 = 50, cardX2 = BRAIN_SCREEN_WIDTH - 160,
             cardY2 = 145;
 
@@ -118,6 +119,10 @@ void GuiDebug::DisplayAutonRunner() {
     pros::screen::set_pen(pros::Color::orange);
     pros::screen::print(pros::E_TEXT_LARGE, cardX1 + 14, cardY1 + 48,
                         selectedAutonName.c_str());
+  } else if (!otosReady) {
+    pros::screen::set_pen(pros::Color::red);
+    pros::screen::print(pros::E_TEXT_MEDIUM, cardX1 + 14, cardY1 + 48,
+                        "OTOS OFFLINE");
   } else if (autonCompleted) {
     pros::screen::set_pen(pros::Color::cyan);
     pros::screen::print(pros::E_TEXT_LARGE, cardX1 + 14, cardY1 + 48,
@@ -159,7 +164,7 @@ void GuiDebug::DisplayAutonRunner() {
   // Button color based on state
   if (autonRunning) {
     pros::screen::set_eraser(pros::Color::red);  // Red MOV button when running
-  } else if (hasAuton) {
+  } else if (hasAuton && otosReady) {
     pros::screen::set_eraser(pros::Color::green);  // Green RUN button when ready
   } else {
     pros::screen::set_eraser(pros::Color::dark_gray);  // Gray when no auton
@@ -168,8 +173,8 @@ void GuiDebug::DisplayAutonRunner() {
 
   // RUN/MOV text
   pros::screen::set_pen(pros::Color::white);
-  const char* runBtnText = autonRunning ? "MOV" : "RUN";
-  const int runTextX = runX1 + (btnWidth / 2) - (autonRunning ? 25 : 29);
+  const char* runBtnText = autonRunning ? "MOV" : (otosReady ? "RUN" : "WAIT");
+  const int runTextX = runX1 + (btnWidth / 2) - (autonRunning ? 25 : (otosReady ? 29 : 34));
   pros::screen::print(pros::E_TEXT_LARGE, runTextX, btnY1 + 13, runBtnText);
 }
 
@@ -311,16 +316,20 @@ void GuiDebug::HandleAutonRunnerTouch() {
   bool hasAuton = (selectedAuton.routine != nullptr) ||
                   static_cast<bool>(selectedAutonInvoker);
   if (!hasAuton) return;
+  if (poseReady && !poseReady()) {
+    DisplayAutonRunner();
+    return;
+  }
 
   autonomousReader->AddFunction("autonomous", [this]{ return invokeSelectedAuton(); });
   autonRunning = true;
   autonCompleted = false;
   DisplayAutonRunner();  // show orange running state
 
-  autonomousReader->ExecuteFunction("autonomous");
+  const int result = autonomousReader->ExecuteFunction("autonomous");
 
   autonRunning = false;
-  autonCompleted = true;
+  autonCompleted = result != -1;
   DisplayAutonRunner();  // show cyan completed state
 
   pros::delay(300);
