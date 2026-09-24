@@ -12,7 +12,6 @@
 #include "../tools/simple-filter.hpp"
 #include "../tools/general.hpp"
 #include "../math/misc/misc.hpp"
-#include "./basic-uturn.hpp"
 #include <functional>
 namespace aon {
 class Drivetrain;
@@ -343,6 +342,26 @@ void square(){
     drivetrain.turn();
     pros::delay(750);
   }
+}
+
+int basicUTurn(){
+  const auto settle = [] {
+    bool cancelled = false;
+    for (int i = 0; i < 30; ++i) {
+      drivetrain.stop();
+      cancelled = cancelled || pros::competition::is_disabled() ||
+          pros::c::controller_get_digital(pros::E_CONTROLLER_MASTER, pros::E_CONTROLLER_DIGITAL_B);
+      pros::delay(10);
+    }
+    return !cancelled;
+  };
+  if (!settle()) return 0;
+  drivetrain.move(24);
+  if (!settle()) return 0;
+  drivetrain.driveAngleOfArc(8.5, 180);
+  if (!settle()) return 0;
+  drivetrain.move(24);
+  return settle();
 }
 
 void continuity(){
@@ -914,7 +933,7 @@ int SkillsRoutine3(){
 
 int BasicUTurnRoutine() {
   intake.stop();
-  const int result = aon::runBasicUTurn(drivetrain);
+  const int result = aon::tests::basicUTurn();
   intake.stop();
   return result;
 }

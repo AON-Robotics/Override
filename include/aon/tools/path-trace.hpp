@@ -35,7 +35,8 @@ public:
   }
 
   bool save(const char* base, const char* result, const Pose& actual, const Pose& endpoint,
-            std::uint32_t elapsed) const {
+            std::uint32_t elapsed, const FollowOptions* options = nullptr,
+            std::uint32_t profile = 0, std::uint32_t revision = 0) const {
     char filename[128];
     const int length = std::snprintf(filename,sizeof(filename),"%s-runs.csv",base);
     if (length < 0 || static_cast<std::size_t>(length) >= sizeof(filename)) return false;
@@ -55,12 +56,29 @@ public:
       for (float value : row.values) std::fprintf(trace,",%.3f",static_cast<double>(value));
       std::fprintf(trace,",%d\n",row.aligning);
     }
-    if (id == 0)
-      std::fputs("run,start_ms,result,elapsed_ms,position_error,heading_error,samples,truncated\n",summary);
-    std::fprintf(summary,"%ld,%lu,%s,%lu,%.3f,%.3f,%u,%d\n",id,
+    if (id == 0) {
+      std::fputs("run,start_ms,result,elapsed_ms,position_error,heading_error,samples,truncated",summary);
+      if (options) std::fputs(
+          ",profile,revision,wheel_diameter,gear_ratio,drive_width,tracking_diameter,base_accel,base_decel"
+          ",maximumRpm,lookahead,lookaheadAtSpeed,positionTolerance,headingTolerance,lateralAcceleration"
+          ",settleMs,settledRpm,timeoutMs,accelerationScale,decelerationScale,turnAccelerationScale,turnDecelerationScale",summary);
+      std::fputc('\n',summary);
+    }
+    std::fprintf(summary,"%ld,%lu,%s,%lu,%.3f,%.3f,%u,%d",id,
                  static_cast<unsigned long>(started),result,static_cast<unsigned long>(elapsed),
                  actual.distanceTo(endpoint),std::abs(std::remainder(endpoint.theta-actual.theta,360)),
                  static_cast<unsigned>(count),truncated);
+    if (options) {
+      const auto& o = *options;
+      std::fprintf(summary,",%lu,%lu",static_cast<unsigned long>(profile),static_cast<unsigned long>(revision));
+      for (double value : {double(DRIVE_WHEEL_DIAMETER), double(MOTOR_TO_DRIVE_RATIO), double(DRIVE_WIDTH),
+                           double(TRACKING_WHEEL_DIAMETER), double(MAX_ACCEL), double(MAX_DECEL),
+                           o.maximumRpm, o.lookahead, o.lookaheadAtSpeed, o.positionTolerance, o.headingTolerance,
+                           o.lateralAcceleration, double(o.settleMs), o.settledRpm, double(o.timeoutMs),
+                           o.accelerationScale, o.decelerationScale, o.turnAccelerationScale, o.turnDecelerationScale})
+        std::fprintf(summary,",%.17g",value);
+    }
+    std::fputc('\n',summary);
     const bool written = !std::ferror(trace) && !std::ferror(summary);
     const bool traceClosed = std::fclose(trace) == 0;
     const bool summaryClosed = std::fclose(summary) == 0;

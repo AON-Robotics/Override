@@ -149,8 +149,8 @@ pros::Controller mainController = pros::Controller(CONTROLLER_MASTER);
 namespace aon {
 
 inline void Configure(const bool opcontrol = true) {
-  // HOLD for AUTONOMOUS ||| BRAKE for OPERATOR CONTROL
-  pros::MotorBrake brakeMode = opcontrol ? pros::MotorBrake::brake : pros::MotorBrake::hold;
+  // COAST for AUTONOMOUS ||| BRAKE for OPERATOR CONTROL
+  pros::MotorBrake brakeMode = opcontrol ? pros::MotorBrake::brake : pros::MotorBrake::coast;
 
   #if USING_BIG_ROBOT
   drivetrain.configure(brakeMode, pros::MotorGears::blue, MAX_ACCEL * 0.4);

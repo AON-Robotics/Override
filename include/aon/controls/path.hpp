@@ -48,9 +48,15 @@ struct FollowOptions {
   double lateralAcceleration = 35; // inches/s^2; zero disables curvature speed limit
   std::uint32_t settleMs = 150;
   double settledRpm = 5;
+  // Per-follow multipliers; the drivetrain's shared motion profiles stay unchanged.
+  double accelerationScale = 1, decelerationScale = 1;
+  double turnAccelerationScale = 1, turnDecelerationScale = 1;
 };
 
 inline bool validFollowOptions(const FollowOptions& o) {
+  for (double scale : {o.accelerationScale, o.decelerationScale,
+                       o.turnAccelerationScale, o.turnDecelerationScale})
+    if (!std::isfinite(scale) || scale < 0.1 || scale > 2) return false;
   return o.timeoutMs > 0 && std::isfinite(o.maximumRpm) && o.maximumRpm > 0 && o.maximumRpm <= MAX_RPM &&
       std::isfinite(o.lookahead) && o.lookahead > 0 && std::isfinite(o.lookaheadAtSpeed) && o.lookaheadAtSpeed > 0 &&
       std::isfinite(o.positionTolerance) && o.positionTolerance > 0 &&

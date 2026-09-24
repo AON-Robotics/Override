@@ -12,7 +12,6 @@
 #include "aon/math/pose.hpp"
 #include "../function-reader.hpp"
 #include "../gui-image-generator/gui-images.hpp"
-#include "./auton-selection.hpp"
 
 extern volatile Alliance ALLIANCE;
 

@@ -6,6 +6,14 @@ void initialize() {
     aon::gui->registerTestFunction(std::function<int()>([] { return aon::routines::PathDiagnostic(1); }), "Path: gentle curve");
     aon::gui->registerTestFunction(std::function<int()>([] { return aon::routines::PathDiagnostic(2); }), "Path: U-turn");
   });
+  aon::gui->setDataRegister([]{
+  aon::gui->registerDataEntry("X",       []{ return drivetrain.getX(); });
+  aon::gui->registerDataEntry("Y",       []{ return drivetrain.getY(); });
+  aon::gui->registerDataEntry("Heading", []{ return drivetrain.getTheta(); });
+});
+
+
+
   pros::Task guiLoopTask([]{aon::gui->initialize();});
   aon::logging::Initialize();
   aon::Configure(false);

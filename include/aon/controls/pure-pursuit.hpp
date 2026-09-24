@@ -207,7 +207,7 @@ class PurePursuit {
         for (std::size_t i = path.size()-1; i > 0; --i) {
           const double distance = samples[i].distance-samples[i-1].distance;
           samples[i-1].rpm = std::min(samples[i-1].rpm,
-              std::sqrt(samples[i].rpm*samples[i].rpm+MAX_DECEL*distance/rpmToSpeed));
+              std::sqrt(samples[i].rpm*samples[i].rpm+linearProfile.maxDeceleration()*distance/rpmToSpeed));
         }
       }
     }

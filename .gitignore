@@ -26,3 +26,8 @@ include/aon/generated/
 
 # Local agent design and execution notes
 docs/superpowers/
+
+# Local-only review material; tracked files in these directories remain tracked
+docs/
+tests/
+tools/

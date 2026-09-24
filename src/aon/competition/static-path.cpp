@@ -1,4 +1,5 @@
 #include "aon/competition/path-sequence.hpp"
+#include "aon/competition/path-tuning.hpp"
 #include "aon/generated/static-path.hpp"
 #include "aon/tools/path-trace.hpp"
 #include "pros/misc.h"
@@ -33,27 +34,30 @@ struct MechanismAction {
 int runStaticPath(Drivetrain& drivetrain, const std::function<void(int)>& intake,
                   const std::function<void()>& piston) {
   // Transform once, then borrow overlapping slices. No copies or re-anchoring.
+  FollowOptions tuned;
+  std::uint32_t profile = 0;
+  const auto loaded = loadPathTuning(tuned,profile,"/usd/aon-path-approved.csv");
+  if (loaded == TuningLoad::Invalid) {
+    intake(0);
+    drivetrain.stop();
+    pros::screen::print(pros::E_TEXT_MEDIUM_CENTER,3,"Invalid approved tuning - no motion");
+    return 0;
+  }
   const auto start = drivetrain.getPose();
-  auto route = generated::staticRouteAt(start,"testing");
+  const auto route = generated::staticRouteAt(start,"testing");
   const auto started = pros::millis();
   PathTrace trace(started,TESTING_AUTONOMOUS ? 320 : 0);
   TraceLeg traces[] = {{trace,started,1},{trace,started,2},{trace,started,3}};
-  const Pose editorStops[] = {{-53.304526,2.487347,0}, {-55.223097,12.301576,270}, {-67.370706,0.340853,270}};
   PathStep steps[3];
   MechanismAction actions[] = {{intake,piston,0},{intake,piston,1},{intake,piston,2}};
   std::size_t first = 0;
-  bool valid = route.points.size() >= 2;
+  const bool valid = route.points.size() >= 2 && route.stops.size() == 3;
   for (std::size_t stage=0; valid && stage<3; ++stage) {
-    const auto stop = generated::staticWaypointAt(start,editorStops[stage],"testing");
-    std::size_t last = first+1;
-    // First occurrence is essential where later curves pass the same stop.
-    if (stage == 2) last = route.points.size()-1;
-    else while (last < route.points.size() && route.points[last].distanceTo(stop) > 0.005) ++last;
-    valid = last < route.points.size() && last > first && route.points[last].distanceTo(stop) <= 0.005;
-    if (!valid) break;
-    route.points[last] = stop;
+    const auto& stop = route.stops[stage];
+    const auto last = stop.index;
     steps[stage].path = route.view().slice(first,last);
-    steps[stage].options.finalHeading = stop.theta;
+    if (loaded == TuningLoad::Loaded) steps[stage].options = tuned;
+    steps[stage].options.finalHeading = stop.heading;
     steps[stage].arrived = MechanismAction::run;
     if (stage < 2) steps[stage].afterWait = MechanismAction::stop;
     steps[stage].context = &actions[stage];
@@ -70,8 +74,10 @@ int runStaticPath(Drivetrain& drivetrain, const std::function<void(int)>& intake
   intake(0);
   drivetrain.stop();
   if (TESTING_AUTONOMOUS) {
-    const bool saved = trace.save("/usd/aon-testing",followResultName(result),drivetrain.getPose(),
-        route.points.empty() ? start : route.points.back(),pros::millis()-started);
+    Pose target = route.points.empty() ? start : route.points.back();
+    if (!route.stops.empty()) target.theta = route.stops.back().heading;
+    const bool saved = trace.save("/usd/aon-testing-v2",followResultName(result),drivetrain.getPose(),
+        target,pros::millis()-started,&tuned,profile,route.revision);
     pros::screen::print(pros::E_TEXT_MEDIUM_CENTER,6,saved ? "CSV saved to SD" : "CSV not saved (check SD)");
   }
   const char* status = followResultName(result);

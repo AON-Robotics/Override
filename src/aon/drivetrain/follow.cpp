@@ -37,7 +37,8 @@ Drivetrain::FollowResult Drivetrain::follow(PathView path, const FollowOptions& 
   if (!path.data() || path.size() < 2) return finish(FollowResult::InvalidPath);
   if (!odometry || !yProfile || !thetaProfile || !validFollowOptions(options))
     return finish(FollowResult::InvalidOptions);
-  PurePursuit controller(*yProfile, *thetaProfile, options.lookahead,
+  PurePursuit controller(yProfile->scaled(options.accelerationScale, options.decelerationScale),
+                         thetaProfile->scaled(options.turnAccelerationScale, options.turnDecelerationScale), options.lookahead,
                          options.positionTolerance, options.headingTolerance);
   controller.configure(options);
   Pose endpoint = path.back();
