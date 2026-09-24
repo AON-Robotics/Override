@@ -21,7 +21,8 @@ With `TESTING_AUTONOMOUS` enabled, open the debug registered-function list:
 2. **Path: gentle curve** — a 24-inch-radius quarter-circle.
 3. **Path: U-turn** — the existing `static/path.jerryio.txt` route.
 
-They run separately at a 120 RPM cap and do not activate mechanisms. Place the
+They run separately with a default 120 RPM cap and do not activate mechanisms.
+An SD trial profile can override diagnostic tuning, as described below. Place the
 robot consistently before each run. B or competition disable cancels motion.
 The first exported segment is aligned with the robot's live starting heading.
 The curve's sampled first chord, rather than its ideal tangent, defines that
@@ -36,26 +37,31 @@ The routine always stops the intake on exit. Arrow stays extended on success.
 ## Read the evidence
 
 The screen shows commanded/measured RPM for each side. Diagnostics save
-`aon-straight.csv`, `aon-curve.csv`, or `aon-uturn.csv` on the SD card, plus a
+`aon-straight-v2.csv`, `aon-curve-v2.csv`, or `aon-uturn-v2.csv` on the SD card, plus a
 matching `-runs.csv` summary. In testing builds, the action routine also writes
-`aon-testing.csv` and `aon-testing-runs.csv`.
+`aon-testing-v2.csv` and `aon-testing-v2-runs.csv`.
 
 Traces contain elapsed milliseconds, leg, pose, pursuit target, progress,
 distance from the projected route, endpoint error, commanded and measured RPM,
-and alignment state. RPM is motor RPM; on a differential drive the measurement
+and alignment state. Version 2 summaries also record the profile ID, route revision,
+robot geometry, base motion limits, and every applied tuning field. Profile 0
+means the routine's built-in defaults. RPM is motor RPM; on a differential drive the measurement
 is the representative motor reported by each PROS motor group.
 
 Recording is bounded at 320 samples (about 19 KB, allocated only when recording).
 No SD operations occur in the motion loop. Samples arrive at 10 Hz with a final
 sample after braking. Overflow is marked `truncated`; a missing/full SD card
 reports that saving failed and does not change the motion result. Logs append;
-the `run` column joins traces to summaries. Archive logs when changing routes or
-tuning so comparisons use the same setup.
+the `run` column joins traces to summaries. Preserve both files together.
+During one tuning campaign, keep appending to the same SD logs so run IDs remain
+unique. Archive and start a new campaign after changing geometry, routes, or
+firmware. Version 1 logs remain readable by the report tool but cannot be used
+by the tuning tool.
 
 Copy the summary files to the PC and run:
 
 ```powershell
-python tools/path-report.py path/to/aon-straight-runs.csv path/to/aon-uturn-runs.csv
+python tools/path-report.py path/to/aon-straight-v2-runs.csv path/to/aon-uturn-v2-runs.csv
 ```
 
 The report includes completion rate, successful-run timing, maximum position
@@ -103,6 +109,8 @@ auto result = drivetrain.follow(route.view(), options);
 | `lateralAcceleration` | 35 inches/s² | Curve speed limit; zero disables it |
 | `settleMs` / `settledRpm` | 150 ms / 5 RPM | Time within heading/position tolerance and below measured wheel-speed threshold |
 | `timeoutMs` | 30000 | Budget for one following call, before final braking |
+| `accelerationScale` / `decelerationScale` | 1 / 1 | Per-run linear profile multipliers; acceleration also scales jerk |
+| `turnAccelerationScale` / `turnDecelerationScale` | 1 / 1 | Per-run final-alignment profile multipliers |
 
 Export speed is a normalized cap: **127 means `maximumRpm`, 64 means roughly
 half**. It is not interpreted as physical inches/second or an exact voltage.
@@ -198,6 +206,141 @@ still be followed as whole routes, but do not provide segment stops.
    conditions. Record physical endpoint error, heading, elapsed time and result.
    Choose acceptable tolerances before increasing speed. Then test the full
    mechanism routine repeatedly with its intended time budget.
+
+## Guided automatic tuning
+
+`tools/path-tune.py` performs calibration calculations, generates bounded trial
+settings, schedules unfinished trials, and ranks passing candidates. It uses
+Python's standard library. The robot runs the existing three diagnostics;
+one operator-started run executes at a time. Reposition the robot between runs.
+No new robot movement starts merely by copying a file or running the PC tool.
+
+The search adjusts speed, low/high-speed lookahead, corner acceleration,
+linear/turn acceleration and braking multipliers, and stopping criteria.
+Arrival position/heading requirements stay fixed. Exported speed caps and
+headings remain authoritative. Motion tuning affects copies of the path
+follower's profiles, leaving legacy move/turn routines and driver control alone.
+The full action sequence retains its shared 30-second budget, including waits.
+
+### 1. Establish a physical reference
+
+Measure at least three straight distances and turns independently (a tape and
+angle reference, or a calibrated external positioning system). Record magnitudes
+in inches/degrees in `measurements.csv` with this header:
+
+```csv
+reported_distance,actual_distance,reported_turn,actual_turn
+```
+
+Use actual odometry distance change, not the requested route length: the arrival
+tolerance permits stopping short. Include both driving directions and clockwise/
+counterclockwise turns across trials. Enter the configured tracking-wheel diameter:
+
+```sh
+python tools/path-tune.py calibrate measurements.csv --tracking-diameter 2 --output calibration.json
+```
+
+The report calculates `actual / reported` distance scale and a corrected tracking
+wheel diameter. Inconsistent distance scales fail calibration. If `ready` is
+false, apply the appropriate correction in the active robot section of
+`include/aon/constants.hpp`, rebuild, then measure again. The tool never edits
+geometry automatically. A turn error requires checking IMU conventions and
+calibration; changing drivetrain width cannot repair a faulty IMU measurement.
+
+### 2. Collect baseline response
+
+Start without `aon-path-tuning.csv` on the SD card. Run each of the three
+diagnostics at least three times. Copy their six version 2 CSV files into
+`baseline/` on the PC. Keep a separate copy of the calibration measurements.
+
+Choose the arrival and tracking accuracy required by the task. This example
+requires a one-inch arrival radius, two-degree heading error, and at most one
+inch of odometry cross-track error:
+
+```sh
+python tools/path-tune.py plan baseline --calibration calibration.json --position 1 --heading 2 --cross-track 1 --max-rpm 120 --output tuning-plan.json
+```
+
+The plan contains candidate IDs, full settings, and observed linear/turn response
+estimates. Effective drive width is an estimate from wheel RPM and IMU change;
+it is informational and is not applied automatically. Insufficient motion samples
+produce `null` estimates. These measurements describe response under the existing
+controller, not maximum acceleration, tire grip, or a validated friction model.
+The search uses conservative measured motion settings and changes one setting
+at a time around the baseline. It is a bounded local search, not a guarantee of
+the globally fastest settings. It can be repeated around a later measured baseline.
+
+### 3. Run scheduled candidates
+
+Generate the first candidate and copy the resulting file to the SD card root:
+
+```sh
+python tools/path-tune.py trial tuning-plan.json --output aon-path-tuning.csv
+```
+
+The diagnostic screen shows the loaded profile ID. Run the scheduled diagnostics,
+copy the accumulated six log files to `trials/`, then request the next unfinished
+candidate:
+
+```sh
+python tools/path-tune.py trial tuning-plan.json --logs trials --output aon-path-tuning.csv
+```
+
+Copy that file to the card before the next run. The command reports how many runs
+of each diagnostic remain. It skips candidates with a failed accuracy/completion
+trial and does not repeat them automatically. To rerun a specific candidate, use
+`--profile ID`. Defaults apply only when the SD file is absent; malformed,
+out-of-range, or hardware-mismatched settings reject motion visibly.
+
+After the scheduled trials finish:
+
+```sh
+python tools/path-tune.py select tuning-plan.json trials --output selection.json
+```
+
+A candidate must pass every recorded trial and have enough repeats on all three
+routes. Cancelled, disabled, timed-out, truncated, inaccurate, or incomplete
+trials cannot establish a passing candidate. Among passing candidates, the tool
+minimizes the sum of each route's mean time, giving each route equal weight.
+It rejects mismatched geometry, route revisions, profile settings, duplicate
+run IDs, and incomplete trace/summary pairs. If none pass, no settings are selected.
+Investigate the logs or revise the route; do not relax task accuracy merely to
+make the optimizer report success.
+
+### 4. Validate on new runs, then enable the action routine
+
+Use `trial --profile ID` to load the top-ranked profile. Collect at least three
+additional runs per diagnostic, including at least two representative battery/
+load conditions. Continue appending to the same SD files and copy them into
+`validation/`. Record physical endpoint errors for each new run in
+`physical-endpoints.csv`:
+
+```csv
+route,run,position_error,heading_error,condition
+```
+
+`route` is `straight`, `curve`, or `uturn`; `run` comes from the summary CSV.
+Position error is physical distance from the intended exported endpoint,
+heading error is the smallest angular error in degrees, and `condition` describes
+the battery/load setup. These are independent measurements, not copied odometry
+errors. The approval command ignores runs already used for candidate selection:
+
+```sh
+python tools/path-tune.py approve tuning-plan.json selection.json validation --measurements physical-endpoints.csv --output aon-path-approved.csv
+```
+
+Only after all validation gates pass does it write the approved file. Copy
+`aon-path-approved.csv` to the SD root to apply the same settings to all legs of
+Red/Blue 4. The diagnostic trial file does not affect autonomous selection.
+Remove the approved file to restore the built-in autonomous settings. Revalidate
+after hardware, route, or firmware changes, and test the full mechanism sequence
+under its shared deadline: passing the three diagnostics does not prove scoring
+or mechanism reliability.
+
+The SD protocol is versioned and generated by the PC tool. Do not hand-edit or
+rename a trial file into an approved one. Profile loading and saving occur outside
+the control loop. The candidate search never changes route geometry, segment
+headings, action ordering, deadlines, or your requested accuracy.
 
 ## Storage and development checks
 
