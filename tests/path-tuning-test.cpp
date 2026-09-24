@@ -44,11 +44,12 @@ void testTuning() {
   aon::PathTrace trace(0);
   aon::FollowSample sample;
   trace.record(sample,300);
-  assert(trace.save("tuning-trace","Completed",{0,0,30},{0,0,90},300,&options,7,123));
-  std::ifstream file("tuning-trace-runs.csv");
+  options.lookahead = 7.0/3.0; // exercise round-trip double precision
+  assert(trace.save("aon-straight-v2","Completed",{0,0,30},{0,0,90},300,&options,7,123));
+  std::ifstream file("aon-straight-v2-runs.csv");
   std::string header,row;
   std::getline(file,header); std::getline(file,row);
   assert(header.find("profile,revision,wheel_diameter") != std::string::npos);
   assert(row.find(",0.000,60.000,1,0,7,123,") != std::string::npos);
-  assert(row.find(",100,4,7,1,2,25,200,3,10000,0.5,0.8,0.7,0.6") != std::string::npos);
+  assert(row.find(",7,1,2,25,200,3,10000,0.5,") != std::string::npos);
 }

@@ -23,9 +23,11 @@ int runPathDiagnostic(Drivetrain& drive, int index) {
   }
   if (!route.stops.empty()) options.finalHeading = route.stops.back().heading;
   FollowHooks hooks;
-  hooks.context = &trace;
+  std::pair<PathTrace*,std::uint32_t> recording{&trace,started};
+  hooks.context = &recording;
   hooks.sample = [](void* context, const FollowSample& sample) {
-    static_cast<PathTrace*>(context)->record(sample,sample.elapsedMs);
+    auto& recording = *static_cast<std::pair<PathTrace*,std::uint32_t>*>(context);
+    recording.first->record(sample,pros::millis()-recording.second);
   };
   pros::screen::print(pros::E_TEXT_LARGE_CENTER,1,"PATH %d PROFILE %lu",index+1,static_cast<unsigned long>(profile));
   const auto result = drive.follow(route.view(),options,hooks);

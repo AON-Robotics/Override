@@ -76,7 +76,7 @@ public:
                            o.maximumRpm, o.lookahead, o.lookaheadAtSpeed, o.positionTolerance, o.headingTolerance,
                            o.lateralAcceleration, double(o.settleMs), o.settledRpm, double(o.timeoutMs),
                            o.accelerationScale, o.decelerationScale, o.turnAccelerationScale, o.turnDecelerationScale})
-        std::fprintf(summary,",%.12g",value);
+        std::fprintf(summary,",%.17g",value);
     }
     std::fputc('\n',summary);
     const bool written = !std::ferror(trace) && !std::ferror(summary);

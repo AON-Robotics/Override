@@ -52,11 +52,12 @@ inline TuningLoad loadPathTuning(FollowOptions& options, std::uint32_t& id,
   candidate.decelerationScale = values[17];
   candidate.turnAccelerationScale = values[18];
   candidate.turnDecelerationScale = values[19];
-  if (!validFollowOptions(candidate) || candidate.maximumRpm > 200 ||
+  if (!validFollowOptions(candidate) || candidate.maximumRpm < 1 || candidate.maximumRpm > 200 ||
       candidate.lookahead < 2 || candidate.lookahead > 18 ||
       candidate.lookaheadAtSpeed < 2 || candidate.lookaheadAtSpeed > 18 ||
-      candidate.positionTolerance > 2 || candidate.headingTolerance > 5 ||
-      candidate.lateralAcceleration <= 0 || candidate.lateralAcceleration > 60 ||
+      candidate.positionTolerance < 0.01 || candidate.positionTolerance > 2 ||
+      candidate.headingTolerance < 0.01 || candidate.headingTolerance > 5 ||
+      candidate.lateralAcceleration < 0.01 || candidate.lateralAcceleration > 60 ||
       candidate.settledRpm > 5) return TuningLoad::Invalid;
   options = candidate;
   id = static_cast<std::uint32_t>(values[0]);

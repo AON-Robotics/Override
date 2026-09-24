@@ -76,6 +76,8 @@ def main():
                      "-I" + str(build), "-I" + str(ROOT / "include"), source, "-o", str(executable)]
         subprocess.run(command + flags, env=env, cwd=build, check=True)
         subprocess.run([str(executable)], cwd=build, check=True)
+        verify_trace = runpy.run_path(str(ROOT / "tests/path-tune-test.py"))["verify_cpp_trace"]
+        verify_trace(build)
     print("Host suite passed")
 
 

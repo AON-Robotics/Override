@@ -76,8 +76,8 @@ int runStaticPath(Drivetrain& drivetrain, const std::function<void(int)>& intake
   if (TESTING_AUTONOMOUS) {
     Pose target = route.points.empty() ? start : route.points.back();
     if (!route.stops.empty()) target.theta = route.stops.back().heading;
-    const bool saved = trace.save("/usd/aon-testing",followResultName(result),drivetrain.getPose(),
-        target,pros::millis()-started);
+    const bool saved = trace.save("/usd/aon-testing-v2",followResultName(result),drivetrain.getPose(),
+        target,pros::millis()-started,&tuned,profile,route.revision);
     pros::screen::print(pros::E_TEXT_MEDIUM_CENTER,6,saved ? "CSV saved to SD" : "CSV not saved (check SD)");
   }
   const char* status = followResultName(result);
