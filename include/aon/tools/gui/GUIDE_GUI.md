@@ -87,7 +87,7 @@ AutonOption redAutonOptions[allianceAutonOptionsCount] = {
   {"Red AUT1", aon::MyNewRedRoutine},
   {"Red AUT2", aon::RedRoutine},
   {"Red AUT3", aon::RedRoutine},
-  {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
+  {"JerryIO Path", aon::routines::StaticPathRoutine, "JIO"},
 };
 ```
 
@@ -766,14 +766,14 @@ AutonOption redAutonOptions[allianceAutonOptionsCount] = {
   {"Red ForwardBackTurn", aon::ForwardBackTurnRoutine},
   {"Red AUT2", aon::RedRoutine},
   {"Red AUT3", aon::RedRoutine},
-  {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
+  {"JerryIO Path", aon::routines::StaticPathRoutine, "JIO"},
 };
 
 AutonOption blueAutonOptions[allianceAutonOptionsCount] = {
   {"Blue AUT1", aon::BlueRoutine},
   {"Blue AUT2", aon::BlueRoutine},
   {"Blue AUT3", aon::BlueRoutine},
-  {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
+  {"JerryIO Path", aon::routines::StaticPathRoutine, "JIO"},
 };
 
 AutonOption skillsAutonOptions[skillsAutonOptionsCount] = {
@@ -794,7 +794,7 @@ AutonOption redAutonOptions[allianceAutonOptionsCount] = {
   {"Red AUT1", aon::MyNewRedRoutine},      // Changed function
   {"Red AUT2", aon::RedRoutine},
   {"Red Safe", aon::RedSafeRoutine},       // Changed name
-  {"JerryIO Path", aon::routines::PathJerryIORoutine, "JIO"},
+  {"JerryIO Path", aon::routines::StaticPathRoutine, "JIO"},
 };
 ```
 
