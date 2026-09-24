@@ -78,6 +78,8 @@ class Drivetrain {
   void initialize() { this->odometry->initialize(); }
 
   bool hasFreshPose() { return odometry && odometry->hasFreshPose(); }
+  bool isImuFusing() { return odometry && odometry->isImuFusing(); }
+  double getOtosTheta() { return odometry->getOtosDegrees(); }
   
   Pose getPose() { return this->odometry->getPose(); }
   void setPose(Pose p) { this->pose = p; }
@@ -135,7 +137,7 @@ class Drivetrain {
   /// @param left The \b RPM to send to the left-side motors (positive is forward)
   /// @param right The \b RPM to send to the right-side motors (positive is forward)
   virtual void tank(const double &left, const double &right) = 0;
-  
+
   /// @brief Drives the robot using arcade control, combining a forward and a turn input into left/right motor outputs
   /// @param forward The \b RPM to send to all motors for linear movement (positive is forward)
   /// @param turn The \b RPM to add/subtract from each side for rotational movement (positive is clockwise)
@@ -347,7 +349,7 @@ class Drivetrain {
     const int sign = angle / abs(angle);  // Getting the direction of the movement
     angle = abs(angle);                   // Setting the magnitude to positive
     pid.Reset();
-    odometry->gyroscope.tare();  // .tare() or .reset(true) depending on the time issue
+    if (!hasFreshPose()) { stop(); return; }
     const double startAngle = odometry->getDegrees();  // Angle relative to the start
     
     double timeLimit = math::getTimetoTurnDeg(angle);
@@ -359,6 +361,7 @@ class Drivetrain {
     #define time (pros::micros() / 1E6) - startTime
 
     while (time < 3 * timeLimit) {
+      if (!hasFreshPose()) { stop(); break; }
 
       double traveledAngle = abs(odometry->getDegrees() - startAngle);
       
@@ -406,7 +409,8 @@ class Drivetrain {
 
     while (traveledDist < dist && !timer.isCompleted()) {
       if (!hasFreshPose()) { stop(); return; }
-      traveledDist = (odometry->getPosition() - startPos).GetMagnitude();
+      const Pose currentPose = odometry->getPose();
+      traveledDist = (Vector().SetPosition(currentPose.x, currentPose.y) - startPos).GetMagnitude();
       double remainingDist = dist - traveledDist;
       now = pros::micros() / 1E6;
       dt = now - lastTime;

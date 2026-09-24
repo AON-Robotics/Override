@@ -13,6 +13,10 @@
 #define USING_BIG_ROBOT false
 #define TESTING_AUTONOMOUS true
 
+// Smooth uneven V5 IMU readings without using OTOS drift for heading.
+// A larger value smooths more but delays the heading during turns.
+#define V5_IMU_HEADING_SMOOTHING_SECONDS 0.02
+
 #if USING_BIG_ROBOT
 
 #define SENSITIVITY 10 // 3-10 works good, currently undergoing testing // Higher is more sensitivity

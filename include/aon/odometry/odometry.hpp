@@ -13,6 +13,7 @@
 #endif
 #include "../tools/vector.hpp"
 #include "../math/pose.hpp"
+#include "heading-fusion.hpp"
 
 
 namespace aon {
@@ -74,6 +75,8 @@ namespace aon {
         Pose rawPose;
         Pose rawOrigin;
         Pose fieldOrigin;
+        HeadingFusion headingFusion;
+        bool imuFusing = false;
         std::uint32_t lastPacketMs = 0;
         bool hasPacket = false;
         bool originPending = true;
@@ -105,6 +108,8 @@ namespace aon {
         Pose getPose();
         /// Valid only while OTOS packets arrive within 300 ms.
         bool hasFreshPose();
+        bool isImuFusing();
+        double getOtosDegrees();
 
 
         //Debugging/Testing

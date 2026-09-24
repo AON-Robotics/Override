@@ -87,7 +87,7 @@ aon::operator_control::Driver driver = aon::operator_control::KEVIN;
 
 // aon::XDrive drivetrain = aon::XDrive({-13}, {11}, {-12}, {14});
 aon::Pose startingPose = aon::Pose(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y, INITIAL_ODOMETRY_THETA);
-aon::Odometry odometry = aon::Odometry(19, -18, 5, 0, 16);
+aon::Odometry odometry = aon::Odometry(19, -16, 5, 0, 18);
 
 aon::Drivetrain::SpeedFactors speedFactors = aon::Drivetrain::SpeedFactors(0.6, 0.0, 0.6, 1.0, 0.0, 0.667);
 

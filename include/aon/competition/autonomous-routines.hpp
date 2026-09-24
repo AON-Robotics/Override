@@ -161,7 +161,7 @@ namespace tests {
 
 // Editable in DEBUG -> Registered Autons -> OTOS Square Builder -> VARS.
 // Distances are inches; positive turns are clockwise degrees.
-inline double squareMove1 = 12.0;
+inline double squareMove1 = 45.0;
 inline double squareTurn1 = 0.0;
 inline double squareMove2 = 0.0;
 inline double squareTurn2 = 0.0;

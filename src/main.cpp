@@ -9,6 +9,8 @@ void initialize() {
   aon::gui->registerDataEntry("Pose X (in)", [] { return drivetrain.getX(); });
   aon::gui->registerDataEntry("Pose Y (in)", [] { return drivetrain.getY(); });
   aon::gui->registerDataEntry("Heading (deg)", [] { return drivetrain.getTheta(); });
+  aon::gui->registerDataEntry("OTOS H (deg)", [] { return drivetrain.getOtosTheta(); });
+  aon::gui->registerDataEntry("IMU heading", [] { return drivetrain.isImuFusing() ? 1.0 : 0.0; });
   aon::gui->registerResetHandler("OTOS pose", [] {
     drivetrain.resetPose(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y,
                          INITIAL_ODOMETRY_THETA);
