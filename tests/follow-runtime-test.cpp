@@ -21,6 +21,16 @@ void testRuntime() {
     ++*static_cast<int*>(ctx);
     assert(std::isfinite(sample.target.x) && std::isfinite(sample.measuredLeft));
   };
+  // Invalid views never reach observation or dereference an endpoint, even
+  // with a sample callback installed. Cleanup must still brake for 300 ms.
+  for (const aon::PathView invalid : {aon::PathView{}, aon::PathView{nullptr,2},
+                                     aon::PathView{path.data(),0}, aon::PathView{path.data(),1}}) {
+    pros::timeMs = 0;
+    const int stopped = drive.stops;
+    assert(drive.follow(invalid,options,hooks) == Result::InvalidPath);
+    assert(observations == 0 && drive.driveCommands == 0);
+    assert(drive.stops-stopped == 30 && pros::millis() == 300);
+  }
   hooks.update = [](void*, double) { return pros::millis() < 40; };
   pros::timeMs = 0;
   assert(drive.follow(path, options, hooks) == Result::Cancelled);

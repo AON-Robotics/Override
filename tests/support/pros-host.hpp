@@ -76,6 +76,11 @@ struct Motor {
   explicit Motor(std::int8_t) {}
   std::int32_t move_velocity(std::int16_t) { return 1; }
   std::int32_t move_voltage(std::int16_t) { return 1; }
+  void set_brake_mode(MotorBrake) {}
+  void set_gearing(MotorGears) {}
+  void set_encoder_units(MotorEncoderUnits) {}
+  void tare_position() {}
+  double get_actual_velocity() const { return 0; }
 };
 struct MotorGroup : Motor {
   explicit MotorGroup(const std::initializer_list<std::int8_t>&) : Motor(0) {}

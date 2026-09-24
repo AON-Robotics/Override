@@ -8,6 +8,7 @@
 #include "../math/timer.hpp"
 #include "../controls/pure-pursuit.hpp"
 #include <cfloat>
+#include <optional>
 
 
 namespace aon {
@@ -44,6 +45,8 @@ class Drivetrain {
   protected:
 
   std::unique_ptr<Odometry> odometry;
+  // Engaged only for construction without odometry; never mirrors sensor state.
+  std::optional<Pose> manualPose;
   bool turbo = false;
 
   /// @brief This applies only while using curvature drive to allow for turning without forward motion. Any forward motion below this will cause curvature drive to behave like arcade.
@@ -60,7 +63,10 @@ class Drivetrain {
   Drivetrain(Pose pose, std::unique_ptr<Odometry> odom, SpeedFactors speedFactors, 
              std::unique_ptr<MotionProfile> xProfile, std::unique_ptr<MotionProfile> yProfile, std::unique_ptr<MotionProfile> thetaProfile): 
              odometry(std::move(odom)), speedFactors(speedFactors),
-             xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) { if (odometry) setPose(pose); }
+             xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) {
+               if (odometry) setPose(pose);
+               else manualPose = pose;
+             }
 
   enum DriveMode {
     TANK,
@@ -74,29 +80,42 @@ class Drivetrain {
   // TODO: move all implementations to a dedicated cpp file
 
   /// @brief Starts the underlying odometry thread
-  void initialize() { this->odometry->initialize(); }
+  void initialize() { if (odometry) odometry->initialize(); }
   
-  Pose getPose() { return this->odometry->getPose(); }
+  Pose getPose() { return odometry ? odometry->getPose() : *manualPose; }
   // Change the odometry frame without resetting sensors or waiting for the IMU.
-  void setPose(Pose p) { odometry->SetPosition(p.x, p.y); odometry->setDegrees(p.theta); }
+  void setPose(Pose p) {
+    if (odometry) { odometry->SetPosition(p.x, p.y); odometry->setDegrees(p.theta); }
+    else manualPose = p;
+  }
 
   double getX() { 
-    return this->odometry->getX();
+    return odometry ? odometry->getX() : manualPose->x;
   }
-  void setX(double x) { odometry->SetPosition(x, getY()); }
+  void setX(double x) {
+    if (odometry) odometry->SetPosition(x, getY());
+    else manualPose->x = x;
+  }
 
   double getY() { 
-    return this->odometry->getY();
+    return odometry ? odometry->getY() : manualPose->y;
   }
-  void setY(double y) { odometry->SetPosition(getX(), y); }
+  void setY(double y) {
+    if (odometry) odometry->SetPosition(getX(), y);
+    else manualPose->y = y;
+  }
 
   double getTheta() { 
-    return this->odometry->getDegrees();
+    return odometry ? odometry->getDegrees() : manualPose->theta;
   }
-  void setTheta(double theta) { odometry->setDegrees(theta); }
+  void setTheta(double theta) {
+    if (odometry) odometry->setDegrees(theta);
+    else manualPose->theta = theta;
+  }
 
   void resetPose(double x = 0.0, double y = 0.0, double theta = 0.0) {
-    this->odometry->resetCurrent(x, y, theta);
+    if (odometry) odometry->resetCurrent(x, y, theta);
+    else setPose({x,y,theta});
   }
 
 

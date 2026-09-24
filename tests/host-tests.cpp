@@ -6,6 +6,7 @@
 #include "static-path-actions-test.cpp"
 #include "gui-selection-test.cpp"
 #include "path-tuning-test.cpp"
+#include "../src/aon/drivetrain/differential-drive.cpp"
 
 void testPoseSetters() {
   pros::reset();
@@ -33,6 +34,31 @@ void testPoseSetters() {
   assert(drive.getX() == 4 && drive.getY() == 5 && std::abs(drive.getTheta()-60) < 1e-9);
 }
 
+void testPoseWithoutOdometry() {
+  pros::reset();
+  // Actual derived construction, including its default null sensor/profile arguments.
+  aon::DifferentialDrive defaultDrive;
+  assert(defaultDrive.getX() == 0 && defaultDrive.getY() == 0 && defaultDrive.getTheta() == 0);
+  aon::DifferentialDrive drive({1},{2},{3,4,50});
+  assert(drive.getPose().x == 3 && drive.getPose().y == 4 && drive.getPose().theta == 50);
+  drive.setPose({6,7,80});
+  drive.setX(9);
+  assert(drive.getX() == 9 && drive.getY() == 7 && drive.getTheta() == 80);
+  drive.setY(-5);
+  drive.setTheta(120);
+  const auto pose = drive.getPose();
+  assert(pose.x == 9 && pose.y == -5 && pose.theta == 120);
+  drive.resetPose(4,5,60);
+  assert(drive.getX() == 4 && drive.getY() == 5 && drive.getTheta() == 60);
+  drive.initialize(); // no sensors to initialize; no task loop or calibration delay
+  assert(pros::millis() == 0);
+  drive.resetPose();
+  assert(drive.getX() == 0 && drive.getY() == 0 && drive.getTheta() == 0);
+  const std::vector<aon::Pose> path{{0,0,0},{10,0,0}};
+  assert(drive.follow(path,aon::FollowOptions{}) == aon::Drivetrain::FollowResult::InvalidOptions);
+  assert(pros::millis() == 300); // the existing braking cleanup still runs
+}
+
 void testGeneratedStops() {
   // Hand-derived north/east editor fixture, anchored facing native +Y.
   const auto route = aon::generated::staticRouteAt({5,7,90},"__host_corner");
@@ -53,6 +79,7 @@ int main() {
   testGeneratedStops();
   testSelection();
   testPoseSetters();
+  testPoseWithoutOdometry();
   testOdometry();
   testFollower();
   testTrace();
