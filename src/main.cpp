@@ -40,10 +40,6 @@ void competition_initialize() {}
 
 void autonomous() {
   aon::Configure(false); // Set drivetrain to hold for auton
-  if (!drivetrain.hasFreshPose()) {
-    drivetrain.stop();
-    return;
-  }
   // TODO: add presetFunction
   aon::autonomousReader->ExecuteFunction("autonomous");
   pros::delay(10);
