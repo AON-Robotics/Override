@@ -97,7 +97,7 @@ void GuiDebug::DisplayAutonRunner() {
   const bool hasDebugAuton = static_cast<bool>(selectedAutonInvoker);
   const bool hasNormalAuton = (selectedAuton.routine != nullptr);
   const bool hasAuton = hasDebugAuton || hasNormalAuton;
-  const bool otosReady = !poseReady || poseReady();
+  const bool positionReady = !poseReady || poseReady();
   const int cardX1 = 16, cardY1 = 50, cardX2 = BRAIN_SCREEN_WIDTH - 160,
             cardY2 = 145;
 
@@ -119,10 +119,10 @@ void GuiDebug::DisplayAutonRunner() {
     pros::screen::set_pen(pros::Color::orange);
     pros::screen::print(pros::E_TEXT_LARGE, cardX1 + 14, cardY1 + 48,
                         selectedAutonName.c_str());
-  } else if (!otosReady) {
+  } else if (!positionReady) {
     pros::screen::set_pen(pros::Color::red);
     pros::screen::print(pros::E_TEXT_MEDIUM, cardX1 + 14, cardY1 + 48,
-                        "OTOS OFFLINE");
+                        "NO POSITION");
   } else if (autonCompleted) {
     pros::screen::set_pen(pros::Color::cyan);
     pros::screen::print(pros::E_TEXT_LARGE, cardX1 + 14, cardY1 + 48,
@@ -164,7 +164,7 @@ void GuiDebug::DisplayAutonRunner() {
   // Button color based on state
   if (autonRunning) {
     pros::screen::set_eraser(pros::Color::red);  // Red MOV button when running
-  } else if (hasAuton && otosReady) {
+  } else if (hasAuton && positionReady) {
     pros::screen::set_eraser(pros::Color::green);  // Green RUN button when ready
   } else {
     pros::screen::set_eraser(pros::Color::dark_gray);  // Gray when no auton
@@ -173,8 +173,8 @@ void GuiDebug::DisplayAutonRunner() {
 
   // RUN/MOV text
   pros::screen::set_pen(pros::Color::white);
-  const char* runBtnText = autonRunning ? "MOV" : (otosReady ? "RUN" : "WAIT");
-  const int runTextX = runX1 + (btnWidth / 2) - (autonRunning ? 25 : (otosReady ? 29 : 34));
+  const char* runBtnText = autonRunning ? "MOV" : (positionReady ? "RUN" : "WAIT");
+  const int runTextX = runX1 + (btnWidth / 2) - (autonRunning ? 25 : (positionReady ? 29 : 34));
   pros::screen::print(pros::E_TEXT_LARGE, runTextX, btnY1 + 13, runBtnText);
 }
 

@@ -168,7 +168,7 @@ inline double squareTurn2 = 0.0;
 inline double squareMove3 = 0.0;
 
 /// Build a short path one step at a time from the debug GUI.
-/// Zero-valued steps are skipped; every active step must have fresh OTOS data.
+/// Zero-valued steps are skipped; every active step needs a position source.
 inline int otosSquareBuilder() {
   if (!drivetrain.hasFreshPose()) return -1;
   if (squareMove1 != 0.0) drivetrain.move(squareMove1);

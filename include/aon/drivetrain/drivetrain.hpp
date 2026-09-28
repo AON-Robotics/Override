@@ -78,6 +78,8 @@ class Drivetrain {
   void initialize() { this->odometry->initialize(); }
 
   bool hasFreshPose() { return odometry && odometry->hasFreshPose(); }
+  bool hasFreshOtos() { return odometry && odometry->hasFreshOtos(); }
+  int getPoseSource() { return odometry ? odometry->getPoseSource() : 0; }
   bool isImuFusing() { return odometry && odometry->isImuFusing(); }
   double getOtosTheta() { return odometry->getOtosDegrees(); }
   
@@ -313,6 +315,7 @@ class Drivetrain {
   /// @param dist The distance to be moved in \b inches
   /// @param MAX_REVS The maximum RPM to send to the movement
   void drivePID(PID pid = PID(0.02, 0, 0), double dist = TILE_WIDTH, const double &MAX_REVS = 100.0) {
+    if (!hasFreshPose() || dist == 0) { stop(); return; }
     const int sign = dist / abs(dist);  // Getting the direction of the movement
     dist = abs(dist);                   // Setting the magnitude to positive
     pid.Reset();
@@ -323,7 +326,9 @@ class Drivetrain {
     const double start_time = pros::micros() / 1E6;
     #define time (pros::micros() / 1E6) - start_time  // every time the variable is called it is recalculated automatically
 
-    while ((odometry->getPosition() - initialPos).GetMagnitude() < dist) {
+    while ((odometry->getPosition() - initialPos).GetMagnitude() < dist &&
+           time < 3 * timeLimit) {
+      if (!hasFreshPose()) { stop(); break; }
       double currentDisplacement = (odometry->getPosition() - initialPos).GetMagnitude();
       double output = pid.Output(dist, currentDisplacement);
 
@@ -346,16 +351,11 @@ class Drivetrain {
   /// @param angle The angle to make the robot turn in \b degrees
   /// @param MAX_REVS The maximum RPM to send to the movement
   void turnPID(PID pid = PID(0.002, 0, 0), double angle = 90, const double &MAX_REVS = 50.0) {
-    const int sign = angle / abs(angle);  // Getting the direction of the movement
-    angle = abs(angle);                   // Setting the magnitude to positive
+    if (!hasFreshPose() || angle == 0) { stop(); return; }
     pid.Reset();
-    if (!hasFreshPose()) { stop(); return; }
     const double startAngle = odometry->getDegrees();  // Angle relative to the start
     
-    double timeLimit = math::getTimetoTurnDeg(angle);
-    
-    if (sign == -1) { angle = 360.0 - angle + CLOCKWISE_ROTATION_DEGREES_OFFSET; }
-    if (sign == 1) { angle -= CLOCKWISE_ROTATION_DEGREES_OFFSET; }
+    double timeLimit = math::getTimetoTurnDeg(std::abs(angle));
 
     const double startTime = pros::micros() / 1E6;
     #define time (pros::micros() / 1E6) - startTime
@@ -363,7 +363,8 @@ class Drivetrain {
     while (time < 3 * timeLimit) {
       if (!hasFreshPose()) { stop(); break; }
 
-      double traveledAngle = abs(odometry->getDegrees() - startAngle);
+      double traveledAngle = odometry->getDegrees() - startAngle;
+      if (std::abs(angle - traveledAngle) < 1.5) break;
       
       double output = pid.Output(angle, traveledAngle);
 
@@ -372,7 +373,7 @@ class Drivetrain {
       pros::lcd::print(2, "Gyroscope Displacement %.2f", traveledAngle);
       
       // Taking clockwise rotation as positive (to change this just flip the negative on the sign below)
-      this->rotate(sign * std::clamp(output * MAX_RPM, -MAX_REVS, MAX_REVS));
+      this->rotate(std::clamp(output * MAX_RPM, -MAX_REVS, MAX_REVS));
 
       pros::delay(10);
     }
@@ -617,6 +618,7 @@ class Drivetrain {
   /// `angle` will cause a backwards movement
   /// @see https://www.desmos.com/calculator/91cbd82e8b
   void driveAngleOfArc(const double &radius = DRIVE_WIDTH, const double &angle = 90, bool settle = true) {
+    if (!hasFreshPose()) { stop(); return; }
     if(angle == 0) { return; }
     if(radius == 0) {
       turn(angle, settle);
@@ -629,11 +631,9 @@ class Drivetrain {
     double dt = 0.02;
     double now = pros::micros() / 1E6;
     double lastTime = now;
-    const double rightEncStartPos = odometry->encoderRight.get_position(); //! Temporary
-    const double leftEncStartPos = odometry->encoderLeft.get_position(); //! Temporary
+    Pose previousPose = odometry->getPose();
     this->yProfile->setVelocity(this->getRPM());
     this->yProfile->setFinalVelocity(settle ? 0 : 100);
-    // const double startDist = odometry::getTraveledDistance();
 
     // Timeout determined experimentally
     const uint32_t timeoutMs = (distance / 3.0) * 1E3;
@@ -641,11 +641,12 @@ class Drivetrain {
     timer.start(timeoutMs);
 
     while(traveledDist < distance && !timer.isCompleted()){
-      // traveledDist = odometry::getTraveledDistance() - startDist;
-      const double rightEncDist = (std::abs(odometry->encoderRight.get_position() - rightEncStartPos) / 100 ) * M_PI * TRACKING_WHEEL_DIAMETER / DEGREES_PER_REVOLUTION; //! Temporary
-      const double leftEncDist = (std::abs(odometry->encoderLeft.get_position() - leftEncStartPos) / 100 ) * M_PI * TRACKING_WHEEL_DIAMETER / DEGREES_PER_REVOLUTION; //! Temporary
-      traveledDist = (rightEncDist + leftEncDist) / 2; //! Temporary
+      if (!hasFreshPose()) { stop(); return; }
+      const Pose currentPose = odometry->getPose();
+      traveledDist += currentPose.distanceTo(previousPose);
+      previousPose = currentPose;
       remainingDist = distance - traveledDist;
+      if (remainingDist <= 0) break;
       now = pros::micros() / 1E6;
       dt = now - lastTime;
       midSpeed = this->yProfile->update(remainingDist, dt);
@@ -666,15 +667,14 @@ class Drivetrain {
   /// @note Odometry must be working for global positioning on the field
   /// @see https://www.desmos.com/calculator/5abb373276
   void driveInArcTo(const double &x, const double &y) {
+    if (!hasFreshPose()) { stop(); return; }
     // Get the current pose
     Vector position = odometry->getPosition();
     position.SetPosition(math::inchesToMeters(position.GetX()), math::inchesToMeters(position.GetY()));
-    double heading = odometry->getDegrees(); //? should this come in the same format as the GPS heading?
+    double heading = odometry->getDegrees();
     Vector target = Vector().SetPosition(x, y);
 
-    // Convert the heading to traditional math coordinates
-    heading = (90 - heading); //? only do the `(90 - heading)` part if the heading comes in gps coordinates
-    if (heading < 0) { heading += 360; }
+    // X is forward and Y is right, matching the pose heading convention.
     heading *=  M_PI / 180;
 
     // (heading - π/2) % π cannot be 0 because tan(heading) would not be defined
@@ -727,11 +727,13 @@ class Drivetrain {
   /// @param y The y component of the point we wish to face
   /// @note Uses coordinate system from GPS in \b meters
   void turnToPoint(const double &x, const double &y) {
-    Vector target = Vector().SetPosition(x, y);
+    if (!hasFreshPose()) { stop(); return; }
+    Vector target = Vector().SetPosition(math::metersToInches(x),
+                                          math::metersToInches(y));
     // Determine current position
     Pose current = odometry->getPose();
     // Do the movement
-    turn(-math::calculateTurn(target, current));
+    turn(math::calculateTurn(target, current));
   }
 
   /// @brief Turns the robot to an absolute heading
@@ -749,17 +751,22 @@ class Drivetrain {
   /// @param y The y component of the place where we want to go using the gps coordinate system (x, y) both need to be in the range (-1.8, 1.8)
   /// @note Uses coordinate system from GPS in \b meters
   void goToPoint(const double &x, const double &y) {
+    if (!hasFreshPose()) { stop(); return; }
     Vector target = Vector().SetPosition(x, y);
     // Determine current position
-    Vector current = odometry->gpsPosition();
+    Vector current = odometry->getPosition();
+    current.SetPosition(math::inchesToMeters(current.GetX()),
+                        math::inchesToMeters(current.GetY()));
     // Do the movement
-    turn(-math::calculateTurn(target, odometry->getPose()));
+    const Vector targetInches = Vector().SetPosition(math::metersToInches(x),
+                                                     math::metersToInches(y));
+    turn(math::calculateTurn(targetInches, odometry->getPose()));
     move(math::findDistance(target, current));
   }
 
   /// @brief Goes to the target point
   /// @param pose The target pose
-  /// @note Uses coordinate system from GPS in \b meters
+  /// @note Pose X/Y are inches; heading is clockwise degrees.
   virtual void goToPose(const Pose &pose) = 0;
 
   /// @brief Follows a path using a pure pursuit controller

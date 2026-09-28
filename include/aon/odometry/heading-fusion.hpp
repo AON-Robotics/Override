@@ -4,8 +4,8 @@
 
 namespace aon {
 
-// The V5 IMU supplies heading whenever available. OTOS only carries heading
-// through an IMU outage; both readings are continuous clockwise degrees.
+// The V5 IMU supplies heading whenever available. The caller supplies a
+// continuous clockwise fallback heading from wheels or OTOS during an outage.
 class HeadingFusion {
  public:
   explicit HeadingFusion(double imuSmoothingSeconds = 0.02)

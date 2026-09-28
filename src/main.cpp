@@ -5,13 +5,14 @@ void initialize() {
   aon::gui->setMapDataProvider([] { return drivetrain.getPose(); });
   aon::gui->setGraphDataProviders([] { return drivetrain.getX(); },
                                   [] { return drivetrain.getY(); });
-  aon::gui->registerDataEntry("OTOS live", [] { return drivetrain.hasFreshPose() ? 1.0 : 0.0; });
+  aon::gui->registerDataEntry("OTOS live", [] { return drivetrain.hasFreshOtos() ? 1.0 : 0.0; });
+  aon::gui->registerDataEntry("Pose source", [] { return double(drivetrain.getPoseSource()); });
   aon::gui->registerDataEntry("Pose X (in)", [] { return drivetrain.getX(); });
   aon::gui->registerDataEntry("Pose Y (in)", [] { return drivetrain.getY(); });
   aon::gui->registerDataEntry("Heading (deg)", [] { return drivetrain.getTheta(); });
   aon::gui->registerDataEntry("OTOS H (deg)", [] { return drivetrain.getOtosTheta(); });
   aon::gui->registerDataEntry("IMU heading", [] { return drivetrain.isImuFusing() ? 1.0 : 0.0; });
-  aon::gui->registerResetHandler("OTOS pose", [] {
+  aon::gui->registerResetHandler("Pose", [] {
     drivetrain.resetPose(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y,
                          INITIAL_ODOMETRY_THETA);
   });
@@ -41,7 +42,6 @@ void autonomous() {
   aon::Configure(false); // Set drivetrain to hold for auton
   if (!drivetrain.hasFreshPose()) {
     drivetrain.stop();
-    pros::lcd::print(0, "Auton blocked: OTOS packets missing");
     return;
   }
   // TODO: add presetFunction

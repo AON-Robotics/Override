@@ -22,6 +22,7 @@ void DifferentialDrive::setEncoderUnits(pros::MotorEncoderUnits units){
   leftMotors.tare_position();
   rightMotors.set_encoder_units(units);
   rightMotors.tare_position();
+  if (odometry) odometry->resetMotorBaselines();
 }
 
 void DifferentialDrive::setSlewRate(double slew){
