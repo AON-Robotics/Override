@@ -106,6 +106,7 @@ class Intake {
 
  public:
   std::shared_ptr<void> leverController = nullptr;  // TODO: Replace okapi::AsyncPositionController with custom implementation
+  double leverTarget = 0;
   Intake(const std::initializer_list<std::int8_t>& corridorPorts,
          const std::initializer_list<std::int8_t>& elevatorPorts,
          const std::initializer_list<std::int8_t>& judgePorts,
@@ -202,6 +203,9 @@ class Intake {
   /// @return Whether or not there is an object in front of the intake as
   /// determined by the distance sensor
   bool isObjectDetected();
+
+  /// @brief Returns whether an object is detected and its color is recognized.
+  bool isScoringReady();
 
   /// @brief Runs a background loop to auto-pick-up blocks when scanning is
   /// active.

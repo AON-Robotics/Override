@@ -32,23 +32,32 @@ class Rumble {
     matchStart = pros::millis();
     lastObject = false;
     lastMechanism = false;
+    lastScoringReady = false;
+    lastWarning = false;
     initialized = false;
     endgameSent = false;
   }
 
-  void update(const bool objectDetected, const bool mechanismComplete) {
+  void update(const bool objectDetected, const bool mechanismComplete,
+              const bool scoringReady, const bool warning) {
     if (!initialized) {
       lastObject = objectDetected;
       lastMechanism = mechanismComplete;
+      lastScoringReady = scoringReady;
+      lastWarning = warning;
       initialized = true;
       return;
     }
 
     if (objectDetected && !lastObject) notify(Event::GAME_OBJECT);
     if (mechanismComplete && !lastMechanism) notify(Event::MECHANISM_COMPLETE);
+    if (scoringReady && !lastScoringReady) notify(Event::SCORING_READY);
+    if (warning && !lastWarning) notify(Event::WARNING);
 
     lastObject = objectDetected;
     lastMechanism = mechanismComplete;
+    lastScoringReady = scoringReady;
+    lastWarning = warning;
 
     if (!endgameSent && pros::millis() - matchStart >= ENDGAME_MS) {
       notify(Event::ENDGAME);
@@ -95,6 +104,8 @@ class Rumble {
   std::uint32_t matchStart = 0;
   bool lastObject = false;
   bool lastMechanism = false;
+  bool lastScoringReady = false;
+  bool lastWarning = false;
   bool initialized = false;
   bool endgameSent = false;
 };

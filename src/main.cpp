@@ -46,6 +46,9 @@ void opcontrol() {
   aon::Configure();
   driverFeedback.beginMatch();
   while (true) {
+    const bool warning = !mainController.is_connected() || pros::battery::get_capacity() <= 20;
+    driverFeedback.update(intake.isObjectDetected(), intake.leverFinished(),
+                          intake.isScoringReady(), warning);
     #if TESTING_AUTONOMOUS
     aon::Configure(false); // Set drivetrain to hold for auton testing
 
@@ -55,7 +58,6 @@ void opcontrol() {
     pros::delay(5000);
     #else
     aon::operator_control::Run(driver);
-    driverFeedback.update(intake.isObjectDetected(), intake.leverFinished());
     #endif
     pros::delay(10);
   }
