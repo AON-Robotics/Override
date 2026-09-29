@@ -1,27 +1,6 @@
 #include "../include/main.hpp"
 
 void initialize() {
-  aon::gui->setPoseReadyProvider([] { return drivetrain.hasFreshPose(); });
-  aon::gui->setMapDataProvider([] { return drivetrain.getPose(); });
-  aon::gui->setGraphDataProviders([] { return drivetrain.getX(); },
-                                  [] { return drivetrain.getY(); });
-  aon::gui->registerDataEntry("OTOS live", [] { return drivetrain.hasFreshOtos() ? 1.0 : 0.0; });
-  aon::gui->registerDataEntry("Pose source", [] { return double(drivetrain.getPoseSource()); });
-  aon::gui->registerDataEntry("Pose X (in)", [] { return drivetrain.getX(); });
-  aon::gui->registerDataEntry("Pose Y (in)", [] { return drivetrain.getY(); });
-  aon::gui->registerDataEntry("Heading (deg)", [] { return drivetrain.getTheta(); });
-  aon::gui->registerDataEntry("OTOS H (deg)", [] { return drivetrain.getOtosTheta(); });
-  aon::gui->registerDataEntry("IMU heading", [] { return drivetrain.isImuFusing() ? 1.0 : 0.0; });
-  aon::gui->registerResetHandler("Pose", [] {
-    drivetrain.resetPose(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y,
-                         INITIAL_ODOMETRY_THETA);
-  });
-  aon::gui->registerTestFunction(aon::tests::otosSquareBuilder, "OTOS Square Builder");
-  aon::gui->variableChanger(aon::tests::squareMove1, "Move 1 (in)");
-  aon::gui->variableChanger(aon::tests::squareTurn1, "Turn 1 (deg)");
-  aon::gui->variableChanger(aon::tests::squareMove2, "Move 2 (in)");
-  aon::gui->variableChanger(aon::tests::squareTurn2, "Turn 2 (deg)");
-  aon::gui->variableChanger(aon::tests::squareMove3, "Move 3 (in)");
   pros::Task guiLoopTask([]{aon::gui->initialize();});
   aon::logging::Initialize();
   aon::Configure(false);
@@ -45,23 +24,10 @@ void autonomous() {
   pros::delay(10);
 }
 
-// During development
-// Program slot 1 with Pizza Icon is for opcontrol
-// Program slot 2 with Planet Icon is for autonomous routine
-// Program slot 3 with Alien Icon is for tests or miscellaneous components
 void opcontrol() {
   aon::Configure();
   while (true) {
-    #if TESTING_AUTONOMOUS
-    aon::Configure(false); // Set drivetrain to hold for auton testing
-
-    // TODO: add presetFunction
-    // aon::autonomousReader->ExecuteFunction("autonomous");
-
-    pros::delay(5000);
-    #else
     aon::operator_control::Run(driver);
-    #endif
     pros::delay(10);
   }
 }
