@@ -79,11 +79,13 @@
 
 #define SENSITIVITY 10 // 3-10 works good, currently undergoing testing // Higher is more sensitivity
 #define DRIVE_WHEEL_DIAMETER 2.75
+// #define DRIVE_WHEEL_DIAMETER 3.25 // X-Drive
 #define TRACKING_WHEEL_DIAMETER 2
 #define DISTANCE_LEFT_TRACKING_WHEEL_CENTER 1.125
 #define DISTANCE_RIGHT_TRACKING_WHEEL_CENTER 1.125
 #define DISTANCE_BACK_TRACKING_WHEEL_CENTER 1.572
 #define MOTOR_TO_DRIVE_RATIO 0.75 // NumTeethMotorGear / NumTeethWheelGear
+// #define MOTOR_TO_DRIVE_RATIO 0.6 // NumTeethMotorGear / NumTeethWheelGear // X-Drive
 #define GYRO_ENABLED true
 #define GYRO_CONFIDENCE 1
 #define GYRO_FILTER_LENGTH 1
