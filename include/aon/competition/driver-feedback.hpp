@@ -18,6 +18,13 @@ enum class Event : std::uint8_t {
   COUNT,
 };
 
+enum class Profile : std::uint8_t {
+  FULL,
+  ESSENTIAL,
+  QUIET,
+  DISABLED,
+};
+
 /// Non-blocking controller rumble scheduler.
 class Rumble {
  public:
@@ -36,6 +43,21 @@ class Rumble {
     lastWarning = false;
     initialized = false;
     endgameSent = false;
+  }
+
+  void setProfile(const Profile profile) {
+    constexpr std::uint8_t object = 1u << static_cast<std::uint8_t>(Event::GAME_OBJECT);
+    constexpr std::uint8_t mechanism = 1u << static_cast<std::uint8_t>(Event::MECHANISM_COMPLETE);
+    constexpr std::uint8_t scoring = 1u << static_cast<std::uint8_t>(Event::SCORING_READY);
+    constexpr std::uint8_t endgame = 1u << static_cast<std::uint8_t>(Event::ENDGAME);
+    constexpr std::uint8_t warning = 1u << static_cast<std::uint8_t>(Event::WARNING);
+    constexpr std::uint8_t masks[] = {
+        ALL_EVENTS,
+        object | mechanism | scoring | endgame | warning,
+        scoring | endgame,
+        0,
+    };
+    enabled.store(masks[static_cast<std::uint8_t>(profile)], std::memory_order_relaxed);
   }
 
   void update(const bool objectDetected, const bool mechanismComplete,

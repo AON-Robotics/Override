@@ -21,7 +21,7 @@ int runPathDiagnostic(Drivetrain& drive, int index) {
     pros::screen::print(pros::E_TEXT_MEDIUM_CENTER,3,"Invalid tuning file - no motion");
     return 0;
   }
-  if (!route.stops.empty()) options.finalHeading = route.stops.back().heading;
+  if (!route.points.empty()) options.finalHeading = route.points.back().theta;
   FollowHooks hooks;
   std::pair<PathTrace*,std::uint32_t> recording{&trace,started};
   hooks.context = &recording;
@@ -33,9 +33,9 @@ int runPathDiagnostic(Drivetrain& drive, int index) {
   const auto result = drive.follow(route.view(),options,hooks);
   const auto elapsed = pros::millis()-started;
   Pose commandedTarget = route.points.empty() ? drive.getPose() : route.points.back();
-  if (!route.stops.empty()) commandedTarget.theta = route.stops.back().heading;
+  if (!route.points.empty()) commandedTarget.theta = route.points.back().theta;
   const bool saved = trace.save(files[index],followResultName(result),drive.getPose(),
-                                commandedTarget,elapsed,&options,profile,route.revision);
+                                commandedTarget,elapsed,&options,profile);
   pros::screen::print(pros::E_TEXT_MEDIUM_CENTER,3,"%s - %.2fs",followResultName(result),elapsed/1000.0);
   pros::screen::print(pros::E_TEXT_MEDIUM_CENTER,6,saved ? "CSV saved to SD" : "CSV not saved (check SD)");
   return result == Drivetrain::FollowResult::Completed;

@@ -47,37 +47,25 @@ int runStaticPath(Drivetrain& drivetrain, const std::function<void(int)>& intake
   const auto route = generated::staticRouteAt(start,"testing");
   const auto started = pros::millis();
   PathTrace trace(started,TESTING_AUTONOMOUS ? 320 : 0);
-  TraceLeg traces[] = {{trace,started,1},{trace,started,2},{trace,started,3}};
-  PathStep steps[3];
-  MechanismAction actions[] = {{intake,piston,0},{intake,piston,1},{intake,piston,2}};
-  std::size_t first = 0;
-  const bool valid = route.points.size() >= 2 && route.stops.size() == 3;
-  for (std::size_t stage=0; valid && stage<3; ++stage) {
-    const auto& stop = route.stops[stage];
-    const auto last = stop.index;
-    steps[stage].path = route.view().slice(first,last);
-    if (loaded == TuningLoad::Loaded) steps[stage].options = tuned;
-    steps[stage].options.finalHeading = stop.heading;
-    steps[stage].arrived = MechanismAction::run;
-    if (stage < 2) steps[stage].afterWait = MechanismAction::stop;
-    steps[stage].context = &actions[stage];
-    steps[stage].waitMs = stage < 2 ? 2000 : 0;
-    if (TESTING_AUTONOMOUS) steps[stage].hooks = {&traces[stage],TraceLeg::sample,nullptr};
-    first = last;
-  }
+  PathStep step;
+  step.path = route.view();
+  if (loaded == TuningLoad::Loaded) step.options = tuned;
+  if (!route.points.empty()) step.options.finalHeading = route.points.back().theta;
+  const bool valid = route.points.size() >= 2;
+  if (TESTING_AUTONOMOUS) step.hooks = {&trace, nullptr, nullptr};
   pros::screen::set_eraser(pros::Color::black);
   pros::screen::erase();
   pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_LARGE_CENTER,1,"JERRYIO TESTING");
   intake(0);
-  const auto result = valid ? runPathSequence(drivetrain,steps,3,30000) : Drivetrain::FollowResult::InvalidPath;
+  const auto result = valid ? runPathSequence(drivetrain,&step,1,30000)
+                            : Drivetrain::FollowResult::InvalidPath;
   intake(0);
   drivetrain.stop();
   if (TESTING_AUTONOMOUS) {
     Pose target = route.points.empty() ? start : route.points.back();
-    if (!route.stops.empty()) target.theta = route.stops.back().heading;
     const bool saved = trace.save("/usd/aon-testing-v2",followResultName(result),drivetrain.getPose(),
-        target,pros::millis()-started,&tuned,profile,route.revision);
+        target,pros::millis()-started,&tuned,profile);
     pros::screen::print(pros::E_TEXT_MEDIUM_CENTER,6,saved ? "CSV saved to SD" : "CSV not saved (check SD)");
   }
   const char* status = followResultName(result);
