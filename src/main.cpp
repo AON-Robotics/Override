@@ -44,18 +44,9 @@ void autonomous() {
 // Program slot 3 with Alien Icon is for tests or miscellaneous components
 void opcontrol() {
   aon::Configure();
-  const auto rumbleProfile =
-      driver == aon::operator_control::KEVIN
-          ? aon::driver_feedback::Profile::FULL
-          : driver == aon::operator_control::FABIAN
-              ? aon::driver_feedback::Profile::ESSENTIAL
-              : aon::driver_feedback::Profile::QUIET;
-  driverFeedback.setProfile(rumbleProfile);
   driverFeedback.beginMatch();
   while (true) {
-    const bool warning = !mainController.is_connected() || pros::battery::get_capacity() <= 20;
-    driverFeedback.update(intake.isObjectDetected(), intake.leverFinished(),
-                          intake.isScoringReady(), warning);
+    driverFeedback.update();
     #if TESTING_AUTONOMOUS
     aon::Configure(false); // Set drivetrain to hold for auton testing
 
