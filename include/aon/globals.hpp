@@ -13,7 +13,6 @@
 #include "./drivetrain/differential-drive.hpp"
 #include "./orbit/orbit.hpp"
 #include "./drivetrain/drivetrain.hpp"
-#include "./competition/driver-feedback.hpp"
 #include "./odometry/odometry.hpp"
 #include "./piston/piston.hpp"
 #include "./math/scaling/pilons-scaler.hpp"
@@ -137,7 +136,6 @@ aon::PID fastPID = aon::PID(1, 0, 0);
 
 /// Controller
 pros::Controller mainController = pros::Controller(CONTROLLER_MASTER);
-aon::driver_feedback::Rumble driverFeedback(mainController);
 
 
 // ============================================================================
@@ -151,8 +149,8 @@ aon::driver_feedback::Rumble driverFeedback(mainController);
 namespace aon {
 
 inline void Configure(const bool opcontrol = true) {
-  // COAST for AUTONOMOUS ||| BRAKE for OPERATOR CONTROL
-  pros::MotorBrake brakeMode = opcontrol ? pros::MotorBrake::brake : pros::MotorBrake::coast;
+  // HOLD for AUTONOMOUS ||| BRAKE for OPERATOR CONTROL
+  pros::MotorBrake brakeMode = opcontrol ? pros::MotorBrake::brake : pros::MotorBrake::hold;
 
   #if USING_BIG_ROBOT
   drivetrain.configure(brakeMode, pros::MotorGears::blue, MAX_ACCEL * 0.4);

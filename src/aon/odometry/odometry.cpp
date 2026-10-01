@@ -4,10 +4,9 @@ namespace aon {
 
 Odometry::Odometry(short left, short right, short back, short gps, short gyro)
     : conversionFactor(M_PI * TRACKING_WHEEL_DIAMETER / DEGREES_PER_REVOLUTION),
-      // Pablo's convention: PROS gets positive ports; odometry applies reversal.
-      encoderLeft(static_cast<short>(std::abs(left))),
-      encoderRight(static_cast<short>(std::abs(right))),
-      encoderBack(static_cast<short>(std::abs(back))),
+      encoderLeft(abs(left)),
+      encoderRight(abs(right)),
+      encoderBack(abs(back)),
       gps(gps, GPS_INITIAL_X, GPS_INITIAL_Y, GPS_INITIAL_HEADING, GPS_X_OFFSET,
           GPS_Y_OFFSET),
       leftReversed(left < 0),
@@ -148,8 +147,7 @@ void Odometry::initialize() {
 /// @brief Fundamental function for Odometry.
 /// @details Uses changes in encoder (right and left) and gyro to calculate position
 void Odometry::update() { // TODO: implement odometer functions both for linear and rotational movement
-  // Convert centidegrees to degrees and apply the requested direction once.
-  // PROS sensors use positive ports, so their readings are not reversed.
+  /// Read encoder values, divided by 100 to convert centidegrees to degrees
   encoderRight_data.currentValue = (encoderRight.get_position() / 100.0) * (rightReversed ? -1.0 : 1.0);
   encoderLeft_data.currentValue = (encoderLeft.get_position() / 100.0) * (leftReversed ? -1.0 : 1.0);
   // encoderBack_data.currentValue = (encoderBack.get_position() / 100.0) * (backReversed ? -1.0 : 1.0);
@@ -196,10 +194,7 @@ void Odometry::update() { // TODO: implement odometer functions both for linear 
     gyro_data.currentDegrees += 360;
   }
   // Calculate delta
-  // The heading wraps at +/-180. Crossing that boundary is a small turn,
-  // not a near-360-degree arc (which also corrupts the integrated distance).
-  gyro_data.deltaDegrees = std::remainder(
-      gyro_data.currentDegrees - gyro_data.prevDegrees, 360.0);
+  gyro_data.deltaDegrees = gyro_data.currentDegrees - gyro_data.prevDegrees;
   gyro_data.deltaRadians = gyro_data.deltaDegrees * (M_PI / 180.0);
 
   // Save current data for future calculations
@@ -258,12 +253,10 @@ void Odometry::update() { // TODO: implement odometer functions both for linear 
 
   // Updating global position using 2D matrix transformation (previous way to
   // update to global coordinates)
-  // deltaDlocal already includes this step's turn. Rotate it by the starting
-  // orientation; using the updated orientation applies the turn twice.
-  SetPosition(getX() + deltaDlocal.GetX() * std::cos(previousTheta) -
-                  deltaDlocal.GetY() * std::sin(previousTheta),
-              getY() + deltaDlocal.GetX() * std::sin(previousTheta) +
-                  deltaDlocal.GetY() * std::cos(previousTheta));
+  SetPosition(getX() + deltaDlocal.GetX() * std::cos(getRadians()) -
+                  deltaDlocal.GetY() * std::sin(getRadians()),
+              getY() + deltaDlocal.GetX() * std::sin(getRadians()) +
+                  deltaDlocal.GetY() * std::cos(getRadians()));
 
   // Save current values as previous for future updates
   encoderLeft_data.prevValue = encoderLeft_data.currentValue;
@@ -280,9 +273,9 @@ void Odometry::update() { // TODO: implement odometer functions both for linear 
 /// @param y Y position in \b inches
 /// @param theta Angular position in \b degrees
 void Odometry::resetCurrent(double x, double y, double theta) {
-  const double currentAngleRight = (encoderRight.get_position() / 100.0) * (rightReversed ? -1.0 : 1.0);
-  const double currentAngleLeft = (encoderLeft.get_position() / 100.0) * (leftReversed ? -1.0 : 1.0);
-  const double currentAngleBack = (encoderBack.get_position() / 100.0) * (backReversed ? -1.0 : 1.0);
+  const double currentAngleRight = encoderRight.get_position() / 100.0;
+  const double currentAngleLeft = encoderLeft.get_position() / 100.0;
+  const double currentAngleBack = encoderBack.get_position() / 100.0;
   const double currentAngleGyro = gyroscope.get_heading();
   std::cout << "currentAngleGyro: " << currentAngleGyro << "\n";
 

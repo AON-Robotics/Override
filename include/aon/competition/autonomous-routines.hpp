@@ -12,12 +12,6 @@
 #include "../tools/simple-filter.hpp"
 #include "../tools/general.hpp"
 #include "../math/misc/misc.hpp"
-#include <functional>
-namespace aon {
-class Drivetrain;
-int runStaticPath(Drivetrain&, const std::function<void(int)>&, const std::function<void()>&);
-int runPathDiagnostic(Drivetrain&, int);
-}
 
 // TODO: for modularity we will have odometry, drivetrain, navigator, orbit, intake, and claw (the last two will most likely change with each game and modules may be added or removed as needed)
 // TODO: add support for a drive mode that is videogame-like (i think rocket league has it). Basically with reference to where the driver is standing on the field, the direction towards which you move the joystick is where the robot will turn to and drive to at the same time. This should greatly facilitate general directional movement if implemented correctly. Leave a toggle available for traditional driving in accordance to the chosen drivetrain for better fine grained control in tight spaces.
@@ -342,26 +336,6 @@ void square(){
     drivetrain.turn();
     pros::delay(750);
   }
-}
-
-int basicUTurn(){
-  const auto settle = [] {
-    bool cancelled = false;
-    for (int i = 0; i < 30; ++i) {
-      drivetrain.stop();
-      cancelled = cancelled || pros::competition::is_disabled() ||
-          pros::c::controller_get_digital(pros::E_CONTROLLER_MASTER, pros::E_CONTROLLER_DIGITAL_B);
-      pros::delay(10);
-    }
-    return !cancelled;
-  };
-  if (!settle()) return 0;
-  drivetrain.move(24);
-  if (!settle()) return 0;
-  drivetrain.driveAngleOfArc(8.5, 180);
-  if (!settle()) return 0;
-  drivetrain.move(24);
-  return settle();
 }
 
 void continuity(){
@@ -930,28 +904,6 @@ int SkillsRoutine3(){
 }
 
 #endif
-
-int BasicUTurnRoutine() {
-  intake.stop();
-  const int result = aon::tests::basicUTurn();
-  intake.stop();
-  return result;
-}
-
-int StaticPathRoutine() {
-  intake.stopScan();
-  intake.stop();
-  const int result = aon::runStaticPath(drivetrain,
-      [](int rpm) { intake.move(rpm); }, [] { arrow.activate(); });
-  intake.stop();
-  return result;
-}
-
-int PathDiagnostic(int index) {
-  intake.stopScan();
-  intake.stop();
-  return aon::runPathDiagnostic(drivetrain,index);
-}
 
 } // namespace aon::routines
 

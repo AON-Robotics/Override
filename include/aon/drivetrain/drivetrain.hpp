@@ -8,7 +8,6 @@
 #include "../math/timer.hpp"
 #include "../controls/pure-pursuit.hpp"
 #include <cfloat>
-#include <optional>
 
 
 namespace aon {
@@ -45,8 +44,7 @@ class Drivetrain {
   protected:
 
   std::unique_ptr<Odometry> odometry;
-  // Engaged only for construction without odometry; never mirrors sensor state.
-  std::optional<Pose> manualPose;
+  Pose pose;
   bool turbo = false;
 
   /// @brief This applies only while using curvature drive to allow for turning without forward motion. Any forward motion below this will cause curvature drive to behave like arcade.
@@ -62,11 +60,8 @@ class Drivetrain {
 
   Drivetrain(Pose pose, std::unique_ptr<Odometry> odom, SpeedFactors speedFactors, 
              std::unique_ptr<MotionProfile> xProfile, std::unique_ptr<MotionProfile> yProfile, std::unique_ptr<MotionProfile> thetaProfile): 
-             odometry(std::move(odom)), speedFactors(speedFactors),
-             xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) {
-               if (odometry) setPose(pose);
-               else manualPose = pose;
-             }
+             pose(pose), odometry(std::move(odom)), speedFactors(speedFactors),
+             xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) {}
 
   enum DriveMode {
     TANK,
@@ -80,42 +75,28 @@ class Drivetrain {
   // TODO: move all implementations to a dedicated cpp file
 
   /// @brief Starts the underlying odometry thread
-  void initialize() { if (odometry) odometry->initialize(); }
+  void initialize() { this->odometry->initialize(); }
   
-  Pose getPose() { return odometry ? odometry->getPose() : *manualPose; }
-  // Change the odometry frame without resetting sensors or waiting for the IMU.
-  void setPose(Pose p) {
-    if (odometry) { odometry->SetPosition(p.x, p.y); odometry->setDegrees(p.theta); }
-    else manualPose = p;
-  }
+  Pose getPose() { return this->pose; }
+  void setPose(Pose p) { this->pose = p; }
 
   double getX() { 
-    return odometry ? odometry->getX() : manualPose->x;
+    return this->odometry->getX();
   }
-  void setX(double x) {
-    if (odometry) odometry->SetPosition(x, getY());
-    else manualPose->x = x;
-  }
+  void setX(double x) { this->pose.x = x; }
 
   double getY() { 
-    return odometry ? odometry->getY() : manualPose->y;
+    return this->odometry->getY();
   }
-  void setY(double y) {
-    if (odometry) odometry->SetPosition(getX(), y);
-    else manualPose->y = y;
-  }
+  void setY(double y) { this->pose.y = y; }
 
   double getTheta() { 
-    return odometry ? odometry->getDegrees() : manualPose->theta;
+    return this->odometry->getDegrees();
   }
-  void setTheta(double theta) {
-    if (odometry) odometry->setDegrees(theta);
-    else manualPose->theta = theta;
-  }
+  void setTheta(double theta) { this->pose.theta = theta; }
 
   void resetPose(double x = 0.0, double y = 0.0, double theta = 0.0) {
-    if (odometry) odometry->resetCurrent(x, y, theta);
-    else setPose({x,y,theta});
+    this->odometry->resetCurrent(x, y, theta);
   }
 
 
@@ -776,17 +757,41 @@ class Drivetrain {
   /// @brief Follows a path using a pure pursuit controller
   /// @param path The path to follow
   /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
-  enum class FollowResult { Completed, InvalidPath, InvalidOptions, TimedOut, Disabled, Cancelled };
-
-  virtual std::pair<double,double> wheelRpm() { const double rpm = getRPM(); return {rpm,rpm}; }
-  FollowResult follow(PathView path, const FollowOptions& options, FollowHooks hooks = {});
-
-  // Existing one-argument callers and derived-drive overrides stay compatible.
   virtual void follow(const std::vector<Pose>& path) {
-    (void)follow(path, 30000, MAX_RPM);
+    PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
+
+    std::pair<double, double> output = {-1, -1};
+
+    double dt = 0.02;
+    double now = pros::micros() / 1E6;
+    double lastTime = now;
+
+    // Generous timeout
+    const uint32_t timeoutMs = (math::length(path)) * 1E3;
+    Timer timer;
+    timer.start(timeoutMs);
+
+    while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted()) {
+      now = pros::micros() / 1E6;
+      dt = now - lastTime;
+      output = controller.follow(path, this->odometry->getPose(), dt);
+      lastTime = now;
+      this->tank(output.first, output.second);
+
+      pros::lcd::print(0, "Current: Pose(%.2f, %.2f, %.2f)", odometry->getX(), odometry->getY(), odometry->getDegrees());
+      pros::lcd::print(1, "Target: Pose(%.2f, %.2f, %.2f)", path.back().x, path.back().y, path.back().theta);
+      pros::lcd::print(2, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
+      pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
+
+      if (output.first == 0 && output.second == 0) { break; }
+
+      pros::delay(10);
+    }
+
+    this->turnToHeading(path.back().theta);
+
+    this->stop();
   }
-  FollowResult follow(const std::vector<Pose>& path, std::uint32_t timeoutMs,
-                      double maximumRpm);
 
   /// @brief Scales a joystick input to drivetrain motor intensity according to a percentage
   /// @param input The joystick input to be scaled
@@ -795,7 +800,6 @@ class Drivetrain {
   static double applySpeed(const double& input, const double& percentage){
     return input * MAX_RPM * percentage;
   }
-
 };
 
 }  // namespace aon

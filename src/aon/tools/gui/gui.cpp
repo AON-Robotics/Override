@@ -2,7 +2,6 @@
 #include "../../../../include/aon/tools/gui/gui-debug.hpp"
 #include "../../../../include/aon/constants.hpp"
 #include "../../../../include/aon/tools/gui/ui/gui-layout.hpp"
-#include <algorithm>
 
 namespace aon {
 
@@ -119,34 +118,25 @@ void Gui::applyPreselectedAuton() {
 }
 
 void Gui::selectAutonByList(Alliance alliance, int index1Based) {
+  if (index1Based < 1) index1Based = 1;
+  if (index1Based > 3) index1Based = 3;
+
   const AutonOption* options = nullptr;
-  int optionCount = allianceAutonOptionsCount;
   switch (alliance) {
     case Alliance::Red:
       options = redAutonOptions;
-      break;
-    case Alliance::Blue:
-      options = blueAutonOptions;
-      break;
-    case Alliance::Skills:
-      options = skillsAutonOptions;
-      optionCount = skillsAutonOptionsCount;
-      break;
-  }
-  if (!options || optionCount <= 0) return;
-  index1Based = std::clamp(index1Based, 1, optionCount);
-  switch (alliance) {
-    case Alliance::Red:
       selectedRedAut = index1Based;
       selectedBlueAut = 0;
       selectedSkill = 0;
       break;
     case Alliance::Blue:
+      options = blueAutonOptions;
       selectedRedAut = 0;
       selectedBlueAut = index1Based;
       selectedSkill = 0;
       break;
     case Alliance::Skills:
+      options = skillsAutonOptions;
       selectedRedAut = 0;
       selectedBlueAut = 0;
       selectedSkill = index1Based;
@@ -216,20 +206,16 @@ void Gui::handleRedAutonMenuTouch() {
   }
 
   // Check auton selection buttons
-  if (allianceAut1Btn.isHit(x, y)) {
+  if (aut1Btn.isHit(x, y)) {
     selectAutonByList(Alliance::Red, 1);
     displayMainMenu();
     currentScreen = MainMenu;
-  } else if (allianceAut2Btn.isHit(x, y)) {
+  } else if (Aut2Btn.isHit(x, y)) {
     selectAutonByList(Alliance::Red, 2);
     displayMainMenu();
     currentScreen = MainMenu;
-  } else if (allianceAut3Btn.isHit(x, y)) {
+  } else if (Aut3Btn.isHit(x, y)) {
     selectAutonByList(Alliance::Red, 3);
-    displayMainMenu();
-    currentScreen = MainMenu;
-  } else if (allianceAut4Btn.isHit(x, y)) {
-    selectAutonByList(Alliance::Red, 4);
     displayMainMenu();
     currentScreen = MainMenu;
   }
@@ -248,20 +234,16 @@ void Gui::handleBlueAutonMenuTouch() {
   }
 
   // Check auton selection buttons
-  if (allianceAut1Btn.isHit(x, y)) {
+  if (aut1Btn.isHit(x, y)) {
     selectAutonByList(Alliance::Blue, 1);
     displayMainMenu();
     currentScreen = MainMenu;
-  } else if (allianceAut2Btn.isHit(x, y)) {
+  } else if (Aut2Btn.isHit(x, y)) {
     selectAutonByList(Alliance::Blue, 2);
     displayMainMenu();
     currentScreen = MainMenu;
-  } else if (allianceAut3Btn.isHit(x, y)) {
+  } else if (Aut3Btn.isHit(x, y)) {
     selectAutonByList(Alliance::Blue, 3);
-    displayMainMenu();
-    currentScreen = MainMenu;
-  } else if (allianceAut4Btn.isHit(x, y)) {
-    selectAutonByList(Alliance::Blue, 4);
     displayMainMenu();
     currentScreen = MainMenu;
   }
