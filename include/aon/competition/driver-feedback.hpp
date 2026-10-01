@@ -8,6 +8,7 @@
 
 namespace aon::driver_feedback {
 
+/// Non-blocking controller rumble scheduler.
 class Rumble {
  public:
   explicit Rumble(pros::Controller& controller) : controller(controller) {}
