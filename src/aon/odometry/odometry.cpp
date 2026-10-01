@@ -60,7 +60,7 @@ Odometry::Odometry(short left, short right, short back, short gpsPort, short gyr
 #if GYRO_ENABLED
       , gyroscope(gyro)
 #endif
-{}
+{ resetInitial(); }
 
 Odometry::Odometry(const Odometry& other)
     : headingFusion(V5_IMU_HEADING_SMOOTHING_SECONDS),
@@ -71,7 +71,7 @@ Odometry::Odometry(const Odometry& other)
 #if GYRO_ENABLED
       , gyroscope(other.gyroscope)
 #endif
-{}
+{ resetInitial(); }
 
 Pose Odometry::getPose() {
   pose_mutex.take(TIMEOUT_MAX);
@@ -191,7 +191,7 @@ void Odometry::acceptPose(const Pose& raw) {
 }
 
 void Odometry::initialize() {
-  resetInitial();
+  // Constructors and pose setters establish the field pose before startup.
 #if GYRO_ENABLED
   // Keep the robot still during the V5 IMU's approximately two-second calibration.
   gyroscope.reset(true);
@@ -247,11 +247,9 @@ void Odometry::update() {
   const bool trackingValid = leftValid && rightValid;
   const bool motorsValid = motorLeftValid && motorRightValid;
   const bool sparkFresh = hasPacket && nowMs - lastPacketMs <= kPoseTimeoutMs;
-  if ((poseSource == 4 && !trackingValid) ||
-      (poseSource == 3 && trackingValid)) wasSparkFresh = false;
-  const bool newSpark = sparkFresh && !sparkConsumed;
-  const bool sparkRebased = newSpark && !wasSparkFresh;
-  const bool backMotionValid = backValid && hadBackSample;
+  bool trackingAccepted = false;
+  bool motorsAccepted = false;
+  bool backAccepted = false;
   double trackForward = 0, trackRight = 0, trackHeading = 0;
   double motorForward = 0, motorHeading = 0;
   double sparkX = 0, sparkY = 0, sparkHeading = 0;
@@ -262,13 +260,16 @@ void Odometry::update() {
       const double dRight = right - previousRight;
       if (std::abs(dLeft) <= kMaximumWheelStepInches &&
           std::abs(dRight) <= kMaximumWheelStepInches) {
+        trackingAccepted = true;
         trackForward = (dLeft + dRight) / 2.0;
         trackHeading = (dLeft - dRight) /
                        (DISTANCE_LEFT_TRACKING_WHEEL_CENTER +
                         DISTANCE_RIGHT_TRACKING_WHEEL_CENTER) * 180.0 / M_PI;
-        if (backMotionValid &&
-            std::abs(back - previousBack) <= kMaximumWheelStepInches)
+        if (backValid && hadBackSample &&
+            std::abs(back - previousBack) <= kMaximumWheelStepInches) {
+          backAccepted = true;
           trackRight = back - previousBack;
+        }
       }
     }
     previousLeft = left;
@@ -289,6 +290,7 @@ void Odometry::update() {
       const double dRight = (motorRight - previousMotorRight) * inchesPerDegree;
       if (std::abs(dLeft) <= kMaximumWheelStepInches &&
           std::abs(dRight) <= kMaximumWheelStepInches) {
+        motorsAccepted = true;
         motorForward = (dLeft + dRight) / 2.0;
         motorHeading = (dLeft - dRight) / DRIVE_WIDTH * 180.0 / M_PI;
       }
@@ -299,6 +301,13 @@ void Odometry::update() {
   } else {
     hasMotorSample = false;
   }
+
+  // Source selection uses accepted deltas; read-only baselines and jumps
+  // cannot supply movement or refresh the estimate. Rebase after a switch.
+  if ((poseSource == 4 && !trackingAccepted) ||
+      (poseSource == 3 && trackingAccepted)) wasSparkFresh = false;
+  const bool newSpark = sparkFresh && !sparkConsumed;
+  const bool sparkRebased = newSpark && !wasSparkFresh;
 
   if (newSpark) {
     const double angle = (fieldOrigin.theta - rawOrigin.theta) * M_PI / 180.0;
@@ -318,8 +327,8 @@ void Odometry::update() {
   if (!sparkFresh) wasSparkFresh = false;
   else if (newSpark) wasSparkFresh = true;
 
-  const double fallbackDelta = trackingValid ? trackHeading :
-                               motorsValid ? motorHeading : sparkHeading;
+  const double fallbackDelta = trackingAccepted ? trackHeading :
+                               motorsAccepted ? motorHeading : sparkHeading;
   fallbackHeading += fallbackDelta;
   const double dt = lastEstimateMs ? (nowMs - lastEstimateMs) / 1000.0 : 0.02;
   const double previousHeading = currentPose.theta;
@@ -328,16 +337,16 @@ void Odometry::update() {
   imuFusing = headingFusion.usingImu();
 
   double driveX = 0, driveY = 0;
-  if (trackingValid || motorsValid) {
-    const double forward = trackingValid ? trackForward : motorForward;
-    const double lateral = trackingValid && backMotionValid ?
+  if (trackingAccepted || motorsAccepted) {
+    const double forward = trackingAccepted ? trackForward : motorForward;
+    const double lateral = trackingAccepted && backAccepted ?
         trackRight + (heading - previousHeading) * M_PI / 180.0 *
                      DISTANCE_BACK_TRACKING_WHEEL_CENTER : 0.0;
     const double middleHeading = (previousHeading + heading) * M_PI / 360.0;
     driveX = forward * std::cos(middleHeading) - lateral * std::sin(middleHeading);
     driveY = forward * std::sin(middleHeading) + lateral * std::cos(middleHeading);
   }
-  if (trackingValid) {
+  if (trackingAccepted) {
     currentPose.x += driveX;
     currentPose.y += driveY;
     if (sparkFresh && newSpark && !sparkRebased) {
@@ -353,17 +362,17 @@ void Odometry::update() {
     }
     poseSource = sparkFresh ? 4 : 2;
   } else if (sparkFresh) {
-    if (motorsValid) {
+    if (motorsAccepted) {
       currentPose.x += driveX;
       currentPose.y += driveY;
     }
     if (newSpark && !sparkRebased) {
-      const double correction = motorsValid ? kSparkPositionWeight : 1.0;
+      const double correction = motorsAccepted ? kSparkPositionWeight : 1.0;
       currentPose.x += correction * (sparkX + sparkOffsetX - currentPose.x);
       currentPose.y += correction * (sparkY + sparkOffsetY - currentPose.y);
     }
     poseSource = 3;
-  } else if (motorsValid) {
+  } else if (motorsAccepted) {
     currentPose.x += driveX;
     currentPose.y += driveY;
     poseSource = 1;
@@ -371,7 +380,7 @@ void Odometry::update() {
     poseSource = 0;
   }
   currentPose.theta = heading;
-  if (poseSource != 0) lastEstimateMs = nowMs;
+  if (trackingAccepted || motorsAccepted || newSpark) lastEstimateMs = nowMs;
   pose_mutex.give();
 }
 Vector Odometry::gpsPosition() { return getPosition(); }
