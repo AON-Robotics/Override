@@ -16,6 +16,7 @@ The GUI system provides six main features:
 ## Table of Contents
 
 - [Debug Mode Toggle](#debug-mode-toggle)
+- [Debug Pose Readiness](#debug-pose-readiness)
 - [Changing Preset Autonomous Routines](#changing-preset-autonomous-routines)
 - [Quick Start](#quick-start)
 - [Registering Test Functions](#registering-test-functions)
@@ -59,6 +60,26 @@ std::unique_ptr<Gui> gui = std::make_unique<Gui>();
 **Note:** The base `Gui` class provides no-op virtual methods for all debug APIs (`variableChanger`, `registerTestFunction`, `registerDataEntry`, etc.) so registration calls compile in both modes. Runtime behavior is only active under `GuiDebug`.
 
 **If failing to switch between them delete bin file and d file**
+
+---
+
+## Debug Pose Readiness
+
+`setPoseReadyProvider()` is a **debug-only** hook implemented by `GuiDebug`. It is not required for the competition GUI (`TESTING_AUTONOMOUS = false`); the base `Gui` implementation is a no-op.
+
+When testing routines that depend on odometry, register the callback before starting the GUI task:
+
+```cpp
+void initialize() {
+#if TESTING_AUTONOMOUS
+  aon::gui->setPoseReadyProvider([] { return drivetrain.hasFreshPose(); });
+#endif
+  pros::Task guiLoopTask([] { aon::gui->initialize(); });
+  // Other initialization follows.
+}
+```
+
+In `GuiDebug`, a callback returning `false` blocks starting the selected autonomous routine and suppresses Field Mapper pose updates. If the callback is omitted, the debug GUI does not check position readiness. Register it for position-dependent debug runs; it can be omitted for tests that do not need odometry. Drivetrain freshness checks remain independent of this GUI hook.
 
 ---
 
@@ -198,8 +219,8 @@ When **RUN** is pressed:
 
 | Button | Color | Condition | Action |
 |--------|-------|-----------|--------|
-| **RUN** | Green | Auton selected, not running | Starts execution |
-| **RUN** | Gray | No auton selected | Does nothing |
+| **RUN** | Green | Auton selected, not running, readiness callback absent or true | Starts execution |
+| **RUN** | Gray | No auton selected or readiness callback returns false | Does nothing |
 
 ### Status Display
 
@@ -1295,6 +1316,7 @@ void opcontrol() {
 | Function | Purpose |
 |----------|---------|
 | `pros::Task guiLoopTask([]{ aon::gui->initialize(); })` | Start the GUI task; call once in `initialize()` |
+| `aon::gui->setPoseReadyProvider(callback)` | Debug-only readiness check; register before GUI startup for position-dependent tests. No-op in competition GUI. See [Debug Pose Readiness](#debug-pose-readiness). |
 
 ### Test Function Registration
 
@@ -1368,7 +1390,7 @@ void opcontrol() {
 ### Auton won't run from Auton Runner?
 
 1. Ensure you selected an auton from **Registered Autons** or **AUTONS** menu first
-2. The RUN button should be **green**—if it's gray, no auton is selected
+2. The RUN button should be **green**. If gray, select an auton and, when a readiness callback is registered, verify that it returns `true` (see [Debug Pose Readiness](#debug-pose-readiness)).
 3. Check that the selected function returns 0 (success)
 4. Verify the function is registered with `registerTestFunction()`
 
