@@ -11,14 +11,19 @@ void initialize() {
   // pros::Task turretScanTask([]{orbit.scan();}); // TODO: combine this with the follow task
   pros::Task intakeScanning([]{intake.scan();});
   pros::Task intakeSorting([]{intake.sort();});
+  #if !TESTING_AUTONOMOUS
   driverFeedback.start();
+  #endif
 }
 
-void disabled() {}
+void disabled() {
+  driverFeedback.cancel();
+}
 
 void competition_initialize() {}
 
 void autonomous() {
+  driverFeedback.cancel();
   aon::Configure(false); // Set drivetrain to hold for auton
   // TODO: add presetFunction
   aon::autonomousReader->ExecuteFunction("autonomous");
@@ -31,9 +36,13 @@ void autonomous() {
 // Program slot 3 with Alien Icon is for tests or miscellaneous components
 void opcontrol() {
   aon::Configure();
+  #if !TESTING_AUTONOMOUS
   driverFeedback.beginMatch();
+  #endif
   while (true) {
+    #if !TESTING_AUTONOMOUS
     driverFeedback.update();
+    #endif
     #if TESTING_AUTONOMOUS
     aon::Configure(false); // Set drivetrain to hold for auton testing
 

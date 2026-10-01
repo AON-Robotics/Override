@@ -13,7 +13,7 @@
 #include "./drivetrain/differential-drive.hpp"
 #include "./orbit/orbit.hpp"
 #include "./drivetrain/drivetrain.hpp"
-#include "./competition/driver-feedback.hpp"
+#include "./tools/driver-feedback.hpp"
 #include "./odometry/odometry.hpp"
 #include "./piston/piston.hpp"
 #include "./math/scaling/pilons-scaler.hpp"
