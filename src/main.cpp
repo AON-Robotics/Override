@@ -1,6 +1,7 @@
 #include "../include/main.hpp"
 
 void initialize() {
+  aon::gui->setPoseReadyProvider([] { return drivetrain.hasFreshPose(); });
   pros::Task guiLoopTask([]{aon::gui->initialize();});
   aon::logging::Initialize();
   aon::Configure(false);
