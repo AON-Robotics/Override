@@ -94,7 +94,10 @@ void HDrive::stop(){
 
 // Using Motion Profile
 void HDrive::goToPose(const Pose& target){
+  if (!hasFreshPose()) { stop(); return; }
   const double delay = 20; // ms
+  Timer timer;
+  timer.start(std::max<uint32_t>(3000, static_cast<uint32_t>(getPose().distanceTo(target) * 1000)));
 
   double remainingX = abs(target.x - this->getX());
   double remainingY = abs(target.y - this->getY());
@@ -106,7 +109,9 @@ void HDrive::goToPose(const Pose& target){
   const double circumference = M_TWOPI * ROBOT_RADIUS;
 
   // TODO: add timeouts for safety
-  while(remainingX > 0.05 || remainingY > 0.05 || remainingTheta > 0.05){
+  while((remainingX > 0.05 || remainingY > 0.05 || remainingTheta > 0.05) &&
+        !timer.isCompleted()){
+    if (!hasFreshPose()) { stop(); return; }
 
     pros::lcd::print(0, "(x, y, theta): (%.2f, %.2f, %.2f)", this->getX(), this->getY(), this->getTheta());
     remainingX = target.x - this->getX();
@@ -142,6 +147,7 @@ void HDrive::goToPose(const Pose& target){
 }
 
 void HDrive::follow(const std::vector<Pose>& path) {
+  if (path.empty() || !hasFreshPose()) { stop(); return; }
   PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
 
   std::pair<double, double> output = {-1, -1};
@@ -156,6 +162,7 @@ void HDrive::follow(const std::vector<Pose>& path) {
   timer.start(timeoutMs);
 
   while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted()) {
+    if (!hasFreshPose()) { stop(); return; }
     now = pros::micros() / 1E6;
     dt = now - lastTime;
     output = controller.follow(path, this->odometry->getPose(), dt);
@@ -172,7 +179,7 @@ void HDrive::follow(const std::vector<Pose>& path) {
     pros::delay(10);
   }
 
-  this->turnToHeading(path.back().theta);
+  if (hasFreshPose()) this->turnToHeading(path.back().theta);
 
   this->stop();
 }
