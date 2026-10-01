@@ -47,6 +47,14 @@ class MotionProfile {
 
   MotionProfile(){}
 
+  double maxDeceleration() const { return MAX_DECELERATION; }
+
+  // A tuned copy for one path run. Acceleration and jerk scale together.
+  MotionProfile scaled(double acceleration, double deceleration) const {
+    return MotionProfile(MAX_VELOCITY, MAX_ACCELERATION*acceleration,
+                         MAX_DECELERATION*deceleration, JERK*acceleration);
+  }
+
   /// @brief Returns the current stage of the motion profile
   /// @return The stage of the motion profile
   Stage getStage() const { return this->stage; }

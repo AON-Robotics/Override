@@ -71,6 +71,10 @@ class XDrive : public Drivetrain {
   /// @brief Calculates average RPM forward
   /// @return The RPM of the motors with respect to the front of the robot
   double getRPM() override;
+  std::pair<double,double> wheelRpm() override {
+    return {(frontLeftMotors.get_actual_velocity()+backLeftMotors.get_actual_velocity())/2,
+            (frontRightMotors.get_actual_velocity()+backRightMotors.get_actual_velocity())/2};
+  }
 
   /// @brief Goes to the target point
   /// @param target The intended destination using the gps coordinate system (x, y) both need to be in the range (-1.8, 1.8)

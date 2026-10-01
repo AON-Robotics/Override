@@ -1,5 +1,7 @@
 #include "../../include/aon/intake/intake.hpp"
 
+#include <cmath>
+
 namespace aon {
 
 #if USING_BIG_ROBOT
@@ -368,13 +370,17 @@ void Intake::lever(const uint32_t timeout) {
 }
 
 void Intake::extendLever() {
+  // TODO: Implement async position control for lever using move_absolute() or custom controller
+  // this->leverController->setTarget(150);
+  scorerMG.move_absolute(150, 100);
   leverTarget = 150;
-  scorerMG.move_absolute(leverTarget, 100);
 }
 
 void Intake::resetLever() {
+  // TODO: Implement async position control for lever using move_absolute() or custom controller
+  // this->leverController->setTarget(0);
+  scorerMG.move_absolute(0, 100);
   leverTarget = 0;
-  scorerMG.move_absolute(leverTarget, 100);
 }
 
 bool Intake::leverFinished() {
@@ -433,6 +439,11 @@ void Intake::stop() { this->move(0); }
 double Intake::distance() { return distanceSensor.get(); }
 
 bool Intake::isObjectDetected() { return this->distance() <= INTAKE_ACTIVATION_DISTANCE; }
+
+bool Intake::isScoringReady() {
+  const double objectHue = this->hue();
+  return isObjectDetected() && (isRed(objectHue) || isBlue(objectHue));
+}
 
 bool Intake::isScanning() { return this->scanning; }
 
