@@ -195,6 +195,14 @@ void Odometry::update() { // TODO: implement odometer functions both for linear 
   }
   // Calculate delta
   gyro_data.deltaDegrees = gyro_data.currentDegrees - gyro_data.prevDegrees;
+  // Crossing the +/-180 seam makes the raw difference jump by ~360 degrees for
+  // one update, which the arc branch below would turn into a bogus X/Y jump.
+  // Wrap it back to the real (small) rotation.
+  if (gyro_data.deltaDegrees > 180) {
+    gyro_data.deltaDegrees -= 360;
+  } else if (gyro_data.deltaDegrees < -180) {
+    gyro_data.deltaDegrees += 360;
+  }
   gyro_data.deltaRadians = gyro_data.deltaDegrees * (M_PI / 180.0);
 
   // Save current data for future calculations
@@ -323,6 +331,17 @@ void Odometry::resetCurrent(double x, double y, double theta) {
   gyroscope.tare();
   pros::delay(3000);
 #endif
+}
+
+/// @brief Reads how far each tracking wheel has rolled, as odometry sees it
+/// @param left Left tracking wheel travel in \b inches (positive is forward)
+/// @param right Right tracking wheel travel in \b inches (positive is forward)
+/// @param back Back tracking wheel travel in \b inches (positive is right)
+/// @note Applies the same reversal flags and conversion factor as `update()`
+void Odometry::trackingDistances(double& left, double& right, double& back) {
+  left = (encoderLeft.get_position() / 100.0) * (leftReversed ? -1.0 : 1.0) * conversionFactor;
+  right = (encoderRight.get_position() / 100.0) * (rightReversed ? -1.0 : 1.0) * conversionFactor;
+  back = (encoderBack.get_position() / 100.0) * (backReversed ? -1.0 : 1.0) * conversionFactor;
 }
 
 /// @brief Returns position of the robot in the field

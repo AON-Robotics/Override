@@ -92,6 +92,7 @@ namespace aon {
         void resetCurrent(double x, double y, double theta);
         Vector gpsPosition();
         Pose getPose();
+        void trackingDistances(double& left, double& right, double& back);
 
 
         //Debugging/Testing
