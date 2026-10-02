@@ -68,19 +68,32 @@ class Rumble {
   void run() {
     while (true) {
       const auto now = pros::millis();
+      PendingEvent event{};
+      bool shouldDeliver = false;
+
       pendingMutex.take();
       if (pending.has_value()) {
         if (now >= pending->expiresAt) {
           pending.reset();
         } else {
-          const bool delivered = controller.rumble(
-              pending->pattern == 1 ? "." : pending->pattern == 2 ? ".." : ". ..") == 1;
-          if (delivered || pros::millis() >= pending->expiresAt) {
-            pending.reset();
-          }
+          event = *pending;
+          shouldDeliver = true;
         }
       }
       pendingMutex.give();
+
+      if (shouldDeliver) {
+        const bool delivered = controller.rumble(
+            event.pattern == 1 ? "." : event.pattern == 2 ? ".." : ". ..") == 1;
+
+        pendingMutex.take();
+        if (pending.has_value() && pending->id == event.id &&
+            (delivered || pros::millis() >= pending->expiresAt)) {
+          pending.reset();
+        }
+        pendingMutex.give();
+      }
+
       pros::delay(20);
     }
   }

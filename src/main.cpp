@@ -16,14 +16,11 @@ void initialize() {
   #endif
 }
 
-void disabled() {
-  driverFeedback.cancel();
-}
+void disabled() {}
 
 void competition_initialize() {}
 
 void autonomous() {
-  driverFeedback.cancel();
   aon::Configure(false); // Set drivetrain to hold for auton
   // TODO: add presetFunction
   aon::autonomousReader->ExecuteFunction("autonomous");
@@ -40,9 +37,6 @@ void opcontrol() {
   driverFeedback.beginMatch();
   #endif
   while (true) {
-    #if !TESTING_AUTONOMOUS
-    driverFeedback.update();
-    #endif
     #if TESTING_AUTONOMOUS
     aon::Configure(false); // Set drivetrain to hold for auton testing
 
@@ -51,6 +45,7 @@ void opcontrol() {
 
     pros::delay(5000);
     #else
+    driverFeedback.update();
     aon::operator_control::Run(driver);
     #endif
     pros::delay(10);
