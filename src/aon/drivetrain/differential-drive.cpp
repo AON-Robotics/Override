@@ -48,7 +48,7 @@ void DifferentialDrive::goToPose(const Pose& pose) {
   const uint32_t timeoutMs = (this->odometry->getPose().distanceTo(pose)) * 1E3;
   Timer timer;
   timer.start(timeoutMs);
-  while (odometry->getPose().distanceTo(pose) > 2.0 && !timer.isCompleted()){
+  while (odometry->getPose().distanceTo(pose) > 2.0 && !timer.isCompleted() && !abortRequested){
     now = pros::micros() / 1E6;
     dt = now - lastTime;
     output = controller.go(pose, this->odometry->getPose(), dt);

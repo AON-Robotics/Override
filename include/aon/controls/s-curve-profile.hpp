@@ -116,6 +116,10 @@ class MotionProfile {
     else { this->stage = CRUISING; }
   }
 
+  /// @brief Gets the max velocity for the profile
+  /// @return The max velocity in \b RPM
+  double getMaxVelocity() const { return this->MAX_VELOCITY; }
+
   /// @brief Sets the max velocity for the profile
   /// @param max_velocity The new max velocity for the profile
   void setMaxVelocity(const double& max_velocity = MAX_RPM) {

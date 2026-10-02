@@ -18,6 +18,7 @@
 #include "./math/scaling/pilons-scaler.hpp"
 #include "./math/scaling/exponential-scaler.hpp"
 #include "./math/scaling/cubic-scaler.hpp"
+#include "./pi/pi-link.hpp"
 
 namespace aon::operator_control {
 
@@ -170,6 +171,7 @@ inline void Configure(const bool opcontrol = true) {
 
 /// @brief Stops movement from robot
 void STOP(){
+  pi::abort("x_button"); // Only acts if the Pi is moving the robot
   drivetrain.stop();
   intake.stop();
   orbit.stop();

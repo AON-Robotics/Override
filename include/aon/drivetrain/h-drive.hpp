@@ -67,6 +67,11 @@ class HDrive : public Drivetrain {
   /// @param slew The new slew rate for the drivetrain
   void setSlewRate(double slew) override;
 
+  /// @brief The motor groups of the drivetrain, for telemetry
+  std::vector<std::pair<const char*, pros::MotorGroup*>> motorGroups() override {
+    return {{"L", &leftMotors}, {"R", &rightMotors}, {"M", &midMotors}};
+  }
+
   /// @brief Calculates average RPM forward
   /// @return The RPM of the motors with respect to the front of the robot
   double getRPM() override;

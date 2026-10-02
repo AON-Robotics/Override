@@ -146,7 +146,7 @@ void XDrive::goToPose(const Pose& target){
   const double circumference = M_TWOPI * ROBOT_RADIUS;
 
   // TODO: add timeouts for safety
-  while(remainingX > 0.05 || remainingY > 0.05 || remainingTheta > 0.05){
+  while((remainingX > 0.05 || remainingY > 0.05 || remainingTheta > 0.05) && !abortRequested){
 
     pros::lcd::print(0, "(x, y, theta): (%.2f, %.2f, %.2f)", this->getX(), this->getY(), this->getTheta());
     remainingX = target.x - this->getX();
@@ -205,7 +205,7 @@ void XDrive::follow(const std::vector<Pose>& path) {
   const uint32_t timeoutMs = (this->odometry->getPose().distanceTo(pose)) * 1E3;
   Timer timer;
   timer.start(timeoutMs);
-  while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted()) {
+  while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted() && !abortRequested) {
     now = pros::micros() / 1E6;
     dt = now - lastTime;
     output = controller.go(pose, this->odometry->getPose(), dt);

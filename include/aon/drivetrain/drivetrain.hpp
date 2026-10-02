@@ -7,7 +7,10 @@
 #include "../controls/s-curve-profile.hpp"
 #include "../math/timer.hpp"
 #include "../controls/pure-pursuit.hpp"
+#include <atomic>
 #include <cfloat>
+#include <utility>
+#include <vector>
 
 
 namespace aon {
@@ -46,6 +49,11 @@ class Drivetrain {
   std::unique_ptr<Odometry> odometry;
   Pose pose;
   bool turbo = false;
+
+  /// @brief Set by `requestAbort()`; every motion loop below exits as soon as it sees it.
+  /// @note Only the Pi link sets it (pi-link.cpp) and it clears it again when its motion ends, so autons and
+  /// driver code are never affected.
+  std::atomic<bool> abortRequested{false};
 
   /// @brief This applies only while using curvature drive to allow for turning without forward motion. Any forward motion below this will cause curvature drive to behave like arcade.
   static constexpr double QUICK_TURN_THRESHOLD = 0.05 * MAX_RPM;
@@ -99,6 +107,29 @@ class Drivetrain {
     this->odometry->resetCurrent(x, y, theta);
   }
 
+
+  /// @brief Makes the running motion (move, turn, PID, profile, path following) return as soon as possible
+  void requestAbort() { this->abortRequested = true; }
+  /// @brief Re-arms the motion functions after `requestAbort()`
+  void clearAbort() { this->abortRequested = false; }
+  /// @brief Whether an abort has been requested and not cleared yet
+  bool isAbortRequested() const { return this->abortRequested; }
+
+  /// @brief The motor groups of the drivetrain with a short name each ("L", "R", "M"), for telemetry
+  /// @return An empty list for drivetrains that do not report their motors
+  virtual std::vector<std::pair<const char*, pros::MotorGroup*>> motorGroups() { return {}; }
+
+  /// @brief Gets the speed caps of the linear and angular motion profiles in \b RPM
+  void getMaxVelocities(double &linear, double &angular) const {
+    linear = this->yProfile ? this->yProfile->getMaxVelocity() : MAX_RPM;
+    angular = this->thetaProfile ? this->thetaProfile->getMaxVelocity() : MAX_RPM;
+  }
+
+  /// @brief Sets the speed caps of the linear and angular motion profiles in \b RPM
+  void setMaxVelocities(const double &linear, const double &angular) {
+    if (this->yProfile) this->yProfile->setMaxVelocity(linear);
+    if (this->thetaProfile) this->thetaProfile->setMaxVelocity(angular);
+  }
 
   bool isTurbo() { return this->turbo; }
   void setTurbo(bool turbo) { this->turbo = turbo; }
@@ -319,7 +350,7 @@ class Drivetrain {
     const double start_time = pros::micros() / 1E6;
     #define time (pros::micros() / 1E6) - start_time  // every time the variable is called it is recalculated automatically
 
-    while ((odometry->getPosition() - initialPos).GetMagnitude() < dist) {
+    while ((odometry->getPosition() - initialPos).GetMagnitude() < dist && !abortRequested) {
       double currentDisplacement = (odometry->getPosition() - initialPos).GetMagnitude();
       double output = pid.Output(dist, currentDisplacement);
 
@@ -356,7 +387,7 @@ class Drivetrain {
     const double startTime = pros::micros() / 1E6;
     #define time (pros::micros() / 1E6) - startTime
 
-    while (time < 3 * timeLimit) {
+    while (time < 3 * timeLimit && !abortRequested) {
 
       double traveledAngle = abs(odometry->getDegrees() - startAngle);
       
@@ -401,7 +432,7 @@ class Drivetrain {
     this->yProfile->setVelocity(this->getRPM());
     this->yProfile->setFinalVelocity(settle ? 0 : 100);
 
-    while (traveledDist < dist && !timer.isCompleted()) {
+    while (traveledDist < dist && !timer.isCompleted() && !abortRequested) {
       traveledDist = (odometry->getPosition() - startPos).GetMagnitude();
       double remainingDist = dist - traveledDist;
       now = pros::micros() / 1E6;
@@ -420,7 +451,7 @@ class Drivetrain {
       pros::delay(20);
     }
 
-    if (settle) { this->stop(); }
+    if (settle || abortRequested) { this->stop(); }
   }
 
   /// @brief S-graph motion profile for linear movement
@@ -447,7 +478,7 @@ class Drivetrain {
     this->xProfile->setVelocity(this->getRPM());
     this->xProfile->setFinalVelocity(settle ? 0 : 100);
 
-    while(traveledDist < dist && !timer.isCompleted()){
+    while(traveledDist < dist && !timer.isCompleted() && !abortRequested){
       traveledDist = (odometry->getPosition() - startPos).GetMagnitude();
       // traveledDist += getSpeed(this->getRPM()) * dt; //# in case of odom failure
 
@@ -464,7 +495,7 @@ class Drivetrain {
       pros::delay(20);
     }
 
-    if(settle) this->stop();
+    if(settle || abortRequested) this->stop();
   }
 
   /// @brief S-graph motion profile for rotations
@@ -494,7 +525,7 @@ class Drivetrain {
 
     this->thetaProfile->setFinalVelocity(settle ? 0 : 50);
 
-    while (traveledAngle < angle && !timer.isCompleted()) {
+    while (traveledAngle < angle && !timer.isCompleted() && !abortRequested) {
       currAngle = odometry->gyroscope.get_rotation();
       traveledAngle = abs(currAngle - startAngle);
       // traveledAngle = abs(aon::odometry::GetDegrees() - startAngle);
@@ -514,7 +545,7 @@ class Drivetrain {
 
       pros::delay(20);
     }
-    if (settle) this->stop();
+    if (settle || abortRequested) this->stop();
   }
 
   /// @brief Moves the robot a given distance
@@ -630,7 +661,7 @@ class Drivetrain {
     Timer timer;
     timer.start(timeoutMs);
 
-    while(traveledDist < distance && !timer.isCompleted()){
+    while(traveledDist < distance && !timer.isCompleted() && !abortRequested){
       // traveledDist = odometry::getTraveledDistance() - startDist;
       const double rightEncDist = (std::abs(odometry->encoderRight.get_position() - rightEncStartPos) / 100 ) * M_PI * TRACKING_WHEEL_DIAMETER / DEGREES_PER_REVOLUTION; //! Temporary
       const double leftEncDist = (std::abs(odometry->encoderLeft.get_position() - leftEncStartPos) / 100 ) * M_PI * TRACKING_WHEEL_DIAMETER / DEGREES_PER_REVOLUTION; //! Temporary
@@ -646,7 +677,7 @@ class Drivetrain {
       pros::delay(20);
     }
 
-    if(settle) this->stop();
+    if(settle || abortRequested) this->stop();
   }
 
   /// @brief Makes the robot drive in an arc motion to a specified point in the
@@ -771,7 +802,7 @@ class Drivetrain {
     Timer timer;
     timer.start(timeoutMs);
 
-    while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted()) {
+    while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted() && !abortRequested) {
       now = pros::micros() / 1E6;
       dt = now - lastTime;
       output = controller.follow(path, this->odometry->getPose(), dt);

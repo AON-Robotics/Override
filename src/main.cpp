@@ -11,6 +11,8 @@ void initialize() {
   // pros::Task turretScanTask([]{orbit.scan();}); // TODO: combine this with the follow task
   pros::Task intakeScanning([]{intake.scan();});
   pros::Task intakeSorting([]{intake.sort();});
+  // Raspberry Pi link (LLM debugging bridge). Does nothing until a Pi talks to it.
+  aon::pi::start(drivetrain, odometry, mainController);
 }
 
 void disabled() {}
@@ -39,7 +41,12 @@ void opcontrol() {
 
     pros::delay(5000);
     #else
-    aon::operator_control::Run(driver);
+    // While the Pi runs a motion it owns the drivetrain; touching a joystick takes it back.
+    if (aon::pi::hasControl()) {
+      aon::pi::checkDriverOverride();
+    } else {
+      aon::operator_control::Run(driver);
+    }
     #endif
     pros::delay(10);
   }
