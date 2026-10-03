@@ -288,4 +288,11 @@ void abort(const char *reason) {
   if (piLink) piLink->abort(reason);
 }
 
+bool latestOtosPose(Pose &pose, std::uint32_t &ageMs) {
+  OtosPose otos;
+  if (!piLink || !latestOtos(*piLink, otos, ageMs)) return false;
+  pose = Pose(otos.x, otos.y, otos.heading);
+  return true;
+}
+
 }  // namespace aon::pi

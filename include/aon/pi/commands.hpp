@@ -91,8 +91,25 @@ struct Limits {
 };
 
 /// Registers PING, STATUS, SENSORS, STOP, MOVE, TURN, PROBE and RESET_ODOM,
-/// the robot's sensors, and the `link` / `pi_target` sensors.
+/// the robot's sensors, the `link` sensor, and the Pi's sensor packets:
+/// `O` (vexpi OTOS pose, sensor `pi_otos`) and `R`/`N` (red_tracker, sensor
+/// `pi_target`).
 void registerStandardCommands(Link &link, Robot &robot, Limits limits = Limits());
+
+/// An OTOS pose as vexpi sends it: `O,<x>,<y>,<heading>`, inches forward,
+/// inches right, degrees clockwise (Override's convention).
+struct OtosPose {
+  double x = 0;
+  double y = 0;
+  double heading = 0;
+};
+
+/// Parses the fields of an `O` packet (after the tag). False if malformed.
+bool parseOtos(const std::vector<std::string> &fields, OtosPose &pose);
+
+/// The latest OTOS pose received on `link` and its age. False if none yet or
+/// the last one was malformed. Treat it as stale after ~300 ms.
+bool latestOtos(const Link &link, OtosPose &pose, std::uint32_t &ageMs);
 
 }  // namespace aon::pi
 

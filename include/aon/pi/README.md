@@ -49,3 +49,28 @@ link.registerSensor("front_distance", [](KV &kv) {
 ```
 
 It shows up in the Pi's `read_sensors` tool with no change on the Pi.
+
+## Sensor packets from the Pi (OTOS, red target)
+
+The Pi's other programs write to the same USB port as the bridge server:
+- `vexpi` streams `O,<x>,<y>,<heading>` at 50 Hz.
+- `red_tracker` sends `R,<in>` / `N,0`.
+
+The reader task here is the **only** `stdin` reader on the brain, so those
+packets reach Override through this module:
+
+| Use | How |
+| --- | --- |
+| OTOS pose in odometry fusion | `aon::pi::latestOtosPose(pose, ageMs)`. Treat it as stale after `aon::pi::OTOS_TIMEOUT_MS` (300 ms). |
+| Any packet, by tag | `link.registerPacket('X')` in `commands.cpp`, then `link.latestPacket('X', fields, ageMs)` |
+| From the Pi / the LLM | the `pi_otos` and `pi_target` sensors (`read_sensors`) |
+
+Sensor packets are never answered, and they never keep the deadman alive.
+Only bridge commands do, so a dead bridge server still aborts the Pi's
+motion while `vexpi` keeps streaming.
+
+> **Merging `SparkSensor-test`:** that branch reads OTOS with its own
+> `fgetc(stdin)` loop in `Odometry::initialize()`. With this module running,
+> two readers would split the bytes between them and both would break.
+> Replace that loop with `aon::pi::latestOtosPose()`; it gives the same pose
+> and age the loop produced.

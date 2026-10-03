@@ -1,6 +1,7 @@
 #include "../../../include/aon/pi/commands.hpp"
 
 #include <cmath>
+#include <cstdlib>
 
 // Portable on purpose: no PROS headers here (see protocol.hpp).
 
@@ -60,16 +61,24 @@ bool checkAllowed(Robot &robot, Result &error) {
   return false;
 }
 
-// Last legacy red_tracker packet, for the `pi_target` sensor. Written and read
-// from the reader task only.
-struct LegacyTarget {
-  bool seen = false;
-  bool visible = false;
-  int inches = 0;
-  std::uint32_t atMs = 0;
-} legacyTarget;
+bool parseNumber(const std::string &text, double &out) {
+  if (text.empty()) return false;
+  char *end = nullptr;
+  out = std::strtod(text.c_str(), &end);
+  return end == text.c_str() + text.size() && std::isfinite(out);
+}
 
 }  // namespace
+
+bool parseOtos(const std::vector<std::string> &fields, OtosPose &pose) {
+  return fields.size() == 3 && parseNumber(fields[0], pose.x) && parseNumber(fields[1], pose.y) &&
+         parseNumber(fields[2], pose.heading);
+}
+
+bool latestOtos(const Link &link, OtosPose &pose, std::uint32_t &ageMs) {
+  std::vector<std::string> fields;
+  return link.latestPacket('O', fields, ageMs) && parseOtos(fields, pose);
+}
 
 void registerStandardCommands(Link &link, Robot &robot, Limits limits) {
   // --- IMMEDIATE ------------------------------------------------------------
@@ -217,20 +226,40 @@ void registerStandardCommands(Link &link, Robot &robot, Limits limits) {
         .add("bad_checksum", static_cast<unsigned long>(s.badChecksum))
         .add("too_long", static_cast<unsigned long>(s.tooLong))
         .add("unknown_verb", static_cast<unsigned long>(s.unknownVerb))
+        .add("packets", static_cast<unsigned long>(s.packets))
+        .add("unknown_packets", static_cast<unsigned long>(s.unknownPackets))
+        .add("ignored_lines", static_cast<unsigned long>(s.ignoredLines))
         .add("aborts", static_cast<unsigned long>(s.aborts))
         .add("deadman_trips", static_cast<unsigned long>(s.deadmanTrips));
   });
 
-  // Distance packets from the Pi's red_tracker, if it is running.
-  link.onLegacyPacket([&link](char tag, int value) {
-    legacyTarget.seen = true;
-    legacyTarget.visible = tag == 'R';
-    legacyTarget.inches = value;
-    legacyTarget.atMs = link.now();
+  // --- Sensor packets from other programs on the Pi ----------------------------
+
+  // OTOS pose from vexpi (the Pi's boot service), 50 Hz.
+  link.registerPacket('O');
+  link.registerSensor("pi_otos", [&link](KV &kv) {
+    OtosPose pose;
+    std::uint32_t age = 0;
+    const bool seen = latestOtos(link, pose, age);
+    kv.add("seen", seen);
+    if (!seen) return;
+    kv.add("x", pose.x, 3).add("y", pose.y, 3).add("heading", pose.heading, 3);
+    kv.add("age_ms", static_cast<unsigned long>(age));
   });
+
+  // Red target distance from red_tracker, if it is running: R,<in> or N,0.
+  link.registerPacket('R');
+  link.registerPacket('N');
   link.registerSensor("pi_target", [&link](KV &kv) {
-    kv.add("seen", legacyTarget.seen).add("visible", legacyTarget.visible).add("inches", legacyTarget.inches);
-    kv.add("age_ms", legacyTarget.seen ? static_cast<long>(link.now() - legacyTarget.atMs) : -1L);
+    std::vector<std::string> red, none;
+    std::uint32_t redAge = 0, noneAge = 0;
+    const bool haveRed = link.latestPacket('R', red, redAge);
+    const bool haveNone = link.latestPacket('N', none, noneAge);
+    const bool visible = haveRed && (!haveNone || redAge <= noneAge);  // the newer one wins
+    double inches = 0;
+    kv.add("seen", haveRed || haveNone).add("visible", visible);
+    kv.add("inches", visible && !red.empty() && parseNumber(red[0], inches) ? inches : 0.0, 0);
+    if (haveRed || haveNone) kv.add("age_ms", static_cast<unsigned long>(visible || !haveNone ? redAge : noneAge));
   });
 }
 

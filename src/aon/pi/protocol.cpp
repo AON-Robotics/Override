@@ -157,7 +157,54 @@ void Link::registerSensor(const std::string &name, SensorFn fn) {
   sensors.push_back({name, std::move(fn)});
 }
 
-void Link::onLegacyPacket(std::function<void(char, int)> fn) { legacyFn = std::move(fn); }
+void Link::registerPacket(char tag, std::function<void(const std::vector<std::string> &)> fn) {
+  PacketSlot slot;
+  slot.tag = tag;
+  slot.fn = std::move(fn);
+  packets.push_back(std::move(slot));
+}
+
+bool Link::latestPacket(char tag, std::vector<std::string> &fields, std::uint32_t &ageMs) const {
+  Guard guard(hooks);
+  for (const PacketSlot &slot : packets) {
+    if (slot.tag != tag || !slot.seen) continue;
+    fields = slot.fields;
+    ageMs = hooks.millis() - slot.atMs;
+    return true;
+  }
+  return false;
+}
+
+void Link::handlePacket(const std::string &line) {
+  // Checksum optional (vexpi and red_tracker send none); if present, check it.
+  std::string body;
+  bool hadChecksum = false;
+  const bool valid = verifyChecksum(line, body, hadChecksum);
+  std::vector<std::string> parts = split(body, ',');
+  const char tag = line[0];
+
+  PacketSlot *slot = nullptr;
+  for (PacketSlot &candidate : packets) {
+    if (candidate.tag == tag) slot = &candidate;
+  }
+  {
+    Guard guard(hooks);
+    if (hadChecksum && !valid) {
+      counters.badChecksum++;
+      return;
+    }
+    if (slot == nullptr) {
+      counters.unknownPackets++;
+      return;
+    }
+    counters.packets++;
+    parts.erase(parts.begin());
+    slot->seen = true;
+    slot->fields = parts;
+    slot->atMs = hooks.millis();
+  }
+  if (slot->fn) slot->fn(parts);
+}
 
 const Link::Command *Link::find(const std::string &verb) const {
   for (const Command &command : commands) {
@@ -219,23 +266,26 @@ void Link::feed(char c) {
 }
 
 void Link::handleLine(const std::string &line) {
+  // Sensor packets from other Pi programs sharing the port (vexpi's OTOS
+  // stream at 50 Hz, red_tracker): never answered, never feed the deadman.
+  if (line.size() > 1 && line[0] >= 'A' && line[0] <= 'Z' && line[0] != 'C' && line[1] == ',') {
+    handlePacket(line);
+    return;
+  }
+  // Not a command either (e.g. depth_center_demo's untagged "123,0"):
+  // count it, but don't answer; a stream of these must not cause traffic.
+  if (line.size() < 2 || line[0] != 'C' || line[1] != ',') {
+    Guard guard(hooks);
+    counters.ignoredLines++;
+    return;
+  }
+
+  // A bridge command: this is what keeps the link (and the deadman) alive.
   {
     Guard guard(hooks);
     everRx = true;
     lastRxMs = hooks.millis();
     counters.rxLines++;
-  }
-
-  // Legacy red_tracker packets: "R,<inches>" / "N,0", checksum optional.
-  if (line.size() > 2 && (line[0] == 'R' || line[0] == 'N') && line[1] == ',') {
-    std::string body;
-    bool hadChecksum = false;
-    const bool valid = verifyChecksum(line, body, hadChecksum);
-    long value = 0;
-    if ((valid || !hadChecksum) && parseLong(body.substr(2), value) && legacyFn) {
-      legacyFn(line[0], static_cast<int>(value));
-    }
-    return;
   }
 
   std::string body;
@@ -246,10 +296,6 @@ void Link::handleLine(const std::string &line) {
   long seq = 0;
   const bool seqOk = parts.size() >= 2 && parseLong(parts[1], seq) && seq > 0;
 
-  if (parts.empty() || parts[0] != "C") {
-    reply(0, Result::error("bad_line", "lines must start with C,<seq>,<VERB>"));
-    return;
-  }
   if (!checksumOk) {
     {
       Guard guard(hooks);

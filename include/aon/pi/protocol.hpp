@@ -15,8 +15,11 @@
  *
  * Wire format (see RaspberryPi/docs/serial-protocol.md for the full spec):
  *
- *   Pi -> brain   C,<seq>,<VERB>[,<arg>...]*HH
- *                 R,<inches> / N,0           (legacy red_tracker packets)
+ *   Pi -> brain   C,<seq>,<VERB>[,<arg>...]*HH   (bridge command)
+ *                 <TAG>,<field>,...          (sensor packet: TAG is a capital
+ *                                            letter other than C, e.g.
+ *                                            O,<x>,<y>,<heading> from vexpi's
+ *                                            OTOS, R,<in> / N,0 from red_tracker)
  *   brain -> Pi   @A,<seq>*HH                (ack: accepted)
  *                 @P,<seq>,k=v;k=v...*HH    (partial: more fields of a
  *                                            long @D, sent before it)
@@ -199,8 +202,18 @@ class Link {
   /// the prefix; they are sent as `<name>.<key>`.
   void registerSensor(const std::string &name, SensorFn fn);
 
-  /// Called for legacy `R,<inches>` / `N,0` packets from red_tracker.
-  void onLegacyPacket(std::function<void(char tag, int value)> fn);
+  /// Declares a sensor-packet tag (`O`, `R`, ...). Several Pi programs share
+  /// the port, so sensor packets arrive mixed with bridge commands; this is
+  /// how they reach the brain program. Packets with an undeclared tag are
+  /// counted (`unknownPackets`) and dropped. Sensor packets are never
+  /// answered and never feed the deadman.
+  /// @param fn Optional; runs in the reader task for every packet with this
+  ///           tag (the fields after the tag). Keep it short.
+  void registerPacket(char tag, std::function<void(const std::vector<std::string> &)> fn = nullptr);
+
+  /// The latest packet with `tag`: its fields (after the tag) and how old it
+  /// is. Safe from any task. False if none has arrived yet.
+  bool latestPacket(char tag, std::vector<std::string> &fields, std::uint32_t &ageMs) const;
 
   // --- Task entry points ----------------------------------------------------
 
@@ -236,7 +249,10 @@ class Link {
   std::vector<std::string> sensorNames() const;
 
   struct Stats {
-    std::uint32_t rxLines = 0;
+    std::uint32_t rxLines = 0;          ///< bridge command lines (C,...)
+    std::uint32_t packets = 0;          ///< sensor packets with a declared tag
+    std::uint32_t unknownPackets = 0;   ///< sensor packets with an undeclared tag
+    std::uint32_t ignoredLines = 0;     ///< anything else (e.g. untagged "123,0")
     std::uint32_t badChecksum = 0;
     std::uint32_t tooLong = 0;
     std::uint32_t unknownVerb = 0;
@@ -245,7 +261,7 @@ class Link {
   };
   Stats stats() const;
 
-  /// Milliseconds since the last line from the Pi, or -1 if never.
+  /// Milliseconds since the last bridge command from the Pi, or -1 if never.
   long msSinceLastRx() const;
 
   /// Verb of the motion that holds control, or "-" when idle.
@@ -272,6 +288,15 @@ class Link {
     std::string name;
     SensorFn fn;
   };
+  struct PacketSlot {
+    char tag;
+    std::function<void(const std::vector<std::string> &)> fn;
+    bool seen = false;                ///< guarded by the lock from here down
+    std::vector<std::string> fields;
+    std::uint32_t atMs = 0;
+  };
+
+  void handlePacket(const std::string &line);
 
   void reply(long seq, const Result &result);
   void ack(long seq);
@@ -290,7 +315,7 @@ class Link {
   Config config;
   std::vector<Command> commands;
   std::vector<Sensor> sensors;
-  std::function<void(char, int)> legacyFn;
+  std::vector<PacketSlot> packets;  // registered before the tasks start
 
   // Reader-task only.
   std::string rxBuffer;
@@ -302,6 +327,8 @@ class Link {
   long runningSeq = 0;
   std::string runningVerb;
   std::string abortReason;
+  // Only bridge commands (C,...) update these: a sensor stream from vexpi
+  // must not keep the deadman alive when the bridge server is gone.
   bool everRx = false;
   std::uint32_t lastRxMs = 0;
   std::uint32_t lastHeartbeatMs = 0;

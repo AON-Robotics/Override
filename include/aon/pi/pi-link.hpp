@@ -17,6 +17,12 @@
  *   - Touching a joystick, pressing X (`aon::autonSafety`) or losing the Pi
  *     for 1 s aborts the Pi's motion and hands control back to the driver.
  *
+ * It is the ONLY reader of stdin. The Pi's other programs (vexpi's OTOS
+ * stream, red_tracker) share the same USB port, and their packets reach the
+ * rest of Override through this module (`latestOtosPose`, the `pi_target`
+ * sensor). Do not add another fgetc(stdin) loop: two readers split the bytes
+ * between them and both see garbage.
+ *
  * Protocol: include/aon/pi/protocol.hpp and RaspberryPi/docs/serial-protocol.md
  */
 
@@ -43,6 +49,17 @@ void checkDriverOverride();
 
 /// Aborts the Pi motion, if any. Safe to call any time, from any task.
 void abort(const char *reason);
+
+/// How old an OTOS pose can be and still count as current (vexpi sends 50 Hz).
+constexpr std::uint32_t OTOS_TIMEOUT_MS = 300;
+
+/// The latest OTOS pose from the Pi's vexpi program, for odometry fusion.
+/// @param pose Inches forward, inches right, degrees clockwise (OTOS frame,
+///             zeroed when vexpi calibrates)
+/// @param ageMs How long ago it arrived; stale after OTOS_TIMEOUT_MS
+/// @return false if start() was not called or no valid pose has arrived yet
+/// @note Safe from any task. This replaces a separate stdin reader for OTOS.
+bool latestOtosPose(Pose &pose, std::uint32_t &ageMs);
 
 }  // namespace aon::pi
 
