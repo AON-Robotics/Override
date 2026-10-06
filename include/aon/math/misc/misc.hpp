@@ -166,37 +166,11 @@ inline double findDistance(Vector target, Vector current) {
 /// @param target The point we wish to face
 /// @param current Where the robot is now
 /// @returns The angle the robot needs to turn in order to face the target location
-/// @note The result must be passed into functions such as `drivetrain.turn()` and `drivetrain.turnPID()` as negative because of the GPS convention
+/// @note Positive is clockwise in Override's X-forward, Y-right coordinates.
 inline double calculateTurn(Vector target, Pose current) {
-  Vector position = Vector().SetPos(current.x, current.y);
-  // Get and change the heading to the common cartesian plane
-  double heading = 90 - current.theta;
-
-  // Limiting the heading to the 0-360 range
-  if (heading < 0)
-    heading += 360;
-  else if (heading > 360)
-    heading -= 360;
-
-  // This number is in respect to the common cartesian plane if odometry
-  // position is used
-  double toTarget = (target - position).GetDegrees();
-
-  // Limiting the the target to the 0-360 range
-  if (toTarget < 0)
-    toTarget += 360;
-  else if (toTarget >= 360)
-    toTarget -= 360;
-
-  double angle = toTarget - heading;  // Calculate the angle to turn
-
-  // Limiting the heading to the -180-180 range
-  if (angle > 180)
-    angle -= 360;
-  else if (angle < -180)
-    angle += 360;
-
-  return angle;
+  const double toTarget = std::atan2(target.GetY() - current.y,
+                                     target.GetX() - current.x) * 180.0 / M_PI;
+  return std::remainder(toTarget - current.theta, 360.0);
 }
 
 /// @brief Estimates the length of a `std::vector` of `aon::Pose`s

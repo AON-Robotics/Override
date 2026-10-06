@@ -50,6 +50,7 @@ void GuiDebug::setDataRegister(const std::function<void()>& Register) {
 }
 
 int GuiDebug::invokeSelectedAuton() {
+  if (poseReady && !poseReady()) return -1;
   if (selectedAutonInvoker) return selectedAutonInvoker();
   if (selectedAuton.routine) return selectedAuton.routine();
   return 0;
@@ -334,7 +335,9 @@ void GuiDebug::mainLoop() {
     // For screens with real-time updates, refresh periodically
     static int refreshCounter = 0;
     if (++refreshCounter >= 10) {  // Every 300ms
-      if (currentScreen == DATA) {
+      if (currentScreen == AutonRunner) {
+        DisplayAutonRunner();
+      } else if (currentScreen == DATA) {
         DisplayDataMenu();
       } else if (currentScreen == LiveGraph) {
         DisplayLiveGraph();
@@ -342,7 +345,7 @@ void GuiDebug::mainLoop() {
           AddGraphPoint(graphGetX(), graphGetY());
         }
       } else if (currentScreen == FieldMapper) {
-        if (mapGetPose) {
+        if (mapGetPose && (!poseReady || poseReady())) {
           Pose p = mapGetPose();
           AddMapPoint(p.x, p.y, p.theta);
         }
