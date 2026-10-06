@@ -11,9 +11,6 @@ void initialize() {
   // pros::Task turretScanTask([]{orbit.scan();}); // TODO: combine this with the follow task
   pros::Task intakeScanning([]{intake.scan();});
   pros::Task intakeSorting([]{intake.sort();});
-  #if !TESTING_AUTONOMOUS
-  driverFeedback.start();
-  #endif
 }
 
 void disabled() {}
@@ -34,7 +31,7 @@ void autonomous() {
 void opcontrol() {
   aon::Configure();
   #if !TESTING_AUTONOMOUS
-  driverFeedback.beginMatch();
+  aon::operator_control::Begin();
   #endif
   while (true) {
     #if TESTING_AUTONOMOUS
@@ -45,7 +42,6 @@ void opcontrol() {
 
     pros::delay(5000);
     #else
-    driverFeedback.update();
     aon::operator_control::Run(driver);
     #endif
     pros::delay(10);

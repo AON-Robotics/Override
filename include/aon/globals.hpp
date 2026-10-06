@@ -13,7 +13,6 @@
 #include "./drivetrain/differential-drive.hpp"
 #include "./orbit/orbit.hpp"
 #include "./drivetrain/drivetrain.hpp"
-#include "./tools/driver-feedback.hpp"
 #include "./odometry/odometry.hpp"
 #include "./piston/piston.hpp"
 #include "./math/scaling/pilons-scaler.hpp"
@@ -137,7 +136,6 @@ aon::PID fastPID = aon::PID(1, 0, 0);
 
 /// Controller
 pros::Controller mainController = pros::Controller(CONTROLLER_MASTER);
-aon::driver_feedback::Rumble driverFeedback(mainController);
 
 
 // ============================================================================
