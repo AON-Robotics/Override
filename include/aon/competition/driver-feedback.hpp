@@ -10,15 +10,14 @@ namespace aon::operator_control {
 /// Schedules the driver's endgame rumble notifications.
 class DriverFeedback {
  public:
-  void begin(const std::uint32_t startTime) {
-    matchStart = startTime;
-    finalSecond = FINAL_COUNTDOWN_START;
-    thirtySecondSent = false;
-    fifteenSecondSent = false;
-  }
-
   void update(pros::Controller& controller) {
-    const std::uint32_t elapsed = pros::millis() - matchStart;
+    const std::uint32_t now = pros::millis();
+    if (!started) {
+      matchStart = now;
+      started = true;
+    }
+
+    const std::uint32_t elapsed = now - matchStart;
     if (elapsed >= DRIVER_PERIOD_LENGTH_MS) return;
 
     if (elapsed >= THIRTY_SECOND_WARNING_MS && !thirtySecondSent) {
@@ -48,6 +47,7 @@ class DriverFeedback {
 
   std::uint32_t matchStart = 0;
   unsigned int finalSecond = FINAL_COUNTDOWN_START;
+  bool started = false;
   bool thirtySecondSent = false;
   bool fifteenSecondSent = false;
 };
@@ -55,10 +55,6 @@ class DriverFeedback {
 inline DriverFeedback& feedback() {
   static DriverFeedback driverFeedback;
   return driverFeedback;
-}
-
-inline void Begin(const std::uint32_t startTime = pros::millis()) {
-  feedback().begin(startTime);
 }
 
 }  // namespace aon::operator_control
