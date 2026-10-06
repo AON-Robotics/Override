@@ -76,29 +76,23 @@ class Drivetrain {
   /// @brief Starts the underlying odometry thread
   void initialize() { this->odometry->initialize(); }
 
+  Pose getPose() { return this->odometry->getPose(); }
+  double getX() { return this->odometry->getX(); }
+  double getY() { return this->odometry->getY(); }
+  double getTheta() { return this->odometry->getDegrees(); }
+
+  void setPose(Pose p) { odometry->resetCurrent(p.x, p.y, p.theta); }
+  void setX(double x) { odometry->SetPosition(x, getY()); }
+  void setY(double y) { odometry->SetPosition(getX(), y); }
+  void setTheta(double theta) { odometry->setDegrees(theta); }
+
   bool hasFreshPose() { return odometry && odometry->hasFreshPose(); }
   bool hasFreshOtos() { return odometry && odometry->hasFreshOtos(); }
   int getPoseSource() { return odometry ? odometry->getPoseSource() : 0; }
   bool isImuFusing() { return odometry && odometry->isImuFusing(); }
-  double getOtosTheta() { return odometry->getOtosDegrees(); }
-  
-  Pose getPose() { return this->odometry->getPose(); }
-  void setPose(Pose p) { odometry->resetCurrent(p.x, p.y, p.theta); }
 
-  double getX() { 
-    return this->odometry->getX();
-  }
-  void setX(double x) { odometry->SetPosition(x, getY()); }
-
-  double getY() { 
-    return this->odometry->getY();
-  }
-  void setY(double y) { odometry->SetPosition(getX(), y); }
-
-  double getTheta() { 
-    return this->odometry->getDegrees();
-  }
-  void setTheta(double theta) { odometry->setDegrees(theta); }
+  /// @return The OTOS heading, or PROS_ERR_F if odometry is unavailable.
+  double getOtosTheta() { return odometry ? odometry->getOtosDegrees() : PROS_ERR_F; }
 
   void resetPose(double x = 0.0, double y = 0.0, double theta = 0.0) {
     this->odometry->resetCurrent(x, y, theta);
@@ -387,7 +381,11 @@ class Drivetrain {
   /// @param settle If true, robot will stop after movement, if false, it will proceed at a constant speed
   void driveProfiled(double dist = TILE_WIDTH, bool settle = true) {
     if (!hasFreshPose()) { stop(); return; }
-    if (dist == 0) { return; }
+    if (dist == 0) {
+      if (settle) stop();
+      return;
+    }
+
     const int sign = dist / abs(dist);  // Direction of the movement
     dist = abs(dist);                   // Setting the magnitude to positive
     
@@ -436,7 +434,11 @@ class Drivetrain {
   /// @param settle If true, robot will stop after movement, if false, it will proceed at a constant speed
   void strafeProfiled(double dist = TILE_WIDTH, bool settle = true) {
     if (!hasFreshPose()) { stop(); return; }
-    if(dist == 0) { return; }
+    if (dist == 0) {
+      if (settle) stop();
+      return;
+    }
+
     const int sign = dist / abs(dist); // Getting the direction of the movement
     dist = abs(dist); // Setting the magnitude to positive
 
@@ -456,25 +458,25 @@ class Drivetrain {
     this->xProfile->setVelocity(this->getRPM());
     this->xProfile->setFinalVelocity(settle ? 0 : 100);
 
-    while(traveledDist < dist && !timer.isCompleted()){
+    while (traveledDist < dist && !timer.isCompleted()) {
       if (!hasFreshPose()) { stop(); return; }
       traveledDist = (odometry->getPosition() - startPos).GetMagnitude();
       // traveledDist += getSpeed(this->getRPM()) * dt; //# in case of odom failure
 
       double remainingDist = dist - traveledDist;
       now = pros::micros() / 1E6;
-      dt =  now - lastTime;
+      dt = now - lastTime;
       lastTime = now;
 
       currVelocity = this->xProfile->update(remainingDist, dt);
       this->sideways(sign * currVelocity);
 
-      if(remainingDist <= 0) { break; } // Overshoot prevention
+      if (remainingDist <= 0) { break; } // Overshoot prevention
 
       pros::delay(20);
     }
 
-    if(settle) this->stop();
+    if (settle) this->stop();
   }
 
   /// @brief S-graph motion profile for rotations
@@ -482,7 +484,11 @@ class Drivetrain {
   /// @param settle If true, robot will stop after movement, if false, it will proceed at a constant speed
   void turnProfiled(double angle = 90, bool settle = true) {
     if (!hasFreshPose()) { stop(); return; }
-    if (angle == 0) { return; }
+    if (angle == 0) {
+      if (settle) stop();
+      return;
+    }
+
     const int sign = angle / abs(angle);  // Getting the direction of the movement
     angle = abs(angle);                   // Setting the magnitude to positive
 
@@ -618,8 +624,12 @@ class Drivetrain {
   /// @see https://www.desmos.com/calculator/91cbd82e8b
   void driveAngleOfArc(const double &radius = DRIVE_WIDTH, const double &angle = 90, bool settle = true) {
     if (!hasFreshPose()) { stop(); return; }
-    if(angle == 0) { return; }
-    if(radius == 0) {
+    if (angle == 0) {
+      if (settle) stop();
+      return;
+    }
+
+    if (radius == 0) {
       turn(angle, settle);
       return;
     }
@@ -639,7 +649,7 @@ class Drivetrain {
     Timer timer;
     timer.start(timeoutMs);
 
-    while(traveledDist < distance && !timer.isCompleted()){
+    while (traveledDist < distance && !timer.isCompleted()) {
       if (!hasFreshPose()) { stop(); return; }
       const Pose currentPose = odometry->getPose();
       traveledDist += currentPose.distanceTo(previousPose);
@@ -656,7 +666,7 @@ class Drivetrain {
       pros::delay(20);
     }
 
-    if(settle) this->stop();
+    if (settle) this->stop();
   }
 
   /// @brief Makes the robot drive in an arc motion to a specified point in the
