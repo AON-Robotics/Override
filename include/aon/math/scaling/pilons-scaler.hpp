@@ -18,7 +18,7 @@ namespace aon {
         /// @brief Creates a `PilonsScaler` instance
         /// @param t The "curviness" of the curve, for a detailed explanation check out the link below
         /// @see https://www.desmos.com/calculator/kq9hgbxbwp
-        PilonsScaler(double t = 10) : t(t){}
+        PilonsScaler(double t = 10, double deadband = 0) : Scaler(deadband), (t){}
 
         /// @brief Applies pilons input scaling strategy to a floating-point input.
         /// @param value The input value to scale in the range: [-127, 127].

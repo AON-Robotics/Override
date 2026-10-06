@@ -39,10 +39,10 @@ inline void DriveDefault() { }
 inline void DriveKevin() { 
   #if !USING_BIG_ROBOT
   //# From now on, all drivetrains used will need to use this format for driving
-  double leftX = scaler.transform(mainController.get_analog(ANALOG_LEFT_X));
-  double leftY = scaler.transform(mainController.get_analog(ANALOG_LEFT_Y));
-  double rightX = scaler.transform(mainController.get_analog(ANALOG_RIGHT_X));
-  double rightY = scaler.transform(mainController.get_analog(ANALOG_RIGHT_Y));
+  double leftX = scaler -> scale(mainController.get_analog(ANALOG_LEFT_X));
+  double leftY = scaler -> scale(mainController.get_analog(ANALOG_LEFT_Y));
+  double rightX = scaler -> scale(mainController.get_analog(ANALOG_RIGHT_X));
+  double rightY = scaler -> scale(mainController.get_analog(ANALOG_RIGHT_Y));
   drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::SPLIT_ARCADE);
 
   if(mainController.get_digital_new_press(DIGITAL_R2)) {
@@ -134,10 +134,10 @@ inline void DriveKevin() {
 inline void DriveFabian() {
   #if USING_BIG_ROBOT
   //# From now on, all drivetrains used will need to use this format for driving
-  double leftX = scaler.transform(-mainController.get_analog(ANALOG_LEFT_X));
-  double leftY = scaler.transform(-mainController.get_analog(ANALOG_LEFT_Y));
-  double rightX = scaler.transform(-mainController.get_analog(ANALOG_RIGHT_X));
-  double rightY = scaler.transform(-mainController.get_analog(ANALOG_RIGHT_Y));
+  double leftX = scaler -> scale(-mainController.get_analog(ANALOG_LEFT_X));
+  double leftY = scaler -> scale(-mainController.get_analog(ANALOG_LEFT_Y));
+  double rightX = scaler -> scale(-mainController.get_analog(ANALOG_RIGHT_X));
+  double rightY = scaler -> scale(-mainController.get_analog(ANALOG_RIGHT_Y));
   drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::HOLONOMIC);
 
   if(mainController.get_digital(DIGITAL_L1)){
@@ -225,11 +225,11 @@ inline void DriveFabian() {
 /// @see aon::operator_control::Driver
 inline void Run(const Driver driver) {
   switch (driver) {
-    case KEVIN:
+    case DRIVER1:
       DriveKevin();
       break;
 
-    case FABIAN:
+    case DRIVER2:
       DriveFabian();
       break;
 

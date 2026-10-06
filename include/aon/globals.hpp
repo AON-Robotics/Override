@@ -10,6 +10,7 @@
 #include "./tools/vector.hpp"
 #include "./drivetrain/h-drive.hpp"
 #include "./intake/intake.hpp"
+#include "./drivetrain/x-drive.hpp"
 #include "./drivetrain/differential-drive.hpp"
 #include "./orbit/orbit.hpp"
 #include "./drivetrain/drivetrain.hpp"
@@ -18,15 +19,26 @@
 #include "./math/scaling/pilons-scaler.hpp"
 #include "./math/scaling/exponential-scaler.hpp"
 #include "./math/scaling/cubic-scaler.hpp"
+#include "./math/scaling/driver_profile.hpp"
 
 namespace aon::operator_control {
 
 /// Driver profiles for all robots
 enum Driver {
-  KEVIN,
-  FABIAN,
+  DRIVER1,
+  DRIVER2,
   DEFAULT,
 };
+
+//DRIVER PROFILES
+// The Curve in the parameters are placeholders to be changed to the drivers prefered curve
+
+const DriverProfile DRIVER1_PROFILE = DriverProfile("Driver1", ScalerType::PILONS, 10, 5);
+const DriverProfile DRIVER2_PROFILE = DriverProfile("Driver2", ScalerType::CUBIC, 4, 8);
+const DriverProfile DEFAULT_PROFILE = DriverProfile("Default", ScalerType::PILONS, 7, 6);
+
+inline void LoadDriverProfile(aon::operator_control::Driver driver);
+
 }  // namespace aon::operator_control
 
 // ============================================================================
@@ -37,16 +49,18 @@ enum Driver {
 //
 // ============================================================================
 
+std::unique_ptr<aon::Scaler> scaler = aon::buildScaler(aon::operator_control::DEFAULT_PROFILE);
 
 #if USING_BIG_ROBOT
 
 // The scaler choice and subsequently tuning should be done as per driver preference
-aon::PilonsScaler scaler = aon::PilonsScaler(SENSITIVITY);
+//aon::PilonsScaler scaler = aon::PilonsScaler(SENSITIVITY);
+
 // TODO: get driver feedback from the following
 // aon::ExponentialScaler scaler = aon::ExponentialScaler(SENSITIVITY);
 // aon::CubicScaler scaler = aon::CubicScaler(1);
 
-aon::operator_control::Driver driver = aon::operator_control::FABIAN;
+aon::operator_control::Driver driver = aon::operator_control::DRIVER2;
 
 aon::Pose startingPose = aon::Pose(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y, INITIAL_ODOMETRY_THETA);
 aon::Odometry odometry = aon::Odometry(5, -6, 7, 0, 14);
@@ -78,30 +92,35 @@ aon::HDrive drivetrain = aon::HDrive(
 // The scaler choice and the subsequent tuning should be done as per driver preference
 
 // The joystick scaler object to smoothen driver input
-aon::PilonsScaler scaler = aon::PilonsScaler(SENSITIVITY);
+//aon::PilonsScaler scaler = aon::PilonsScaler(SENSITIVITY);
 // TODO: get driver feedback from the following
 // aon::ExponentialScaler scaler = aon::ExponentialScaler(SENSITIVITY);
 // aon::CubicScaler scaler = aon::CubicScaler(1);
 
-aon::operator_control::Driver driver = aon::operator_control::KEVIN;
+aon::operator_control::Driver driver = aon::operator_control::DRIVER1;
 
 // aon::XDrive drivetrain = aon::XDrive({-13}, {11}, {-12}, {14});
 aon::Pose startingPose = aon::Pose(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y, INITIAL_ODOMETRY_THETA);
-aon::Odometry odometry = aon::Odometry(19, -18, 5, 0, 16);
+aon::Odometry odometry = aon::Odometry(-7, 15, 14, 0, 17);
 
 aon::Drivetrain::SpeedFactors speedFactors = aon::Drivetrain::SpeedFactors(0.6, 0.0, 0.6, 1.0, 0.0, 0.667);
 
 aon::MotionProfile yProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL, MAX_DECEL, MAX_ACCEL);
 aon::MotionProfile thetaProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL * 3, MAX_DECEL * 0.8, MAX_ACCEL * 3);
 
-aon::DifferentialDrive drivetrain = aon::DifferentialDrive(
-                                    {11, -12, 13, -14},
-                                    {1, -2, 3, -4},
-                                    startingPose,
-                                    std::make_unique<aon::Odometry>(odometry),
-                                    speedFactors,
-                                    std::make_unique<aon::MotionProfile>(yProfile),
-                                    std::make_unique<aon::MotionProfile>(thetaProfile));
+aon::XDrive drivetrain = aon::XDrive(
+
+                                      {5},
+                                      {10},
+                                      {19},
+                                      {20},
+                                      startingPose,
+                                      std::make_unique<aon::Odometry>(odometry),
+                                      speedFactors,
+                                      std::make_unique<aon::MotionProfile>(yProfile),
+                                      std::make_unique<aon::MotionProfile>(thetaProfile)
+                                    );
+
 
 aon::Intake intake = aon::Intake({-9}, {-6}, {7}, {-8}, 'H', 'B', 'A', 20, 17);
 
