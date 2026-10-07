@@ -33,7 +33,7 @@ class DriverFeedback {
     while (finalSecond > 0 &&
            elapsed >= FINAL_WARNING_START_MS +
                          (FINAL_COUNTDOWN_START - finalSecond) * 1'000) {
-      controller.rumble(". ..");
+      controller.rumble(".-.-.-");
       --finalSecond;
     }
   }
