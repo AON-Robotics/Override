@@ -3,6 +3,7 @@
 #include <cmath>
 #include "../constants.hpp"
 #include "../globals.hpp"
+#include "./driver-feedback.hpp"
 
 /// @brief Encapsulates functions and state for operator control.
 /// @details Practically uses Singleton design pattern, but classes would have
@@ -224,6 +225,8 @@ inline void DriveFabian() {
 /// @param driver the name of the person driving the robot
 /// @see aon::operator_control::Driver
 inline void Run(const Driver driver) {
+  feedback().update(mainController);
+
   switch (driver) {
     case KEVIN:
       DriveKevin();
