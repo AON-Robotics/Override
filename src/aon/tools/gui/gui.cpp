@@ -2,16 +2,59 @@
 #include "../../../../include/aon/tools/gui/gui-debug.hpp"
 #include "../../../../include/aon/constants.hpp"
 #include "../../../../include/aon/tools/gui/ui/gui-layout.hpp"
+#include "../../../../include/aon/shadow.hpp"
 
 namespace aon {
 
 // Owning GUI instance — type selected at compile time by TESTING_AUTONOMOUS.
 // A single std::unique_ptr<Gui> is used so no redundant reference alias is needed.
 #if TESTING_AUTONOMOUS
-std::unique_ptr<Gui> gui = std::make_unique<GuiDebug>();
+using ShadowGuiBase = GuiDebug;
 #else
-std::unique_ptr<Gui> gui = std::make_unique<Gui>();
+using ShadowGuiBase = Gui;
 #endif
+// Extend the existing AUTONS hub in normal and debug builds. Only the existing
+// GUI task draws Shadow; recording/storage stay in the competition control loop.
+class ShadowGui final : public ShadowGuiBase {
+ public:
+  void displayMainMenu() override {
+    ShadowGuiBase::displayMainMenu();
+    if (shadow::selected()) {
+      pros::screen::set_eraser(pros::Color::black);
+      pros::screen::erase_rect(100, 0, 365, 36);
+      pros::screen::set_pen(pros::Color::green);
+      pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "SHADOW AUTON");
+    }
+  }
+  void displayAutonMenu() override {
+    ShadowGuiBase::displayAutonMenu();
+    if (shadow::selected()) {
+      pros::screen::set_eraser(pros::Color::black);
+      pros::screen::erase_rect(100, 0, 365, 36);
+      pros::screen::set_pen(pros::Color::green);
+      pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "SHADOW AUTON");
+    }
+    pros::screen::set_eraser(pros::Color::dark_gray);
+    pros::screen::erase_rect(370, 8, 475, 38);
+    pros::screen::set_pen(pros::Color::white);
+    pros::screen::print(pros::E_TEXT_SMALL, 385, 18, "SHADOW");
+  }
+  void handleAutonMenuTouch() override {
+    const auto touch = pros::screen::touch_status();
+    if ((touch.touch_status == pros::E_TOUCH_PRESSED || touch.touch_status == pros::E_TOUCH_HELD) &&
+        touch.x >= 370 && touch.x <= 475 && touch.y >= 8 && touch.y <= 38) {
+      shadow::openGui();
+      while (shadow::guiTick()) pros::delay(100);
+      displayAutonMenu();
+      // Consume BACK release so it cannot also select a native submenu.
+      while (pros::screen::touch_status().touch_status == pros::E_TOUCH_HELD ||
+             pros::screen::touch_status().touch_status == pros::E_TOUCH_PRESSED) pros::delay(20);
+      return;
+    }
+    ShadowGuiBase::handleAutonMenuTouch();
+  }
+};
+std::unique_ptr<Gui> gui = std::make_unique<ShadowGui>();
 
 // Define the autonomousReader unique_ptr
 std::unique_ptr<FunctionReader<int>> autonomousReader =
@@ -118,6 +161,7 @@ void Gui::applyPreselectedAuton() {
 }
 
 void Gui::selectAutonByList(Alliance alliance, int index1Based) {
+  shadow::selectNative();
   if (index1Based < 1) index1Based = 1;
   if (index1Based > 3) index1Based = 3;
 
