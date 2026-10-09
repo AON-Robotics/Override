@@ -179,7 +179,17 @@ class OverrideRobot : public Robot {
     // --- Add your own sensors here -------------------------------------------
     // Each one shows up in the Pi's read_sensors tool with no Pi-side change.
     //
-    // static pros::Distance frontDistance(5);
+    // The sensors above never repeat a port number: they ask the objects built
+    // in globals.hpp (get_port()), so they always match the wiring. A new
+    // sensor needs its own handle here, because this file can't include
+    // globals.hpp. Keep its port in ONE place: a #define in constants.hpp,
+    // inside the right robot's section (USING_BIG_ROBOT or not), used both
+    // here and in globals.hpp. Moving the cable is then a one-number change.
+    // Never type the number here directly (5 is already the small robot's back
+    // tracking wheel).
+    //
+    // // constants.hpp:  #define FRONT_DISTANCE_PORT 21   (pick a free port: check globals.hpp)
+    // static pros::Distance frontDistance(FRONT_DISTANCE_PORT);
     // link.registerSensor("front_distance", [](KV &kv) {
     //   kv.add("mm", static_cast<int>(frontDistance.get_distance()));
     //   kv.add("confidence", static_cast<int>(frontDistance.get_confidence()));
@@ -286,6 +296,10 @@ void checkDriverOverride() {
 
 void abort(const char *reason) {
   if (piLink) piLink->abort(reason);
+}
+
+bool latestPacket(char tag, std::vector<std::string> &fields, std::uint32_t &ageMs) {
+  return piLink && piLink->latestPacket(tag, fields, ageMs);
 }
 
 bool latestOtosPose(Pose &pose, std::uint32_t &ageMs) {

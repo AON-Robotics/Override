@@ -61,6 +61,14 @@ constexpr std::uint32_t OTOS_TIMEOUT_MS = 300;
 /// @note Safe from any task. This replaces a separate stdin reader for OTOS.
 bool latestOtosPose(Pose &pose, std::uint32_t &ageMs);
 
+/// The latest sensor packet with `tag` from a program on the Pi, for any tag
+/// declared with registerPacket() in commands.cpp (e.g. 'R' for red_tracker).
+/// @param fields The packet's fields after the tag, as text ("D,412" -> {"412"})
+/// @param ageMs How long ago it arrived; decide yourself when it is too old
+/// @return false if start() was not called or no packet with this tag arrived yet
+/// @note Safe from any task, including autonomous: packets are never blocked.
+bool latestPacket(char tag, std::vector<std::string> &fields, std::uint32_t &ageMs);
+
 }  // namespace aon::pi
 
 #endif  // AON_PI_PI_LINK_HPP_
