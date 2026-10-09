@@ -30,6 +30,7 @@ void autonomous() {
 // Program slot 3 with Alien Icon is for tests or miscellaneous components
 void opcontrol() {
   aon::Configure();
+  aon::operator_control::LoadDriverProfile(driver);
   while (true) {
     #if TESTING_AUTONOMOUS
     aon::Configure(false); // Set drivetrain to hold for auton testing

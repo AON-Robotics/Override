@@ -35,15 +35,15 @@ bool mergeCorridorAndElevator = true;
 /// Default Operator Control configuration
 inline void DriveDefault() { }
 
-/// Kevin's Operator Control configuration
-inline void DriveKevin() { 
+/// Driver1's Operator Control configuration
+inline void DriveDRIVER1() { 
   #if !USING_BIG_ROBOT
   //# From now on, all drivetrains used will need to use this format for driving
-  double leftX = scaler.transform(mainController.get_analog(ANALOG_LEFT_X));
-  double leftY = scaler.transform(mainController.get_analog(ANALOG_LEFT_Y));
-  double rightX = scaler.transform(mainController.get_analog(ANALOG_RIGHT_X));
-  double rightY = scaler.transform(mainController.get_analog(ANALOG_RIGHT_Y));
-  drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::SPLIT_ARCADE);
+  double leftX = scaler -> scale(mainController.get_analog(ANALOG_LEFT_X));
+  double rightX = scaler -> scale(mainController.get_analog(ANALOG_LEFT_Y));
+  double leftY = scaler -> scale(mainController.get_analog(ANALOG_RIGHT_X));
+  double rightY = scaler -> scale(mainController.get_analog(ANALOG_RIGHT_Y));
+  drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::HOLONOMIC);
 
   if(mainController.get_digital_new_press(DIGITAL_R2)) {
     size_t currentTime = pros::millis();
@@ -130,14 +130,14 @@ inline void DriveKevin() {
   #endif
 }
 
-/// Fabian's Operator Control configuration
-inline void DriveFabian() {
+/// Driver2's Operator Control configuration
+inline void DriveDRIVER2() {
   #if USING_BIG_ROBOT
   //# From now on, all drivetrains used will need to use this format for driving
-  double leftX = scaler.transform(-mainController.get_analog(ANALOG_LEFT_X));
-  double leftY = scaler.transform(-mainController.get_analog(ANALOG_LEFT_Y));
-  double rightX = scaler.transform(-mainController.get_analog(ANALOG_RIGHT_X));
-  double rightY = scaler.transform(-mainController.get_analog(ANALOG_RIGHT_Y));
+  double leftX = scaler -> scale(-mainController.get_analog(ANALOG_LEFT_X));
+  double leftY = scaler -> scale(-mainController.get_analog(ANALOG_LEFT_Y));
+  double rightX = scaler -> scale(-mainController.get_analog(ANALOG_RIGHT_X));
+  double rightY = scaler -> scale(-mainController.get_analog(ANALOG_RIGHT_Y));
   drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::HOLONOMIC);
 
   if(mainController.get_digital(DIGITAL_L1)){
@@ -224,19 +224,13 @@ inline void DriveFabian() {
 /// @param driver the name of the person driving the robot
 /// @see aon::operator_control::Driver
 inline void Run(const Driver driver) {
-  switch (driver) {
-    case KEVIN:
-      DriveKevin();
-      break;
-
-    case FABIAN:
-      DriveFabian();
-      break;
-
-    default:
-      DriveDefault();
-      break;
-  }
+  // Layout depends on the robot; `driver` only selects the scaling profile
+  // (applied once via LoadDriverProfile in opcontrol).
+  #if USING_BIG_ROBOT
+  DriveDRIVER2();
+  #else
+  DriveDRIVER1();
+  #endif
 }
 
 }  // namespace aon::operator_control

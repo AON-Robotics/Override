@@ -18,7 +18,7 @@ namespace aon {
         /// @brief Creates a `ExponentialScaler` instance
         /// @param t The "curviness" of the curve, for a detailed explanation check out the link below
         /// @see https://www.desmos.com/calculator/kq9hgbxbwp
-        ExponentialScaler(double t = 10) : t(t){}
+        ExponentialScaler(double t = 10, double deadband = 0) : Scaler(deadband), t(t){}
 
         /// @brief Applies an exponential input scaling strategy to a floating-point input.
         /// @param value The input value to scale in the range: [-127, 127].
