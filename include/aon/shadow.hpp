@@ -4,28 +4,31 @@
 #include <cstdint>
 
 /**
- * Lightweight Shadow driver guide (kept here to respect the five-file budget).
+ * Shadow driver guide (kept here to respect the eight-file budget).
  *
- * Insert an SD card. On the Brain tap AUTONS -> SHADOW. Tap SHADOW 1/2/3
- * to select/load a slot; LOAD reloads it. In driver control with centered
- * sticks, tap RECORD then CONFIRM RECORD (confirms mechanism reset/overwrite).
- * Drive normally while the Brain screen remains available. Tap STOP / SAVE
- * to stop and write once. DELETE requires a second CONFIRM DELETE tap.
- * Automatic limits retain a bounded prefix in RAM; tap STOP / SAVE to save it.
+ * Insert an SD card. On the Brain main menu tap SHADOW. All three slots are
+ * validated and show READY, EMPTY, INVALID, or NO SD. Tap a slot to load it.
+ * In enabled driver control with centered sticks, tap RECORD then OVERWRITE?
+ * within five seconds (confirms mechanism reset/replacement).
+ * Drive normally while the Brain remains available; RECORD becomes STOP SAVE.
+ * Tap STOP SAVE to stop and save. DELETE requires a second DELETE? within 5s.
+ * Automatic duration/capacity stops save the bounded prefix. A failed save
+ * keeps RAM available: insert/fix SD and tap RETRY SAVE; other slots stay locked
+ * until it is saved. Recording works in the normal and debug GUI configurations.
  * Errors appear on the Brain; failed captures cannot be saved. No controller
  * combination opens or starts Shadow. RECORD resets supported mechanisms to
  * a known retracted/idle baseline for absolute transition events after reboot.
  *
  * The screen shows duration, point count, starting X/Y (inches), and heading
  * (clockwise degrees; X forward, Y right). Physically place the robot there,
- * tap ARM, then CONFIRM POSE. Physically home the lever first: Configure()
+ * tap PLAY, then CONFIRM PLAY within five seconds. Physically home the lever first: Configure()
  * tares its encoder; baseline commands are not homing/calibration.
  * BACK preserves the arm; start autonomous to consume it once and set odometry
  * to point 0. Shadow NEVER navigates to the start. Disabled/driver entry, slot
  * changes, deletion/loading, or selecting a native auton invalidate old arms.
  * After disabling, reopen SHADOW and explicitly rearm for the next run.
- * NATIVE AUTON returns dispatch to the Brain's native selection. CANCEL on
- * the Brain or Controller X during autonomous latches cancellation. X retains
+ * Selecting a native routine in AUTONS returns dispatch to that native choice.
+ * Tap ARMED to disarm, or CANCEL during replay. Controller X also cancels replay. X retains
  * its ordinary driver control outside playback. Failure/disable/cancel stops
  * drivetrain AND active intake/lever, suspends asynchronous intake writers,
  * and never resumes the route. The existing safety task owns replay so deleted
@@ -33,7 +36,7 @@
  * GUI touches use an atomic request mailbox; the control loop owns capture,
  * the existing safety task owns SD/replay, and the GUI draws atomic metadata.
  * SD operations survive competition-mode changes and keep driving locked.
- * Host tests remain in shadow.cpp behind AON_SHADOW_HOST_TEST to keep five files.
+ * Host tests remain in shadow.cpp behind AON_SHADOW_HOST_TEST to avoid extra files.
  * Recorded data: reduced odometry poses, drive direction, dwell durations,
  * and semantic mechanism transitions with waypoint/dwell-relative timing.
  * Raw joystick axes, motor commands, and extra sensor telemetry are deliberately
@@ -51,13 +54,15 @@
  * GCC: g++ -std=c++17 -Wall -Wextra -Werror -DAON_SHADOW_HOST_TEST
  *          src/aon/shadow.cpp -o /tmp/shadow-test
  *
- * SD: /usd/aon-shadow-N.bin, explicitly serialized little-endian IEEE binary32.
- * 16-byte header: "AONS", version u8, robot u8, flags u8, reserved u8,
- * pointCount u16, eventCount u16, durationMs u16, reserved u16.
+ * SD: /usd/aon-shadow-N-a.bin and -b.bin, little-endian IEEE binary32.
+ * 20-byte version-2 header: "AONS", version u8, robot u8, flags u8, reserved u8,
+ * pointCount u16, eventCount u16, durationMs u16, reserved u16, generation u32.
  * Then 16 bytes/point, 6 bytes/event, and 4-byte FNV-1a checksum of all preceding
- * bytes. Max file = 16 + 600*16 + 64*6 + 4 = 10,004 bytes. A temporary file is
- * flushed/closed/read back before rename; no A/B recovery or continuous writes.
- * Verify SD rename replacement and power-loss behavior on the actual V5/FAT.
+ * bytes. Max file = 20 + 600*16 + 64*6 + 4 = 10,008 bytes per generation.
+ * A temporary file is flushed/closed/validated without overwriting RAM, then
+ * replaces ONLY the older/inactive bank. Load selects the newest VALID bank.
+ * Old version-1 single-file /usd/aon-shadow-N.bin recordings remain readable.
+ * No continuous SD writes. Verify power-loss recovery on the actual V5/FAT.
  *
  * Physical gates: record; save; reboot; load/inspect metadata; 2-3 ft straight;
  * 90-degree turn; L path; reverse; dwell; X cancel; disable; one event; several
@@ -100,10 +105,13 @@ struct ShadowRecording {
   ShadowEvent events[kMaxEvents];
   std::uint16_t pointCount, eventCount, durationMs;
   std::uint8_t robot, flags;
+  std::uint32_t generation;
 };
 static_assert(sizeof(ShadowPoint) == 16, "Shadow trajectory RAM budget");
 static_assert(sizeof(ShadowEvent) == 6, "Shadow event RAM budget");
-static_assert(sizeof(ShadowRecording) == 9992, "One shared recording buffer");
+static_assert(sizeof(ShadowRecording) == 9996, "One shared recording buffer");
+
+enum class Mode : std::uint8_t { Idle, Recording, Processing, Saved, Armed, Playing, Finished, Cancelled, Error };
 
 enum class Result : std::uint8_t {
   Ok, Empty, Capacity, Duration, InvalidPose, PoseJump, Corrupt, Version,
@@ -133,6 +141,8 @@ void prepareNativeControl(); // release background writers before native auton
 void cancel(); // safe from disabled()/the existing safety task; latches cancellation
 void safetyPoll();
 bool selected();
+std::uint8_t selectedSlot();
+bool recordingActive(); // existing driver loop only; not a GUI buffer accessor
 int runSelected();
 } // namespace aon::shadow
 #endif

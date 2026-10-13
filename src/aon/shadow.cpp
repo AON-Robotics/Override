@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <cerrno>
 #include <limits>
 
 namespace aon::shadow {
@@ -12,10 +13,10 @@ namespace {
 
 constexpr std::uint8_t kPinned = 1;
 constexpr std::uint8_t kPrefix = 1;
-constexpr std::uint8_t kVersion = 1;
+constexpr std::uint8_t kVersion = 2;
 static_assert(sizeof(float) == 4 && std::numeric_limits<float>::is_iec559);
 static ShadowRecording recording; // ONLY full recording buffer; never copied
-static bool capturing = false;
+static std::atomic<bool> capturing{false}; // debug driver loop may query while SD owns the buffer
 static bool ready = false;
 static Result result = Result::Empty;
 struct CaptureState {
@@ -28,7 +29,7 @@ struct CaptureState {
 static CaptureState captureState;
 
 enum class UiAction : std::uint8_t {
-  None, Slot1, Slot2, Slot3, Record, Save, Load, Delete, Arm, Back, Cancel, Native, Open
+  None, Slot1, Slot2, Slot3, Record, Save, Load, Delete, Arm, Back, Cancel, Native, Open, Refresh
 };
 bool newGuiTouch(int status, std::int32_t pressCount, std::int32_t consumed) {
   // PROS preserves the last coordinates/counters after release. Fast taps can
@@ -37,13 +38,21 @@ bool newGuiTouch(int status, std::int32_t pressCount, std::int32_t consumed) {
 }
 UiAction touchAction(int x, int y) {
   if (x < 0 || x >= 480 || y < 0 || y >= 240) return UiAction::None;
-  if (y >= 45 && y < 78) return static_cast<UiAction>(1 + x / 160);
-  if (y >= 140 && y < 178) return static_cast<UiAction>(4 + x / 160);
-  if (y >= 185 && y < 225) return static_cast<UiAction>(7 + x / 160);
-  if (y >= 5 && y < 35 && x >= 385) return UiAction::Cancel;
-  if (y >= 5 && y < 35 && x >= 180 && x < 300) return UiAction::Native;
+  if (y >= 10 && y <= 52 && x >= 10 && x <= 470) {
+    if (x <= 150) return UiAction::Slot1;
+    if (x >= 170 && x <= 310) return UiAction::Slot2;
+    if (x >= 330) return UiAction::Slot3;
+  }
+  if (y >= 190 && y <= 232) {
+    if (x >= 10 && x <= 100) return UiAction::Back;
+    if (x >= 110 && x <= 250) return UiAction::Record;
+    if (x >= 260 && x <= 350) return UiAction::Delete;
+    if (x >= 360 && x <= 470) return UiAction::Arm;
+  }
   return UiAction::None;
 }
+UiAction recordAction(bool active) { return active ? UiAction::Save : UiAction::Record; }
+bool confirmationCurrent(std::uint32_t now, std::uint32_t started) { return now - started <= 5000; }
 constexpr std::uint32_t kUiEpochMask = 0x00ffffffU;
 bool armCurrent(std::uint32_t authorized, std::uint32_t latest, std::uint32_t pending) {
   return authorized == (latest & kUiEpochMask) && pending == 0;
@@ -113,6 +122,7 @@ Result startCapture(ShadowPoint p, std::uint32_t now, std::uint8_t robot) {
   recording.pointCount = 1;
   recording.eventCount = recording.durationMs = recording.flags = 0;
   recording.robot = robot;
+  recording.generation = 0;
   p.dwellMs = 0; p.flags = kPinned;
   recording.points[0] = p;
   captureState = {};
@@ -262,7 +272,10 @@ struct Stream {
     return value;
   }
 };
-Result transfer(FILE* file, std::uint8_t robot, bool writing) {
+struct Summary {
+  std::uint32_t generation = 0;
+};
+Result transfer(FILE* file, std::uint8_t robot, bool writing, bool install = true, Summary* summary = nullptr) {
   Stream io{file, writing};
   const auto magic = io.integer(0x534e4f41U, 4);
   const auto version = io.integer(kVersion, 1);
@@ -277,33 +290,66 @@ Result transfer(FILE* file, std::uint8_t robot, bool writing) {
   if (magic != 0x534e4f41U || reserved || reserved2 || flags > kPrefix ||
       !points || points > kMaxPoints || events > kMaxEvents || duration > kMaxDurationMs)
     return Result::Corrupt;
-  if (version != kVersion) return Result::Version;
+  if (version != kVersion && version != 1) return Result::Version;
   if (identity != robot) return Result::WrongRobot;
-  if (!writing) {
+  const auto generation = version == 2 ? io.integer(recording.generation, 4) : 0;
+  const long headerBytes = version == 2 ? 20 : 16;
+  if (!io.ok) return writing ? Result::Io : Result::Corrupt;
+  if (!writing && install) {
     recording.robot = robot; recording.flags = static_cast<std::uint8_t>(flags);
     recording.pointCount = static_cast<std::uint16_t>(points);
     recording.eventCount = static_cast<std::uint16_t>(events);
     recording.durationMs = static_cast<std::uint16_t>(duration);
+    recording.generation = generation;
   }
+  ShadowPoint first{};
+  std::uint32_t dwell = 0;
+  bool meaningful = events != 0;
   for (unsigned i = 0; i < points; ++i) {
-    auto& p = recording.points[i];
+    ShadowPoint scratch{};
+    auto& p = writing || install ? recording.points[i] : scratch;
     p.x = io.number(p.x); p.y = io.number(p.y); p.heading = io.number(p.heading);
     p.dwellMs = static_cast<std::uint16_t>(io.integer(p.dwellMs, 2));
     p.direction = static_cast<std::int8_t>(io.integer(static_cast<std::uint8_t>(p.direction), 1));
     p.flags = static_cast<std::uint8_t>(io.integer(p.flags, 1));
+    if (!finite(p) || p.direction < -1 || p.direction > 1 || p.flags > kPinned) return Result::Corrupt;
+    dwell += p.dwellMs;
+    if (dwell > duration) return Result::Corrupt;
+    if (i == 0) first = p;
+    else if (distance(first, p) > 0.15F || std::fabs(angle(first.heading, p.heading)) > 1) meaningful = true;
   }
+  std::uint16_t lastIndex = 0, lastDelay = 0;
   for (unsigned i = 0; i < events; ++i) {
-    auto& e = recording.events[i];
+    ShadowEvent scratch{};
+    auto& e = writing || install ? recording.events[i] : scratch;
     e.pointIndex = static_cast<std::uint16_t>(io.integer(e.pointIndex, 2));
     e.delayMs = static_cast<std::uint16_t>(io.integer(e.delayMs, 2));
     e.kind = static_cast<Kind>(io.integer(static_cast<unsigned>(e.kind), 1));
     e.value = static_cast<std::int8_t>(io.integer(static_cast<std::uint8_t>(e.value), 1));
+    if (e.pointIndex >= points || e.pointIndex < lastIndex ||
+        (e.pointIndex == lastIndex && e.delayMs < lastDelay) || !validEvent(e.kind, e.value, robot))
+      return Result::Corrupt;
+    std::uint16_t anchorDwell;
+    if (writing || install) anchorDwell = recording.points[e.pointIndex].dwellMs;
+    else {
+      // Probe validates a generation without replacing the one shared route.
+      // Read only this anchor's u16 dwell; no second route or dwell array.
+      const auto resume = std::ftell(file);
+      if (resume < 0 || std::fseek(file, headerBytes + e.pointIndex * 16L + 12, SEEK_SET) != 0)
+        return Result::Io;
+      const int lo = std::fgetc(file), hi = std::fgetc(file);
+      if (lo == EOF || hi == EOF || std::fseek(file, resume, SEEK_SET) != 0) return Result::Corrupt;
+      anchorDwell = static_cast<std::uint16_t>(lo | hi << 8);
+    }
+    if (e.delayMs > anchorDwell) return Result::Corrupt;
+    lastIndex = e.pointIndex; lastDelay = e.delayMs;
   }
   const auto checksum = io.hash;
   const auto stored = io.integer(checksum, 4, false);
   if (!io.ok || stored != checksum || (!writing && std::fgetc(file) != EOF) || std::ferror(file))
     return writing ? Result::Io : Result::Corrupt;
-  return validate(robot);
+  if (summary) summary->generation = generation;
+  return meaningful ? Result::Ok : Result::Empty;
 }
 Result writeRecording(FILE* file, std::uint8_t robot) {
   const auto check = validate(robot);
@@ -315,6 +361,85 @@ Result readRecording(FILE* file, std::uint8_t robot) {
   ready = check == Result::Ok;
   if (!ready) recording.pointCount = recording.eventCount = 0;
   return check;
+}
+
+bool bankName(char (&name)[192], const char* base, char bank) {
+  const int size = bank == 0 ? std::snprintf(name, sizeof(name), "%s.bin", base) :
+                   bank == 't' ? std::snprintf(name, sizeof(name), "%s.tmp", base) :
+                                 std::snprintf(name, sizeof(name), "%s-%c.bin", base, bank);
+  return size >= 0 && static_cast<unsigned>(size) < sizeof(name);
+}
+Result readFile(const char* name, std::uint8_t robot, bool install, Summary* summary = nullptr) {
+  FILE* file = std::fopen(name, "rb");
+  if (!file) return errno == ENOENT ? Result::Empty : Result::Io;
+  auto check = install ? readRecording(file, robot) : transfer(file, robot, false, false, summary);
+  if (std::fclose(file) != 0) check = Result::Io;
+  if (install && check != Result::Ok) { ready = false; recording.pointCount = recording.eventCount = 0; }
+  return check;
+}
+Result loadSaved(const char* base, std::uint8_t robot) {
+  ready = false;
+  char name[192]; Summary a, b;
+  if (!bankName(name, base, 'a')) return Result::Io;
+  const auto ra = readFile(name, robot, false, &a);
+  if (!bankName(name, base, 'b')) return Result::Io;
+  const auto rb = readFile(name, robot, false, &b);
+  if (ra == Result::Ok || rb == Result::Ok) {
+    const char bank = ra == Result::Ok && (rb != Result::Ok || a.generation >= b.generation) ? 'a' : 'b';
+    if (!bankName(name, base, bank)) return Result::Io;
+    return readFile(name, robot, true);
+  }
+  // Migration: old single-file version-1 recordings remain readable.
+  if (!bankName(name, base, 0)) return Result::Io;
+  const auto legacy = readFile(name, robot, true);
+  if (legacy != Result::Empty) return legacy;
+  return ra != Result::Empty ? ra : rb;
+}
+Result saveSaved(const char* base, std::uint8_t robot,
+                 int (*commit)(const char*, const char*) = std::rename) {
+  const auto valid = validate(robot);
+  if (valid != Result::Ok) return valid;
+  char name[192], temporary[192]; Summary a, b, legacy;
+  if (!bankName(name, base, 'a')) return Result::Io;
+  const auto ra = readFile(name, robot, false, &a);
+  if (!bankName(name, base, 'b')) return Result::Io;
+  const auto rb = readFile(name, robot, false, &b);
+  if (!bankName(name, base, 0)) return Result::Io;
+  const auto rl = readFile(name, robot, false, &legacy);
+  if (ra == Result::Io || rb == Result::Io || rl == Result::Io) return Result::Io;
+  const char bank = ra == Result::Ok && (rb != Result::Ok || a.generation >= b.generation) ? 'b' : 'a';
+  const auto latest = std::max({recording.generation, ra == Result::Ok ? a.generation : 0U,
+                              rb == Result::Ok ? b.generation : 0U, rl == Result::Ok ? legacy.generation : 0U});
+  if (latest == UINT32_MAX) return Result::Version; // never wrap generation ordering
+  if (!bankName(name, base, bank) || !bankName(temporary, base, 't')) return Result::Io;
+  const auto previous = recording.generation;
+  recording.generation = latest + 1;
+  FILE* file = std::fopen(temporary, "wb");
+  if (!file) { recording.generation = previous; return Result::Io; }
+  auto check = writeRecording(file, robot);
+  if (std::fflush(file) != 0) check = Result::Io;
+  if (std::fclose(file) != 0) check = Result::Io;
+  Summary verified;
+  if (check == Result::Ok) check = readFile(temporary, robot, false, &verified);
+  if (check == Result::Ok && verified.generation != latest + 1) check = Result::Corrupt;
+  // Only the older/inactive bank is replaced. The newest valid generation
+  // survives a failed write/readback/rename; probes never overwrite RAM.
+  // V5 FAT and Windows rename may refuse replacement. Unlink only the inactive
+  // bank AFTER readback; the other valid generation remains recoverable.
+  if (check == Result::Ok && std::remove(name) != 0 && errno != ENOENT) check = Result::Io;
+  if (check == Result::Ok && commit(temporary, name) != 0) check = Result::Io;
+  if (check != Result::Ok) recording.generation = previous;
+  return check;
+}
+Result eraseSaved(const char* base) {
+  bool removed = false;
+  for (char bank : {'a', 'b', char(0), 't'}) {
+    char name[192];
+    if (!bankName(name, base, bank)) return Result::Io;
+    if (std::remove(name) == 0) removed = true;
+    else if (errno != ENOENT) return Result::Io;
+  }
+  return removed ? Result::Ok : Result::Empty;
 }
 
 // Small synchronous scheduler, also used by host safety tests. Hardware callbacks
@@ -422,6 +547,7 @@ static UiAction storageAction = UiAction::None;
 static std::atomic<bool> interrupted{true}, armed{false}, shadowSelected{false};
 struct MenuState {
   std::uint32_t displayedAt = 0;
+  std::uint32_t confirmationAt = 0;
   std::uint32_t armEpoch = 0;
   std::uint8_t slot = 1, loadedSlot = 0, confirmation = 0;
   bool stationary = true;
@@ -430,6 +556,7 @@ struct MenuState {
   const char* message = "SELECT SLOT / LOAD";
 };
 static MenuState menu;
+static bool played = false;
 // The GUI task never reads/mutates the shared recording. One action mailbox
 // transfers requests to the existing competition loop; atomic status is display
 // only. Playback still exclusively owns the route after Requested is published.
@@ -439,6 +566,10 @@ struct UiState {
   std::atomic<std::uint32_t> action{0}, epoch{0};
   std::atomic<std::uint32_t> controlTick{0};
   std::atomic<std::uint8_t> recordChecks{0}; // driver enabled / sticks centered / fresh pose
+  std::atomic<Mode> mode{Mode::Idle};
+  std::atomic<Result> slots[3]{{Result::Empty}, {Result::Empty}, {Result::Empty}};
+  std::atomic<bool> unsaved{false};
+  std::atomic<std::uint32_t> generation{0};
   std::atomic<bool> open{false}, recording{false};
   std::atomic<std::uint8_t> slot{1}, confirmation{0};
   std::atomic<std::uint16_t> duration{0}, points{0};
@@ -456,6 +587,11 @@ void publishUi() {
     ui.heading.store(recording.points[0].heading);
   }
   ui.recording.store(capturing);
+  ui.unsaved.store(ready && !capturing && menu.loadedSlot == 0);
+  ui.generation.store(recording.generation);
+  ui.mode.store(capturing ? Mode::Recording : armed.load() ? Mode::Armed :
+                result == Result::Cancelled ? Mode::Cancelled : played && result == Result::Ok ? Mode::Finished :
+                result != Result::Ok && result != Result::Empty ? Mode::Error : ready ? Mode::Saved : Mode::Idle);
   ui.message.store(capturing ? "RECORDING - DRIVE NORMALLY" : menu.message);
 }
 
@@ -610,8 +746,8 @@ const char* label(Result value) {
   switch (value) {
     case Result::Ok: return "READY";
     case Result::Empty: return "EMPTY";
-    case Result::Capacity: return "CAPACITY - B SAVE";
-    case Result::Duration: return "60s LIMIT - B SAVE";
+    case Result::Capacity: return "CAPACITY REACHED";
+    case Result::Duration: return "60s LIMIT";
     case Result::InvalidPose: return "ODOMETRY ERROR";
     case Result::PoseJump: return "POSE JUMP";
     case Result::WrongRobot: return "WRONG ROBOT";
@@ -626,38 +762,28 @@ const char* label(Result value) {
   }
   return "ERROR";
 }
-void path(char* name, bool temporary) {
-  std::snprintf(name, 32, "/usd/aon-shadow-%u.%s", menu.slot, temporary ? "tmp" : "bin");
+void slotBase(char (&name)[32], unsigned slot) {
+  std::snprintf(name, sizeof(name), "/usd/aon-shadow-%u", slot);
 }
 Result loadSlot() {
   armed.store(false); menu.loadedSlot = 0; ready = false;
-  if (!pros::usd::is_installed()) return Result::NoSd;
-  char name[32]; path(name, false);
-  FILE* file = std::fopen(name, "rb");
-  if (!file) return Result::Io;
-  auto check = readRecording(file, kRobot);
-  if (std::fclose(file) != 0) { ready = false; check = Result::Io; }
+  if (!pros::usd::is_installed()) {
+    for (auto& slot : ui.slots) slot.store(Result::NoSd);
+    return Result::NoSd;
+  }
+  char base[32]; slotBase(base, menu.slot);
+  const auto check = loadSaved(base, kRobot);
+  ui.slots[menu.slot - 1].store(check); played = false;
   if (check == Result::Ok) menu.loadedSlot = menu.slot;
   return check;
 }
 Result saveSlot() {
   if (!ready) return result;
   if (!pros::usd::is_installed()) return Result::NoSd;
-  char temporary[32], destination[32]; path(temporary, true); path(destination, false);
-  FILE* file = std::fopen(temporary, "wb");
-  if (!file) return Result::Io;
-  auto check = writeRecording(file, kRobot);
-  if (std::fflush(file) != 0) check = Result::Io;
-  if (std::fclose(file) != 0) check = Result::Io;
-  if (check != Result::Ok) return check; // destination untouched
-  file = std::fopen(temporary, "rb");
-  if (!file) return Result::Io;
-  check = readRecording(file, kRobot); // reuse same buffer, never a full copy
-  if (std::fclose(file) != 0) { ready = false; check = Result::Io; }
-  if (check != Result::Ok) return check;
-  if (std::rename(temporary, destination) != 0) return Result::Io;
-  menu.loadedSlot = menu.slot;
-  return Result::Ok;
+  char base[32]; slotBase(base, menu.slot);
+  const auto check = saveSaved(base, kRobot);
+  if (check == Result::Ok) { menu.loadedSlot = menu.slot; ui.slots[menu.slot - 1].store(Result::Ok); }
+  return check;
 }
 void requestStorage(UiAction action) {
   // Transfer buffer ownership to the existing safety task. Unlike opcontrol /
@@ -683,6 +809,8 @@ void cancel() {
 static void executeRequested();
 void safetyPoll() { executeRequested(); }
 bool selected() { return shadowSelected.load(); }
+std::uint8_t selectedSlot() { return ui.slot.load(); }
+bool recordingActive() { return capturing; }
 void prepareNativeControl() {
   cancel();
   while (runState.load() != RunState::Idle) pros::delay(10);
@@ -724,6 +852,12 @@ bool controls() {
   if (!hardware.drive || runState.load() != RunState::Idle) return true;
   if (interrupted.load() && capturing) abortCapture(Result::Cancelled);
   const auto now = pros::millis();
+  if (menu.confirmation && !confirmationCurrent(now, menu.confirmationAt)) {
+    menu.confirmation = 0; armed.store(false); menu.message = "CONFIRMATION EXPIRED";
+  }
+  if (!capturing && ui.recording.load() && ready && recording.flags == kPrefix) {
+    menu.confirmation = 0; requestStorage(UiAction::Save); return true;
+  }
   const auto request = ui.action.exchange(0);
   const auto action = static_cast<UiAction>(request & 255);
   const auto actionEpoch = request >> 8;
@@ -732,7 +866,8 @@ bool controls() {
                         std::abs(hardware.controller->get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_X)) < 10 &&
                         std::abs(hardware.controller->get_analog(pros::E_CONTROLLER_ANALOG_RIGHT_Y)) < 10;
   if (action != UiAction::None) {
-    if (capturing && action != UiAction::Save && action != UiAction::Cancel && action != UiAction::Open) {
+    if ((capturing || (ready && menu.loadedSlot == 0)) &&
+        action != UiAction::Save && action != UiAction::Cancel && action != UiAction::Open) {
       // Slot changes/load/delete/arm cannot steal the recording buffer.
       menu.message = "STOP/SAVE FIRST";
     } else if (action >= UiAction::Slot1 && action <= UiAction::Slot3) {
@@ -742,7 +877,12 @@ bool controls() {
       requestStorage(UiAction::Load);
     } else switch (action) {
       case UiAction::Open:
-        if (!capturing) { safeStop(); menu.message = label(result); }
+        menu.confirmation = 0;
+        if (!capturing) {
+          safeStop();
+          if (!armed.load() && !(ready && menu.loadedSlot == 0)) requestStorage(UiAction::Refresh);
+          else menu.message = label(result);
+        }
         break;
       case UiAction::Record:
         armed.store(false);
@@ -751,11 +891,13 @@ bool controls() {
         else if (!centered) menu.message = "CENTER BOTH STICKS TO RECORD";
         else if (!hardware.drive->hasFreshPose()) menu.message = "ODOMETRY ERROR";
         else if (menu.confirmation != 1) {
-          menu.confirmation = 1; menu.message = "RESET/OVERWRITE? TAP RECORD AGAIN";
+          menu.confirmation = 1; menu.confirmationAt = now;
+          menu.message = "RESET/OVERWRITE? CONFIRM WITHIN 5s";
         } else {
           menu.confirmation = 0; menu.loadedSlot = 0; menu.direction = 0;
           baseline(); interrupted.store(false);
-          startCapture(robotPose(), now, kRobot);
+          played = false;
+          startCapture(robotPose(), pros::millis(), kRobot);
           std::fill_n(captureState.lastValue, static_cast<unsigned>(Kind::Count), static_cast<std::int8_t>(0));
           if (capturing) resumeWriters(); else safeStop();
           menu.message = label(result);
@@ -775,7 +917,9 @@ bool controls() {
         break;
       case UiAction::Delete:
         armed.store(false); safeStop();
-        if (menu.confirmation != 2) { menu.confirmation = 2; menu.message = "DELETE? TAP DELETE AGAIN"; }
+        if (menu.confirmation != 2) {
+          menu.confirmation = 2; menu.confirmationAt = now; menu.message = "DELETE? CONFIRM WITHIN 5s";
+        }
         else {
           menu.confirmation = 0; requestStorage(UiAction::Delete);
         }
@@ -786,7 +930,8 @@ bool controls() {
         else if (!centered || !hardware.drive->hasFreshPose() || pros::competition::is_autonomous())
           menu.message = "UNSAFE TO ARM";
         else if (menu.confirmation != 3) {
-          menu.confirmation = 3; menu.message = "PLACE AT SHOWN POSE; TAP ARM AGAIN";
+          menu.confirmation = 3; menu.confirmationAt = now;
+          menu.message = "VERIFY START POSE; CONFIRM WITHIN 5s";
         } else {
           menu.confirmation = 0; menu.nativeAtArm = aon::gui->selectedAuton.routine;
           menu.armEpoch = actionEpoch;
@@ -833,9 +978,27 @@ void openGui() {
 }
 static void drawButton(int x, int y, int width, const char* text, pros::Color color) {
   pros::screen::set_eraser(color);
-  pros::screen::erase_rect(x, y, x + width - 1, y + 32);
+  pros::screen::erase_rect(x, y, x + width - 1, y + 42);
   pros::screen::set_pen(pros::Color::white);
-  pros::screen::print(pros::E_TEXT_SMALL, x + 8, y + 9, "%s", text);
+  pros::screen::print(pros::E_TEXT_SMALL, x + 6, y + 15, "%s", text);
+}
+const char* slotState(Result value) {
+  return value == Result::Ok ? "READY" : value == Result::Empty ? "EMPTY" :
+         value == Result::NoSd ? "NO SD" : "INVALID";
+}
+const char* modeName(Mode value) {
+  switch (value) {
+    case Mode::Idle: return "IDLE";
+    case Mode::Recording: return "RECORDING";
+    case Mode::Processing: return "PROCESSING";
+    case Mode::Saved: return "SAVED / READY";
+    case Mode::Armed: return "ARMED";
+    case Mode::Playing: return "PLAYING";
+    case Mode::Finished: return "FINISHED";
+    case Mode::Cancelled: return "CANCELLED";
+    case Mode::Error: return "ERROR";
+  }
+  return "ERROR";
 }
 bool guiTick() {
   // Called only by the existing GUI task; touch press-count prevents held taps
@@ -843,10 +1006,14 @@ bool guiTick() {
   const auto touch = pros::screen::touch_status();
   if (newGuiTouch(touch.touch_status, touch.press_count, guiPress)) {
     guiPress = touch.press_count;
-    const auto action = touchAction(touch.x, touch.y);
+    auto action = touchAction(touch.x, touch.y);
     if (action == UiAction::Back) {
+      ui.confirmation.store(0);
       ui.open.store(false); return false; // navigation preserves explicit arm
     }
+    if (action == UiAction::Record) action = recordAction(ui.recording.load() || ui.unsaved.load());
+    if (action == UiAction::Arm && (armed.load() || runState.load() == RunState::Playing ||
+                                 runState.load() == RunState::Requested)) action = UiAction::Cancel;
     const auto epoch = action == UiAction::None ? ui.epoch.load() : ui.epoch.fetch_add(1) + 1;
     if (action != UiAction::None) armed.store(false);
     if (action == UiAction::Cancel) { interrupted.store(true); armed.store(false); }
@@ -856,44 +1023,56 @@ bool guiTick() {
       if (action != UiAction::None) ui.action.compare_exchange_strong(expected, request);
     }
   }
+  static std::uint32_t lastDraw = 0;
+  const auto now = pros::millis();
+  if (now - lastDraw < 100) return ui.open.load();
+  lastDraw = now;
   pros::screen::set_eraser(pros::Color::black); pros::screen::erase();
-  pros::screen::set_pen(pros::Color::white);
-  pros::screen::print(pros::E_TEXT_MEDIUM, 10, 10, "SHADOW AUTON");
-  drawButton(180, 5, 120, "NATIVE AUTON", pros::Color::dark_gray);
-  drawButton(385, 5, 90, "CANCEL", pros::Color::dark_red);
   for (unsigned slot = 1; slot <= 3; ++slot) {
-    char name[16]; std::snprintf(name, sizeof(name), "SHADOW %u", slot);
-    drawButton((slot - 1) * 160 + 5, 45, 150, name,
-               ui.slot.load() == slot ? pros::Color::blue : pros::Color::dark_gray);
+    const auto saved = ui.slots[slot - 1].load();
+    char name[24]; std::snprintf(name, sizeof(name), "SLOT %u %s", slot, slotState(saved));
+    drawButton((slot - 1) * 160 + 10, 10, 140, name,
+               ui.slot.load() == slot ? pros::Color::blue : saved == Result::Ok ? pros::Color::dark_green :
+               saved == Result::Empty || saved == Result::NoSd ? pros::Color::dark_gray : pros::Color::dark_red);
   }
   pros::screen::set_pen(pros::Color::white);
   const auto state = runState.load();
-  pros::screen::print(pros::E_TEXT_SMALL, 10, 84, "%s",
-      state == RunState::StorageRequested || state == RunState::Storing ? "SD BUSY - DRIVE LOCKED" :
-      state != RunState::Idle ? "PLAYING" : armed.load() ? "ARMED - START AUTONOMOUS" : ui.message.load());
+  const auto mode = state == RunState::StorageRequested || state == RunState::Storing ? Mode::Processing :
+                    state != RunState::Idle ? Mode::Playing : armed.load() ? Mode::Armed : ui.mode.load();
+  pros::screen::print(pros::E_TEXT_MEDIUM, 10, 65, "SHADOW %u: %s", ui.slot.load(), slotState(ui.slots[ui.slot.load() - 1].load()));
   if (ui.points.load()) {
-    pros::screen::print(pros::E_TEXT_SMALL, 10, 102, "START X %.1f  Y %.1f  H %.1f deg",
+    pros::screen::print(pros::E_TEXT_SMALL, 10, 90, "%.1fs / %u points / generation %lu",
+                        ui.duration.load() / 1000.0, ui.points.load(), static_cast<unsigned long>(ui.generation.load()));
+    pros::screen::print(pros::E_TEXT_SMALL, 10, 110, "START X %.1f  Y %.1f  H %.1f deg",
                         ui.x.load(), ui.y.load(), ui.heading.load());
-    pros::screen::print(pros::E_TEXT_SMALL, 10, 120, "%.1f seconds / %u points",
-                        ui.duration.load() / 1000.0, ui.points.load());
   }
+  pros::screen::print(pros::E_TEXT_SMALL, 10, 132, "STATUS: %s", modeName(mode));
+  pros::screen::print(pros::E_TEXT_SMALL, 10, 152, "%s",
+      mode == Mode::Armed ? "START AUTON; TAP ARMED TO CANCEL" :
+      mode == Mode::Processing ? "SD BUSY - DRIVE LOCKED" : ui.message.load());
   const auto confirmation = ui.confirmation.load();
-  drawButton(5, 140, 150, confirmation == 1 ? "CONFIRM RECORD" : "RECORD", pros::Color::dark_green);
-  drawButton(165, 140, 150, "STOP / SAVE", pros::Color::dark_gray);
-  drawButton(325, 140, 150, "LOAD", pros::Color::dark_gray);
-  drawButton(5, 185, 150, confirmation == 2 ? "CONFIRM DELETE" : "DELETE", pros::Color::dark_red);
-  drawButton(165, 185, 150, confirmation == 3 ? "CONFIRM POSE" : "ARM", pros::Color::dark_green);
-  drawButton(325, 185, 150, "BACK", pros::Color::dark_gray);
+  const bool busy = mode == Mode::Processing || mode == Mode::Playing;
+  drawButton(10, 190, 90, "BACK", pros::Color::dark_gray);
+  drawButton(110, 190, 140, mode == Mode::Processing ? "PROCESSING" : ui.recording.load() ? "STOP SAVE" :
+             ui.unsaved.load() ? "RETRY SAVE" : confirmation == 1 ? "OVERWRITE?" : "RECORD",
+             busy ? pros::Color::dark_gray : ui.recording.load() ? pros::Color::orange : pros::Color::dark_green);
+  drawButton(260, 190, 90, confirmation == 2 ? "DELETE?" : "DELETE",
+             busy || ui.recording.load() ? pros::Color::dark_gray : pros::Color::dark_red);
+  const bool playable = ui.points.load() && !ui.unsaved.load() && !ui.recording.load() &&
+                        (ui.recordChecks.load() & 4) && !busy;
+  drawButton(360, 190, 110, mode == Mode::Playing ? "CANCEL" : mode == Mode::Armed ? "ARMED" :
+             confirmation == 3 ? "CONFIRM PLAY" : playable ? "PLAY" : "PLAY LOCKED",
+             mode == Mode::Armed ? pros::Color::green : playable && !busy ? pros::Color::dark_green : pros::Color::dark_gray);
   pros::screen::set_pen(pros::Color::white);
   if (state == RunState::Requested || state == RunState::Playing) {
-    pros::screen::print(pros::E_TEXT_SMALL, 5, 226, "REPLAY: TAP CANCEL / CONTROLLER X");
+    pros::screen::print(pros::E_TEXT_SMALL, 10, 174, "REPLAY: TAP CANCEL / CONTROLLER X");
   } else if (state == RunState::StorageRequested || state == RunState::Storing) {
-    pros::screen::print(pros::E_TEXT_SMALL, 5, 226, "SD BUSY - DRIVE LOCKED");
+    pros::screen::print(pros::E_TEXT_SMALL, 10, 174, "SD BUSY - DRIVE LOCKED");
   } else if (pros::millis() - ui.controlTick.load() > 500) {
-    pros::screen::print(pros::E_TEXT_SMALL, 5, 226, "CONTROL LOOP INACTIVE - ENABLE DRIVER MODE");
+    pros::screen::print(pros::E_TEXT_SMALL, 10, 174, "CONTROL LOOP INACTIVE - ENABLE DRIVER MODE");
   } else {
     const auto checks = ui.recordChecks.load();
-    pros::screen::print(pros::E_TEXT_SMALL, 5, 226, "Driver %s | Sticks %s | Odom %s",
+    pros::screen::print(pros::E_TEXT_SMALL, 10, 174, "Driver %s | Sticks %s | Odom %s",
                         checks & 1 ? "ON" : "OFF", checks & 2 ? "CENTER" : "MOVED",
                         checks & 4 ? "READY" : "STALE");
   }
@@ -918,17 +1097,30 @@ static void executeRequested() {
     if (storageAction == UiAction::Save) result = saveSlot();
     else if (storageAction == UiAction::Load) result = loadSlot();
     else if (storageAction == UiAction::Delete) {
-      char name[32]; path(name, false);
-      result = !pros::usd::is_installed() ? Result::NoSd : (std::remove(name) == 0 ? Result::Ok : Result::Io);
-      if (result == Result::Ok) { ready = false; menu.loadedSlot = 0; }
+      char base[32]; slotBase(base, menu.slot);
+      result = !pros::usd::is_installed() ? Result::NoSd : eraseSaved(base);
+      ready = false; menu.loadedSlot = 0; // even a partial/failed erase invalidates cached playback
+      ui.slots[menu.slot - 1].store(result == Result::Ok ? Result::Empty : result);
+    } else if (storageAction == UiAction::Refresh) {
+      if (pros::usd::is_installed()) {
+        // Validate slots serially using the SAME buffer, then restore selection.
+        for (unsigned slot = 1; slot <= 3; ++slot) {
+          char base[32]; slotBase(base, slot);
+          ui.slots[slot - 1].store(loadSaved(base, kRobot));
+        }
+      }
+      result = loadSlot();
     }
-    menu.message = storageAction == UiAction::Delete && result == Result::Ok ? "DELETED" : label(result);
+    menu.message = storageAction == UiAction::Delete && result == Result::Ok ? "DELETED" :
+                   storageAction == UiAction::Save && result == Result::Ok && recording.flags == kPrefix ?
+                     "LIMIT REACHED - PREFIX SAVED" : label(result);
     safeStop(); publishUi();
     runState.store(RunState::Idle); // release ownership only after close/validation
     return;
   }
   auto expected = RunState::Requested;
   if (!runState.compare_exchange_strong(expected, RunState::Playing)) return;
+  played = false;
   // Borrow stack-local controllers for this synchronous run, not another route.
   MotionProfile linear(120, MAX_ACCEL, MAX_DECEL, MAX_ACCEL);
   MotionProfile lateral(100, MAX_ACCEL, MAX_DECEL, MAX_ACCEL);
@@ -939,6 +1131,7 @@ static void executeRequested() {
   const Playback callbacks{robotTime, health, robotPose, initializePose, driveTarget,
                            applyMechanism, safeStop, waitTick};
   result = runRoute(callbacks, kRobot);
+  played = true;
   interrupted.store(true);
   hardware.linear = hardware.lateral = hardware.angular = nullptr;
   hardware.follower = nullptr;
@@ -955,6 +1148,7 @@ static void executeRequested() {
 #include <cstdio>
 #include <limits>
 #include <cstdlib>
+#include <chrono>
 
 // Avoid the Windows assertion dialog so failures are noninteractive.
 #undef assert
@@ -967,6 +1161,60 @@ static void fixture() {
   assert(addEvent(Kind::Intake, 1, {0, 0, 0, 0, 0, 0}, 0, 0) == Result::Ok);
   assert(capture({1, 0, 0, 0, 1, 0}, 50, 1) == Result::Ok);
   assert(finishCapture({2, 0, 0, 0, 1, 0}, 100, 1) == Result::Ok);
+}
+static int failedCommit(const char*, const char*) { return -1; }
+static void generationTests() {
+  const char* directory = std::getenv("TEMP");
+  if (!directory) directory = "/tmp";
+  char base[160], name[192];
+  std::snprintf(base, sizeof(base), "%s/aon-shadow-host-%llu", directory,
+                static_cast<unsigned long long>(std::chrono::steady_clock::now().time_since_epoch().count()));
+  fixture();
+  assert(saveSaved(base, 1) == Result::Ok && recording.generation == 1);
+  fixture(); recording.points[recording.pointCount - 1].x = 3;
+  assert(saveSaved(base, 1) == Result::Ok && recording.generation == 2);
+  assert(loadSaved(base, 1) == Result::Ok && recording.generation == 2);
+  assert(recording.points[recording.pointCount - 1].x == 3);
+  assert(bankName(name, base, 'b'));
+  FILE* damaged = std::fopen(name, "r+b");
+  assert(damaged && std::fputc(0, damaged) != EOF && std::fclose(damaged) == 0);
+  assert(loadSaved(base, 1) == Result::Ok && recording.generation == 1);
+  assert(recording.points[recording.pointCount - 1].x == 2);
+  fixture(); recording.points[recording.pointCount - 1].x = 4;
+  assert(saveSaved(base, 1, failedCommit) == Result::Io);
+  // Failed save preserves both prior persisted generation AND unsaved RAM.
+  assert(recording.points[recording.pointCount - 1].x == 4 && recording.generation == 0);
+  assert(loadSaved(base, 1) == Result::Ok && recording.generation == 1);
+  assert(saveSaved(base, 1) == Result::Ok && recording.generation == 2);
+  assert(bankName(name, base, 'b'));
+  damaged = std::fopen(name, "wb");
+  assert(damaged && std::fputc('A', damaged) != EOF && std::fclose(damaged) == 0);
+  assert(loadSaved(base, 1) == Result::Ok && recording.generation == 1);
+  assert(loadSaved(base, 2) == Result::WrongRobot);
+  assert(eraseSaved(base) == Result::Ok);
+  assert(loadSaved(base, 1) == Result::Empty);
+  // Version-1 migration: strip the v2 generation field and regenerate checksum.
+  fixture(); FILE* modern = std::tmpfile();
+  assert(modern && writeRecording(modern, 1) == Result::Ok);
+  const auto bytes = std::ftell(modern);
+  std::rewind(modern); assert(bankName(name, base, 0));
+  FILE* legacy = std::fopen(name, "wb"); assert(legacy);
+  std::uint32_t hash = 2166136261U;
+  for (long i = 0; i < bytes - 4; ++i) {
+    int byte = std::fgetc(modern);
+    if (i >= 16 && i < 20) continue;
+    if (i == 4) byte = 1;
+    assert(std::fputc(byte, legacy) != EOF);
+    hash = (hash ^ static_cast<unsigned>(byte)) * 16777619U;
+  }
+  for (unsigned i = 0; i < 4; ++i) assert(std::fputc((hash >> (8 * i)) & 255, legacy) != EOF);
+  assert(std::fclose(legacy) == 0 && std::fclose(modern) == 0);
+  assert(loadSaved(base, 1) == Result::Ok && recording.generation == 0);
+  assert(saveSaved(base, 1) == Result::Ok && recording.generation == 1);
+  recording.generation = UINT32_MAX;
+  assert(saveSaved(base, 1) == Result::Version);
+  assert(loadSaved(base, 1) == Result::Ok && recording.generation == 1);
+  assert(eraseSaved(base) == Result::Ok);
 }
 static void badFile(long offset, unsigned byte, Result expected, bool repairChecksum = false) {
   fixture();
@@ -1039,6 +1287,7 @@ std::uint32_t FakePlayback::eventTimes[kMaxEvents];
 std::int8_t FakePlayback::eventValues[kMaxEvents];
 
 int main() {
+  generationTests();
   // A short RECORD tap may have been released before the 100 ms GUI poll.
   assert(newGuiTouch(0, 2, 1));
   assert(!newGuiTouch(0, 2, 2)); // a release is consumed only once
@@ -1050,18 +1299,18 @@ int main() {
   assert(armCurrent(7, 7, 0));
   assert(!armCurrent(7, 8, 0));
   assert(!armCurrent(7, 7, 1));
-  assert(touchAction(10, 55) == UiAction::Slot1);
-  assert(touchAction(170, 55) == UiAction::Slot2);
-  assert(touchAction(330, 55) == UiAction::Slot3);
-  assert(touchAction(30, 155) == UiAction::Record);
-  assert(touchAction(180, 155) == UiAction::Save);
-  assert(touchAction(350, 155) == UiAction::Load);
-  assert(touchAction(30, 200) == UiAction::Delete);
-  assert(touchAction(180, 200) == UiAction::Arm);
-  assert(touchAction(350, 200) == UiAction::Back);
-  assert(touchAction(440, 20) == UiAction::Cancel);
-  assert(touchAction(200, 20) == UiAction::Native);
-  assert(touchAction(-1, 155) == UiAction::None);
+  assert(touchAction(10, 25) == UiAction::Slot1);
+  assert(touchAction(170, 25) == UiAction::Slot2);
+  assert(touchAction(330, 25) == UiAction::Slot3);
+  assert(touchAction(150, 210) == UiAction::Record);
+  assert(recordAction(true) == UiAction::Save);
+  assert(recordAction(false) == UiAction::Record);
+  assert(touchAction(280, 210) == UiAction::Delete);
+  assert(touchAction(380, 210) == UiAction::Arm);
+  assert(touchAction(30, 210) == UiAction::Back);
+  assert(confirmationCurrent(6000, 1000));
+  assert(!confirmationCurrent(6001, 1000));
+  assert(touchAction(-1, 210) == UiAction::None);
   assert(touchAction(160, 100) == UiAction::None);
   static_assert(sizeof(ShadowPoint) == 16);
   static_assert(sizeof(ShadowEvent) == 6);
@@ -1109,7 +1358,7 @@ int main() {
   FILE* file = std::tmpfile();
   assert(file);
   assert(writeRecording(file, 1) == Result::Ok);
-  assert(std::ftell(file) == 16 + 16 + 2 * 6 + 4);
+  assert(std::ftell(file) == 20 + 16 + 2 * 6 + 4);
   std::rewind(file);
   assert(readRecording(file, 1) == Result::Ok);
   assert(recording.eventCount == 2 && recording.points[0].dwellMs == 1500);
@@ -1165,8 +1414,9 @@ int main() {
   badFile(10, 65, Result::Corrupt); // event count
   badFile(7, 1, Result::Corrupt); // reserved byte
   badFile(-1, 99, Result::Corrupt); // checksum
-  badFile(35, 0x7f, Result::Corrupt, true); // infinity X with valid checksum
-  badFile(31, 99, Result::Corrupt, true); // invalid point flags
+  badFile(16, 99, Result::Corrupt); // generation is checksummed too
+  badFile(39, 0x7f, Result::Corrupt, true); // infinity X with valid checksum
+  badFile(35, 99, Result::Corrupt, true); // invalid point flags
   fixture();
   FILE* source = std::tmpfile();
   assert(source && writeRecording(source, 1) == Result::Ok);
@@ -1198,7 +1448,7 @@ int main() {
     recording.events[i] = {0, 0, Kind::Intake, static_cast<std::int8_t>(i % 2)};
   source = std::tmpfile();
   assert(source && writeRecording(source, 1) == Result::Ok);
-  assert(std::ftell(source) == 10004);
+  assert(std::ftell(source) == 10008);
   assert(std::fclose(source) == 0);
   source = std::fopen(__FILE__, "rb");
   assert(source && writeRecording(source, 1) == Result::Io);

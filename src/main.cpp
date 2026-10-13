@@ -54,16 +54,24 @@ void autonomous() {
 void opcontrol() {
   aon::Configure();
   aon::shadow::enterDriverControl();
+  #if TESTING_AUTONOMOUS
+  std::uint32_t lastTestingConfigure = pros::millis() - 5000;
+  #endif
   while (true) {
+    const bool shadowOwnsDrive = aon::shadow::controls();
     #if TESTING_AUTONOMOUS
-    aon::Configure(false); // Set drivetrain to hold for auton testing
+    if (aon::shadow::recordingActive()) {
+      if (!shadowOwnsDrive) aon::operator_control::Run(driver);
+    } else if (!shadowOwnsDrive && pros::millis() - lastTestingConfigure >= 5000) {
+      aon::Configure(false); // Preserve testing cadence without blocking Shadow GUI requests.
+      lastTestingConfigure = pros::millis();
+    }
 
     // TODO: add presetFunction
     // aon::autonomousReader->ExecuteFunction("autonomous");
 
-    pros::delay(5000);
     #else
-    if (!aon::shadow::controls()) aon::operator_control::Run(driver);
+    if (!shadowOwnsDrive) aon::operator_control::Run(driver);
     #endif
     pros::delay(10);
   }

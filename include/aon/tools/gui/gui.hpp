@@ -53,6 +53,7 @@ enum GuiScreen {
   DATA,
   LiveGraph,
   FieldMapper,
+  ShadowMenu,
 };
 
 // Auton selection system
@@ -117,6 +118,8 @@ public:
   virtual void displayRedAutonMenu();
   virtual void displayBlueAutonMenu();
   virtual void displaySkillsMenu();
+  virtual void displayShadowMenu();
+  void updateShadowMenu();
 
   // Touch handler methods
   virtual void handleMainMenuTouch(const pros::screen_touch_status_s_t& touchStatus);
