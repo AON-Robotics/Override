@@ -30,6 +30,11 @@ static CaptureState captureState;
 enum class UiAction : std::uint8_t {
   None, Slot1, Slot2, Slot3, Record, Save, Load, Delete, Arm, Back, Cancel, Native, Open
 };
+bool newGuiTouch(int status, std::int32_t pressCount, std::int32_t consumed) {
+  // PROS preserves the last coordinates/counters after release. Fast taps can
+  // finish between GUI polls; use the counter, not whether a finger is held.
+  return status >= 0 && status <= 2 && pressCount > 0 && pressCount != consumed;
+}
 UiAction touchAction(int x, int y) {
   if (x < 0 || x >= 480 || y < 0 || y >= 240) return UiAction::None;
   if (y >= 45 && y < 78) return static_cast<UiAction>(1 + x / 160);
@@ -432,6 +437,8 @@ struct UiState {
   // Low byte = action; upper 24 bits = its generation. Bind confirmation to
   // that generation, so an older ARM cannot undo a newer GUI disarm.
   std::atomic<std::uint32_t> action{0}, epoch{0};
+  std::atomic<std::uint32_t> controlTick{0};
+  std::atomic<std::uint8_t> recordChecks{0}; // driver enabled / sticks centered / fresh pose
   std::atomic<bool> open{false}, recording{false};
   std::atomic<std::uint8_t> slot{1}, confirmation{0};
   std::atomic<std::uint16_t> duration{0}, points{0};
@@ -713,6 +720,7 @@ void toggleEvent(Kind kind) {
   event(kind, last == 1 ? 0 : 1);
 }
 bool controls() {
+  ui.controlTick.store(pros::millis());
   if (!hardware.drive || runState.load() != RunState::Idle) return true;
   if (interrupted.load() && capturing) abortCapture(Result::Cancelled);
   const auto now = pros::millis();
@@ -738,8 +746,9 @@ bool controls() {
         break;
       case UiAction::Record:
         armed.store(false);
-        if (pros::competition::is_disabled() || pros::competition::is_autonomous() || !centered)
-          menu.message = "RECORD IN DRIVER / CENTER STICKS";
+        if (pros::competition::is_disabled()) menu.message = "ENABLE DRIVER MODE TO RECORD";
+        else if (pros::competition::is_autonomous()) menu.message = "SWITCH TO DRIVER MODE TO RECORD";
+        else if (!centered) menu.message = "CENTER BOTH STICKS TO RECORD";
         else if (!hardware.drive->hasFreshPose()) menu.message = "ODOMETRY ERROR";
         else if (menu.confirmation != 1) {
           menu.confirmation = 1; menu.message = "RESET/OVERWRITE? TAP RECORD AGAIN";
@@ -804,6 +813,8 @@ bool controls() {
     menu.message = label(result);
   }
   if (action != UiAction::None || now - menu.displayedAt >= 200) {
+    ui.recordChecks.store((!pros::competition::is_disabled() && !pros::competition::is_autonomous() ? 1 : 0) |
+                          (centered ? 2 : 0) | (hardware.drive->hasFreshPose() ? 4 : 0));
     publishUi(); menu.displayedAt = now;
   }
   // The GUI is passive while capturing; an arm locks ordinary driving too.
@@ -830,8 +841,7 @@ bool guiTick() {
   // Called only by the existing GUI task; touch press-count prevents held taps
   // from confirming overwrite/delete/arming without a second physical tap.
   const auto touch = pros::screen::touch_status();
-  if ((touch.touch_status == pros::E_TOUCH_PRESSED || touch.touch_status == pros::E_TOUCH_HELD) &&
-      touch.press_count != guiPress) {
+  if (newGuiTouch(touch.touch_status, touch.press_count, guiPress)) {
     guiPress = touch.press_count;
     const auto action = touchAction(touch.x, touch.y);
     if (action == UiAction::Back) {
@@ -874,6 +884,19 @@ bool guiTick() {
   drawButton(5, 185, 150, confirmation == 2 ? "CONFIRM DELETE" : "DELETE", pros::Color::dark_red);
   drawButton(165, 185, 150, confirmation == 3 ? "CONFIRM POSE" : "ARM", pros::Color::dark_green);
   drawButton(325, 185, 150, "BACK", pros::Color::dark_gray);
+  pros::screen::set_pen(pros::Color::white);
+  if (state == RunState::Requested || state == RunState::Playing) {
+    pros::screen::print(pros::E_TEXT_SMALL, 5, 226, "REPLAY: TAP CANCEL / CONTROLLER X");
+  } else if (state == RunState::StorageRequested || state == RunState::Storing) {
+    pros::screen::print(pros::E_TEXT_SMALL, 5, 226, "SD BUSY - DRIVE LOCKED");
+  } else if (pros::millis() - ui.controlTick.load() > 500) {
+    pros::screen::print(pros::E_TEXT_SMALL, 5, 226, "CONTROL LOOP INACTIVE - ENABLE DRIVER MODE");
+  } else {
+    const auto checks = ui.recordChecks.load();
+    pros::screen::print(pros::E_TEXT_SMALL, 5, 226, "Driver %s | Sticks %s | Odom %s",
+                        checks & 1 ? "ON" : "OFF", checks & 2 ? "CENTER" : "MOVED",
+                        checks & 4 ? "READY" : "STALE");
+  }
   return ui.open.load();
 }
 int runSelected() {
@@ -1016,6 +1039,13 @@ std::uint32_t FakePlayback::eventTimes[kMaxEvents];
 std::int8_t FakePlayback::eventValues[kMaxEvents];
 
 int main() {
+  // A short RECORD tap may have been released before the 100 ms GUI poll.
+  assert(newGuiTouch(0, 2, 1));
+  assert(!newGuiTouch(0, 2, 2)); // a release is consumed only once
+  assert(!newGuiTouch(3, 3, 2)); // screen read error must not act as a touch
+  assert(newGuiTouch(1, 3, 2));
+  assert(!newGuiTouch(2, 3, 3)); // holding cannot confirm a second action
+  assert(!newGuiTouch(0, 0, -1)); // startup state is not a tap
   // A newer tap must invalidate an older ARM even after its request is consumed.
   assert(armCurrent(7, 7, 0));
   assert(!armCurrent(7, 8, 0));
