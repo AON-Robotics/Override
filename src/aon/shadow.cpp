@@ -53,6 +53,53 @@ UiAction touchAction(int x, int y) {
 }
 UiAction recordAction(bool active) { return active ? UiAction::Save : UiAction::Record; }
 bool confirmationCurrent(std::uint32_t now, std::uint32_t started) { return now - started <= 5000; }
+struct PaintCell {
+  char text[64]{};
+  std::uint32_t color = 0;
+  bool valid = false;
+  bool update(const char* value, std::uint32_t nextColor) {
+    if (valid && color == nextColor && std::strcmp(text, value) == 0) return false;
+    std::snprintf(text, sizeof(text), "%s", value);
+    color = nextColor; valid = true;
+    return true;
+  }
+};
+enum class ListingPresence { Absent, Present, Ambiguous };
+ListingPresence listingPresence(const char* listing, std::size_t capacity, const char* path,
+                                std::size_t margin = 512) {
+  const auto* end = static_cast<const char*>(std::memchr(listing, 0, capacity));
+  if (!end || static_cast<std::size_t>(end - listing) + 1 + margin >= capacity ||
+      std::strncmp(path, "/usd/", 5) != 0 || !path[5] || std::strchr(path + 5, '/'))
+    return ListingPresence::Ambiguous;
+  const auto length = std::strlen(path + 5);
+  for (const char* entry = listing; *entry;) {
+    const char* stop = entry;
+    while (*stop && *stop != '\n' && *stop != '\r') ++stop;
+    if (static_cast<std::size_t>(stop - entry) == length && std::strncmp(entry, path + 5, length) == 0)
+      return ListingPresence::Present;
+    while (*stop == '\n' || *stop == '\r') ++stop;
+    entry = stop;
+  }
+  return ListingPresence::Absent;
+}
+Result missingOpenResult(int error, bool listed, ListingPresence presence) {
+  return (error == ENOENT || error == ENFILE) && listed && presence == ListingPresence::Absent ?
+         Result::Empty : Result::Io;
+}
+Result classifyOpenFailure(const char* name, int error) {
+#ifdef AON_SHADOW_HOST_TEST
+  (void)name;
+  return error == ENOENT ? Result::Empty : Result::Io;
+#else
+  if (error != ENFILE && error != ENOENT) return Result::Io;
+  // PROS 4.2.2 can report ENFILE for a normal missing-file open. Directory
+  // listing preserves errors; only a complete successful absence check is EMPTY.
+  // Bounded worker-task stack use; no listing or allocation in the driver poll.
+  char listing[2048]{};
+  const bool listed = pros::usd::list_files("/", listing, sizeof(listing)) != PROS_ERR;
+  return missingOpenResult(error, listed, listingPresence(listing, sizeof(listing), name));
+#endif
+}
 constexpr std::uint32_t kUiEpochMask = 0x00ffffffU;
 bool armCurrent(std::uint32_t authorized, std::uint32_t latest, std::uint32_t pending) {
   return authorized == (latest & kUiEpochMask) && pending == 0;
@@ -248,13 +295,14 @@ struct Stream {
   bool writing;
   bool ok = true;
   std::uint32_t hash = 2166136261U;
+  int (*put)(int, FILE*) = std::fputc;
   std::uint32_t integer(std::uint32_t value, unsigned bytes, bool checksum = true) {
     std::uint32_t decoded = 0;
     for (unsigned i = 0; i < bytes; ++i) {
       int byte;
       if (writing) {
         byte = static_cast<int>((value >> (8 * i)) & 255);
-        if (std::fputc(byte, file) == EOF) ok = false;
+        if (put(byte, file) == EOF) ok = false;
       } else {
         byte = std::fgetc(file);
         if (byte == EOF) { ok = false; byte = 0; }
@@ -275,8 +323,10 @@ struct Stream {
 struct Summary {
   std::uint32_t generation = 0;
 };
-Result transfer(FILE* file, std::uint8_t robot, bool writing, bool install = true, Summary* summary = nullptr) {
+Result transfer(FILE* file, std::uint8_t robot, bool writing, bool install = true, Summary* summary = nullptr,
+                int (*put)(int, FILE*) = std::fputc) {
   Stream io{file, writing};
+  io.put = put;
   const auto magic = io.integer(0x534e4f41U, 4);
   const auto version = io.integer(kVersion, 1);
   const auto identity = io.integer(robot, 1);
@@ -351,9 +401,9 @@ Result transfer(FILE* file, std::uint8_t robot, bool writing, bool install = tru
   if (summary) summary->generation = generation;
   return meaningful ? Result::Ok : Result::Empty;
 }
-Result writeRecording(FILE* file, std::uint8_t robot) {
+Result writeRecording(FILE* file, std::uint8_t robot, int (*put)(int, FILE*) = std::fputc) {
   const auto check = validate(robot);
-  return check == Result::Ok ? transfer(file, robot, true) : check;
+  return check == Result::Ok ? transfer(file, robot, true, true, nullptr, put) : check;
 }
 Result readRecording(FILE* file, std::uint8_t robot) {
   ready = false; capturing = false;
@@ -371,7 +421,7 @@ bool bankName(char (&name)[192], const char* base, char bank) {
 }
 Result readFile(const char* name, std::uint8_t robot, bool install, Summary* summary = nullptr) {
   FILE* file = std::fopen(name, "rb");
-  if (!file) return errno == ENOENT ? Result::Empty : Result::Io;
+  if (!file) return classifyOpenFailure(name, errno);
   auto check = install ? readRecording(file, robot) : transfer(file, robot, false, false, summary);
   if (std::fclose(file) != 0) check = Result::Io;
   if (install && check != Result::Ok) { ready = false; recording.pointCount = recording.eventCount = 0; }
@@ -396,10 +446,10 @@ Result loadSaved(const char* base, std::uint8_t robot) {
   return ra != Result::Empty ? ra : rb;
 }
 Result saveSaved(const char* base, std::uint8_t robot,
-                 int (*commit)(const char*, const char*) = std::rename) {
+                 int (*put)(int, FILE*) = std::fputc) {
   const auto valid = validate(robot);
   if (valid != Result::Ok) return valid;
-  char name[192], temporary[192]; Summary a, b, legacy;
+  char name[192]; Summary a, b, legacy;
   if (!bankName(name, base, 'a')) return Result::Io;
   const auto ra = readFile(name, robot, false, &a);
   if (!bankName(name, base, 'b')) return Result::Io;
@@ -411,24 +461,25 @@ Result saveSaved(const char* base, std::uint8_t robot,
   const auto latest = std::max({recording.generation, ra == Result::Ok ? a.generation : 0U,
                               rb == Result::Ok ? b.generation : 0U, rl == Result::Ok ? legacy.generation : 0U});
   if (latest == UINT32_MAX) return Result::Version; // never wrap generation ordering
-  if (!bankName(name, base, bank) || !bankName(temporary, base, 't')) return Result::Io;
+  if (!bankName(name, base, bank)) return Result::Io;
   const auto previous = recording.generation;
   recording.generation = latest + 1;
-  FILE* file = std::fopen(temporary, "wb");
+  // PROS newlib rename() relies on an unsupported _link syscall. Write only
+  // the inactive bank directly, like the reference; CRC rejects interrupted writes.
+  FILE* file = std::fopen(name, "wb");
   if (!file) { recording.generation = previous; return Result::Io; }
-  auto check = writeRecording(file, robot);
+  auto check = writeRecording(file, robot, put);
   if (std::fflush(file) != 0) check = Result::Io;
   if (std::fclose(file) != 0) check = Result::Io;
   Summary verified;
-  if (check == Result::Ok) check = readFile(temporary, robot, false, &verified);
+  if (check == Result::Ok) check = readFile(name, robot, false, &verified);
   if (check == Result::Ok && verified.generation != latest + 1) check = Result::Corrupt;
-  // Only the older/inactive bank is replaced. The newest valid generation
-  // survives a failed write/readback/rename; probes never overwrite RAM.
-  // V5 FAT and Windows rename may refuse replacement. Unlink only the inactive
-  // bank AFTER readback; the other valid generation remains recoverable.
-  if (check == Result::Ok && std::remove(name) != 0 && errno != ENOENT) check = Result::Io;
-  if (check == Result::Ok && commit(temporary, name) != 0) check = Result::Io;
-  if (check != Result::Ok) recording.generation = previous;
+  if (check != Result::Ok) {
+    // Best-effort cleanup of this failed INACTIVE bank only. If removal also
+    // fails, loader validation still excludes partial data; the active bank stays.
+    std::remove(name);
+    recording.generation = previous;
+  }
   return check;
 }
 Result eraseSaved(const char* base) {
@@ -437,7 +488,7 @@ Result eraseSaved(const char* base) {
     char name[192];
     if (!bankName(name, base, bank)) return Result::Io;
     if (std::remove(name) == 0) removed = true;
-    else if (errno != ENOENT) return Result::Io;
+    else if (classifyOpenFailure(name, errno) != Result::Empty) return Result::Io;
   }
   return removed ? Result::Ok : Result::Empty;
 }
@@ -578,6 +629,8 @@ struct UiState {
 };
 static UiState ui;
 static std::int32_t guiPress = -1; // GUI-task-only touch debounce
+static PaintCell paint[13]; // GUI-task-only; unchanged widgets stay on-screen
+static bool clearGuiScreen = true;
 void publishUi() {
   ui.slot.store(menu.slot); ui.confirmation.store(menu.confirmation);
   ui.duration.store(recording.durationMs);
@@ -970,6 +1023,7 @@ bool controls() {
 
 void selectNative() { ui.epoch.fetch_add(1); armed.store(false); shadowSelected.store(false); }
 void openGui() {
+  clearGuiScreen = true;
   guiPress = pros::screen::touch_status().press_count; // consume navigation tap
   ui.open.store(true);
   std::uint32_t expected = 0;
@@ -977,10 +1031,23 @@ void openGui() {
   ui.action.compare_exchange_strong(expected, request);
 }
 static void drawButton(int x, int y, int width, const char* text, pros::Color color) {
+  const unsigned id = y == 10 ? static_cast<unsigned>(x / 160) :
+                      x == 10 ? 9 : x == 110 ? 10 : x == 260 ? 11 : 12;
+  if (!paint[id].update(text, static_cast<std::uint32_t>(color))) return;
   pros::screen::set_eraser(color);
   pros::screen::erase_rect(x, y, x + width - 1, y + 42);
   pros::screen::set_pen(pros::Color::white);
   pros::screen::print(pros::E_TEXT_SMALL, x + 6, y + 15, "%s", text);
+}
+template <typename... Args>
+void drawText(unsigned id, pros::text_format_e_t format, int y, const char* text, Args... args) {
+  char value[64];
+  std::snprintf(value, sizeof(value), text, args...);
+  if (!paint[id].update(value, static_cast<std::uint32_t>(pros::Color::white))) return;
+  pros::screen::set_eraser(pros::Color::black);
+  pros::screen::erase_rect(10, y, 479, y + (format == pros::E_TEXT_MEDIUM ? 18 : 13));
+  pros::screen::set_pen(pros::Color::white);
+  pros::screen::print(format, 10, y, "%s", value);
 }
 const char* slotState(Result value) {
   return value == Result::Ok ? "READY" : value == Result::Empty ? "EMPTY" :
@@ -1027,7 +1094,11 @@ bool guiTick() {
   const auto now = pros::millis();
   if (now - lastDraw < 100) return ui.open.load();
   lastDraw = now;
-  pros::screen::set_eraser(pros::Color::black); pros::screen::erase();
+  if (clearGuiScreen) {
+    pros::screen::set_eraser(pros::Color::black); pros::screen::erase();
+    for (auto& cell : paint) cell.valid = false;
+    clearGuiScreen = false;
+  }
   for (unsigned slot = 1; slot <= 3; ++slot) {
     const auto saved = ui.slots[slot - 1].load();
     char name[24]; std::snprintf(name, sizeof(name), "SLOT %u %s", slot, slotState(saved));
@@ -1039,15 +1110,18 @@ bool guiTick() {
   const auto state = runState.load();
   const auto mode = state == RunState::StorageRequested || state == RunState::Storing ? Mode::Processing :
                     state != RunState::Idle ? Mode::Playing : armed.load() ? Mode::Armed : ui.mode.load();
-  pros::screen::print(pros::E_TEXT_MEDIUM, 10, 65, "SHADOW %u: %s", ui.slot.load(), slotState(ui.slots[ui.slot.load() - 1].load()));
+  drawText(3, pros::E_TEXT_MEDIUM, 65, "SHADOW %u: %s", ui.slot.load(), slotState(ui.slots[ui.slot.load() - 1].load()));
   if (ui.points.load()) {
-    pros::screen::print(pros::E_TEXT_SMALL, 10, 90, "%.1fs / %u points / generation %lu",
+    drawText(4, pros::E_TEXT_SMALL, 90, "%.1fs / %u points / generation %lu",
                         ui.duration.load() / 1000.0, ui.points.load(), static_cast<unsigned long>(ui.generation.load()));
-    pros::screen::print(pros::E_TEXT_SMALL, 10, 110, "START X %.1f  Y %.1f  H %.1f deg",
+    drawText(5, pros::E_TEXT_SMALL, 110, "START X %.1f  Y %.1f  H %.1f deg",
                         ui.x.load(), ui.y.load(), ui.heading.load());
+  } else {
+    drawText(4, pros::E_TEXT_SMALL, 90, "%s", "");
+    drawText(5, pros::E_TEXT_SMALL, 110, "%s", "");
   }
-  pros::screen::print(pros::E_TEXT_SMALL, 10, 132, "STATUS: %s", modeName(mode));
-  pros::screen::print(pros::E_TEXT_SMALL, 10, 152, "%s",
+  drawText(6, pros::E_TEXT_SMALL, 132, "STATUS: %s", modeName(mode));
+  drawText(7, pros::E_TEXT_SMALL, 152, "%s",
       mode == Mode::Armed ? "START AUTON; TAP ARMED TO CANCEL" :
       mode == Mode::Processing ? "SD BUSY - DRIVE LOCKED" : ui.message.load());
   const auto confirmation = ui.confirmation.load();
@@ -1065,14 +1139,14 @@ bool guiTick() {
              mode == Mode::Armed ? pros::Color::green : playable && !busy ? pros::Color::dark_green : pros::Color::dark_gray);
   pros::screen::set_pen(pros::Color::white);
   if (state == RunState::Requested || state == RunState::Playing) {
-    pros::screen::print(pros::E_TEXT_SMALL, 10, 174, "REPLAY: TAP CANCEL / CONTROLLER X");
+    drawText(8, pros::E_TEXT_SMALL, 174, "%s", "REPLAY: TAP CANCEL / CONTROLLER X");
   } else if (state == RunState::StorageRequested || state == RunState::Storing) {
-    pros::screen::print(pros::E_TEXT_SMALL, 10, 174, "SD BUSY - DRIVE LOCKED");
+    drawText(8, pros::E_TEXT_SMALL, 174, "%s", "SD BUSY - DRIVE LOCKED");
   } else if (pros::millis() - ui.controlTick.load() > 500) {
-    pros::screen::print(pros::E_TEXT_SMALL, 10, 174, "CONTROL LOOP INACTIVE - ENABLE DRIVER MODE");
+    drawText(8, pros::E_TEXT_SMALL, 174, "%s", "CONTROL LOOP INACTIVE - ENABLE DRIVER MODE");
   } else {
     const auto checks = ui.recordChecks.load();
-    pros::screen::print(pros::E_TEXT_SMALL, 10, 174, "Driver %s | Sticks %s | Odom %s",
+    drawText(8, pros::E_TEXT_SMALL, 174, "Driver %s | Sticks %s | Odom %s",
                         checks & 1 ? "ON" : "OFF", checks & 2 ? "CENTER" : "MOVED",
                         checks & 4 ? "READY" : "STALE");
   }
@@ -1162,7 +1236,10 @@ static void fixture() {
   assert(capture({1, 0, 0, 0, 1, 0}, 50, 1) == Result::Ok);
   assert(finishCapture({2, 0, 0, 0, 1, 0}, 100, 1) == Result::Ok);
 }
-static int failedCommit(const char*, const char*) { return -1; }
+static unsigned writeBudget = 0;
+static int failedWrite(int byte, FILE* file) {
+  return writeBudget++ < 24 ? std::fputc(byte, file) : EOF;
+}
 static void generationTests() {
   const char* directory = std::getenv("TEMP");
   if (!directory) directory = "/tmp";
@@ -1181,7 +1258,8 @@ static void generationTests() {
   assert(loadSaved(base, 1) == Result::Ok && recording.generation == 1);
   assert(recording.points[recording.pointCount - 1].x == 2);
   fixture(); recording.points[recording.pointCount - 1].x = 4;
-  assert(saveSaved(base, 1, failedCommit) == Result::Io);
+  writeBudget = 0;
+  assert(saveSaved(base, 1, failedWrite) == Result::Io);
   // Failed save preserves both prior persisted generation AND unsaved RAM.
   assert(recording.points[recording.pointCount - 1].x == 4 && recording.generation == 0);
   assert(loadSaved(base, 1) == Result::Ok && recording.generation == 1);
@@ -1287,6 +1365,20 @@ std::uint32_t FakePlayback::eventTimes[kMaxEvents];
 std::int8_t FakePlayback::eventValues[kMaxEvents];
 
 int main() {
+  const char directory[256] = "aon-shadow-1-a.bin\r\naon-shadow-2-b.bin\n";
+  assert(missingOpenResult(ENFILE, true, listingPresence(directory, sizeof(directory), "/usd/aon-shadow-3-a.bin", 0)) == Result::Empty);
+  assert(missingOpenResult(ENFILE, true, listingPresence(directory, sizeof(directory), "/usd/aon-shadow-1-a.bin", 0)) == Result::Io);
+  assert(missingOpenResult(ENFILE, false, ListingPresence::Absent) == Result::Io);
+  assert(missingOpenResult(EACCES, true, ListingPresence::Absent) == Result::Io);
+  const char incomplete[] = {'a', 'b', 'c'};
+  assert(listingPresence(incomplete, sizeof(incomplete), "/usd/missing.bin", 0) == ListingPresence::Ambiguous);
+  PaintCell widget;
+  assert(widget.update("RECORD", 1));
+  assert(!widget.update("RECORD", 1)); // idle GUI must not clear/redraw unchanged widgets
+  assert(widget.update("STOP SAVE", 1));
+  assert(widget.update("STOP SAVE", 2));
+  widget.valid = false;
+  assert(widget.update("STOP SAVE", 2)); // reentering the screen repaints once
   generationTests();
   // A short RECORD tap may have been released before the 100 ms GUI poll.
   assert(newGuiTouch(0, 2, 1));

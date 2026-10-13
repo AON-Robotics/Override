@@ -59,8 +59,9 @@
  * pointCount u16, eventCount u16, durationMs u16, reserved u16, generation u32.
  * Then 16 bytes/point, 6 bytes/event, and 4-byte FNV-1a checksum of all preceding
  * bytes. Max file = 20 + 600*16 + 64*6 + 4 = 10,008 bytes per generation.
- * A temporary file is flushed/closed/validated without overwriting RAM, then
- * replaces ONLY the older/inactive bank. Load selects the newest VALID bank.
+ * Save writes ONLY the older/inactive bank, flushes/closes and validates it
+ * without overwriting RAM. No rename syscall is required. Load selects the
+ * newest VALID bank; interrupted/failed writes retain the other valid bank.
  * Old version-1 single-file /usd/aon-shadow-N.bin recordings remain readable.
  * No continuous SD writes. Verify power-loss recovery on the actual V5/FAT.
  *
