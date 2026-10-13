@@ -2,6 +2,7 @@
 #include "../../../../include/aon/tools/gui/gui-debug.hpp"
 #include "../../../../include/aon/constants.hpp"
 #include "../../../../include/aon/tools/gui/ui/gui-layout.hpp"
+#include "../../../../include/aon/shadow.hpp"
 
 namespace aon {
 
@@ -118,6 +119,7 @@ void Gui::applyPreselectedAuton() {
 }
 
 void Gui::selectAutonByList(Alliance alliance, int index1Based) {
+  shadow::selectNative();
   if (index1Based < 1) index1Based = 1;
   if (index1Based > 3) index1Based = 3;
 
@@ -161,6 +163,11 @@ void Gui::selectAutonByList(Alliance alliance, int index1Based) {
 
 void Gui::handleMainMenuTouch(
     const pros::screen_touch_status_s_t& touchStatus) {
+  if (touchStatus.y >= BRAIN_SCREEN_HEIGHT - 50 && touchStatus.x >= 245) {
+    displayShadowMenu();
+    currentScreen = ShadowMenu;
+    return;
+  }
   // Check if AUTONS button is pressed
   if (AutonsBtn.isHit(touchStatus.x, touchStatus.y)) {
     if (currentScreen != AutonMenu) {
@@ -174,7 +181,7 @@ void Gui::handleAutonMenuTouch() {
   if (currentScreen != AutonMenu) return;
 
   pros::screen_touch_status_s_t touch = pros::screen::touch_status();
-  if (touch.touch_status <= 0) return;
+  if (touch.touch_status == pros::E_TOUCH_ERROR || touch.press_count <= 0) return;
 
   int x = touch.x, y = touch.y;
 
@@ -195,7 +202,7 @@ void Gui::handleAutonMenuTouch() {
 
 void Gui::handleRedAutonMenuTouch() {
   pros::screen_touch_status_s_t touch = pros::screen::touch_status();
-  if (touch.touch_status <= 0) return;
+  if (touch.touch_status == pros::E_TOUCH_ERROR || touch.press_count <= 0) return;
 
   int x = touch.x, y = touch.y;
 
@@ -223,7 +230,7 @@ void Gui::handleRedAutonMenuTouch() {
 
 void Gui::handleBlueAutonMenuTouch() {
   pros::screen_touch_status_s_t touch = pros::screen::touch_status();
-  if (touch.touch_status <= 0) return;
+  if (touch.touch_status == pros::E_TOUCH_ERROR || touch.press_count <= 0) return;
 
   int x = touch.x, y = touch.y;
 
@@ -251,7 +258,7 @@ void Gui::handleBlueAutonMenuTouch() {
 
 void Gui::handleSkillsMenuTouch() {
   pros::screen_touch_status_s_t touch = pros::screen::touch_status();
-  if (touch.touch_status <= 0) return;
+  if (touch.touch_status == pros::E_TOUCH_ERROR || touch.press_count <= 0) return;
 
   int x = touch.x, y = touch.y;
 
@@ -281,10 +288,24 @@ void Gui::handleSkillsMenuTouch() {
 // GUI Loop
 // ============================================================================
 
+void Gui::displayShadowMenu() {
+  shadow::openGui();
+  shadow::guiTick();
+}
+void Gui::updateShadowMenu() {
+  if (currentScreen == ShadowMenu && !shadow::guiTick()) {
+    currentScreen = MainMenu;
+    displayMainMenu();
+  }
+}
+
 void Gui::mainLoop() {
+  std::int32_t lastPress = 0;
   while (true) {
     pros::screen_touch_status_s_t TouchStatus = pros::screen::touch_status();
-    if (TouchStatus.touch_status > 0) {
+    if (TouchStatus.touch_status != pros::E_TOUCH_ERROR &&
+        TouchStatus.press_count > 0 && TouchStatus.press_count != lastPress) {
+      lastPress = TouchStatus.press_count;
       switch (currentScreen) {
         case MainMenu:
           handleMainMenuTouch(TouchStatus);
@@ -306,7 +327,8 @@ void Gui::mainLoop() {
       }
     }
 
-    pros::delay(100);
+    updateShadowMenu();
+    pros::delay(30);
   }
 }
 
@@ -334,6 +356,7 @@ void Gui::initialize() {
 }
 
 int Gui::invokeSelectedAuton() {
+  if (shadow::selected()) return shadow::runSelected();
   if (selectedAuton.routine != nullptr) return selectedAuton.routine();
   return 0;
 }

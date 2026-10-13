@@ -2,6 +2,7 @@
 #include "../../../../../include/aon/tools/gui/gui-debug.hpp"
 #include "../../../../../include/aon/constants.hpp"
 #include "../../../../../include/aon/tools/gui/ui/gui-layout.hpp"
+#include "../../../../../include/aon/shadow.hpp"
 
 namespace aon {
 
@@ -14,7 +15,10 @@ void Gui::displayMainMenu() {
 
   // Display the current selected autonomous routine at the top center
   pros::screen::set_pen(pros::Color::white); // Default color for "NO AUTON"
-  if (selectedAutonName == "None") {
+  if (shadow::selected()) {
+    pros::screen::set_pen(pros::Color::green);
+    pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "SHADOW %u", shadow::selectedSlot());
+  } else if (selectedAutonName == "None") {
     pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "NO AUTON");
   } else {
     pros::screen::set_pen(pros::Color::green);
@@ -22,7 +26,10 @@ void Gui::displayMainMenu() {
   }
 
   // Draw the "AUTONS" button using UI helper
-  AutonsBtn.draw(pros::E_TEXT_LARGE);
+  ui::Button(0, BRAIN_SCREEN_HEIGHT - 50, 235, BRAIN_SCREEN_HEIGHT,
+             "AUTONS", pros::Color::green, pros::Color::white).draw(pros::E_TEXT_LARGE);
+  ui::Button(245, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH, BRAIN_SCREEN_HEIGHT,
+             "SHADOW", pros::Color::dark_blue, pros::Color::white).draw(pros::E_TEXT_LARGE);
 }
 
 void Gui::displayAutonMenu() {

@@ -1,4 +1,6 @@
 #include "../../../../include/aon/tools/gui/gui-debug.hpp"
+#include "../../../../include/aon/tools/gui/ui/gui-layout.hpp"
+#include "../../../../include/aon/shadow.hpp"
 namespace aon {
 
 // ============================================================================
@@ -50,6 +52,7 @@ void GuiDebug::setDataRegister(const std::function<void()>& Register) {
 }
 
 int GuiDebug::invokeSelectedAuton() {
+  if (shadow::selected()) return shadow::runSelected();
   if (poseReady && !poseReady()) return -1;
   if (selectedAutonInvoker) return selectedAutonInvoker();
   if (selectedAuton.routine) return selectedAuton.routine();
@@ -180,9 +183,12 @@ void GuiDebug::DisplayDebugMenu() {
 
 void GuiDebug::handleMainMenuTouch(const pros::screen_touch_status_s_t& touchStatus) {
   if (TESTING_AUTONOMOUS) {
+    if (touchStatus.y >= BRAIN_SCREEN_HEIGHT - 50 && touchStatus.x >= 325) {
+      displayShadowMenu(); currentScreen = ShadowMenu; return;
+    }
     // Debug mode: buttons split in half
     // Check if the "AUTONS" button is pressed (bottom-left corner)
-    if (touchStatus.x < BRAIN_SCREEN_WIDTH / 2 && touchStatus.y > BRAIN_SCREEN_HEIGHT - 50) {
+    if (touchStatus.x < 160 && touchStatus.y > BRAIN_SCREEN_HEIGHT - 50) {
       if (currentScreen != AutonMenu) {
         pros::screen::set_eraser(pros::Color::black);
         pros::screen::erase_rect(0, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH / 2, BRAIN_SCREEN_HEIGHT);
@@ -192,7 +198,7 @@ void GuiDebug::handleMainMenuTouch(const pros::screen_touch_status_s_t& touchSta
       }
     }
     // Check if the "DEBUG" button is pressed (bottom-right corner)
-    else if (touchStatus.x > BRAIN_SCREEN_WIDTH / 2 && touchStatus.y > BRAIN_SCREEN_HEIGHT - 50) {
+    else if (touchStatus.x >= 165 && touchStatus.x < 320 && touchStatus.y > BRAIN_SCREEN_HEIGHT - 50) {
       pros::screen::set_eraser(pros::Color::black);
       pros::screen::erase_rect(BRAIN_SCREEN_WIDTH / 2, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH, BRAIN_SCREEN_HEIGHT);
       
@@ -201,17 +207,7 @@ void GuiDebug::handleMainMenuTouch(const pros::screen_touch_status_s_t& touchSta
       pros::delay(300);
     }
   } else {
-    // Non-debug mode: autons button takes full width
-    // Check if the "AUTONS" button is pressed (full width bottom)
-    if (touchStatus.y > BRAIN_SCREEN_HEIGHT - 50) {
-      if (currentScreen != AutonMenu) {
-        pros::screen::set_eraser(pros::Color::black);
-        pros::screen::erase_rect(0, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH, BRAIN_SCREEN_HEIGHT);
-
-        displayAutonMenu();
-        currentScreen = AutonMenu;
-      }
-    }
+    Gui::handleMainMenuTouch(touchStatus);
   }
 }
 
@@ -265,12 +261,15 @@ void GuiDebug::HandleDebugMenuTouch() {
 // ============================================================================
 
 void GuiDebug::mainLoop() {
+  std::int32_t lastPress = 0;
   bool lastAutonState = false;
   auto lastScreen = currentScreen;
   
   while (true) {
     pros::screen_touch_status_s_t TouchStatus = pros::screen::touch_status();
-    if (TouchStatus.touch_status > 0) {
+    if (TouchStatus.touch_status != pros::E_TOUCH_ERROR &&
+        TouchStatus.press_count > 0 && TouchStatus.press_count != lastPress) {
+      lastPress = TouchStatus.press_count;
       switch (currentScreen) {
         case MainMenu:
           handleMainMenuTouch(TouchStatus);
@@ -291,6 +290,7 @@ void GuiDebug::mainLoop() {
           HandleDebugMenuTouch();
           break;
         case RegisteredFunctions:
+          shadow::selectNative(); // registering/selecting a native invoker invalidates Shadow arms
           HandleRegisteredAutonsMenuTouch();
           break;
         case AutonRunner:
@@ -313,6 +313,7 @@ void GuiDebug::mainLoop() {
       }
     }
 
+    updateShadowMenu();
     pros::delay(30);
 
     // Redraw only when necessary
@@ -369,7 +370,10 @@ void GuiDebug::displayMainMenu() {
 
   // Display the current selected autonomous routine at the top center
   pros::screen::set_pen(pros::Color::white); // Default color for "NO AUTON"
-  if (selectedAutonName == "None") {
+  if (shadow::selected()) {
+    pros::screen::set_pen(pros::Color::green);
+    pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "SHADOW %u", shadow::selectedSlot());
+  } else if (selectedAutonName == "None") {
     pros::screen::print(pros::E_TEXT_LARGE_CENTER, 1, "NO AUTON");
   } else {
     pros::screen::set_pen(pros::Color::green);
@@ -377,24 +381,12 @@ void GuiDebug::displayMainMenu() {
   }
 
   if (TESTING_AUTONOMOUS) {
-    // Debug mode: split button bar in half
-    // Draw the "AUTONS" button in the bottom-left corner (half width)
-    pros::screen::set_eraser(pros::Color::green);
-    pros::screen::erase_rect(0, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH / 2, BRAIN_SCREEN_HEIGHT);
-    pros::screen::set_pen(pros::Color::white);
-    pros::screen::print(pros::E_TEXT_LARGE, 60, BRAIN_SCREEN_HEIGHT - 40, "AUTONS");
-
-    // Draw the "DEBUG" button in the bottom-right corner (half width)
-    pros::screen::set_eraser(pros::Color::gray);
-    pros::screen::erase_rect(BRAIN_SCREEN_WIDTH / 2, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH, BRAIN_SCREEN_HEIGHT);
-    pros::screen::set_pen(pros::Color::white);
-    pros::screen::print(pros::E_TEXT_LARGE, BRAIN_SCREEN_WIDTH / 2 + 70, BRAIN_SCREEN_HEIGHT - 40, "DEBUG");
+    ui::Button(0, 190, 155, 240, "AUTONS", pros::Color::green, pros::Color::white).draw(pros::E_TEXT_LARGE);
+    ui::Button(165, 190, 320, 240, "DEBUG", pros::Color::gray, pros::Color::white).draw(pros::E_TEXT_LARGE);
+    ui::Button(325, 190, 480, 240, "SHADOW", pros::Color::dark_blue, pros::Color::white).draw(pros::E_TEXT_LARGE);
   } else {
-    // Non-debug mode: auton button takes full width
-    pros::screen::set_eraser(pros::Color::green);
-    pros::screen::erase_rect(0, BRAIN_SCREEN_HEIGHT - 50, BRAIN_SCREEN_WIDTH, BRAIN_SCREEN_HEIGHT);
-    pros::screen::set_pen(pros::Color::white);
-    pros::screen::print(pros::E_TEXT_LARGE, BRAIN_SCREEN_WIDTH / 2 - 50, BRAIN_SCREEN_HEIGHT - 40, "AUTONS");
+    ui::Button(0, 190, 235, 240, "AUTONS", pros::Color::green, pros::Color::white).draw(pros::E_TEXT_LARGE);
+    ui::Button(245, 190, 480, 240, "SHADOW", pros::Color::dark_blue, pros::Color::white).draw(pros::E_TEXT_LARGE);
   }
 }
 

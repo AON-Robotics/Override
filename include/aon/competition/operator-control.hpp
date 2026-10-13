@@ -3,6 +3,7 @@
 #include <cmath>
 #include "../constants.hpp"
 #include "../globals.hpp"
+#include "../shadow.hpp"
 
 /// @brief Encapsulates functions and state for operator control.
 /// @details Practically uses Singleton design pattern, but classes would have
@@ -44,6 +45,7 @@ inline void DriveKevin() {
   double rightX = scaler.transform(mainController.get_analog(ANALOG_RIGHT_X));
   double rightY = scaler.transform(mainController.get_analog(ANALOG_RIGHT_Y));
   drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::SPLIT_ARCADE);
+  shadow::poll(leftY, 0, rightX);
 
   if(mainController.get_digital_new_press(DIGITAL_R2)) {
     size_t currentTime = pros::millis();
@@ -59,17 +61,21 @@ inline void DriveKevin() {
   if(mainController.get_digital(DIGITAL_R2)) {
     if (mergeCorridorAndElevator){
       intake.store();
+      shadow::event(shadow::Kind::Intake, static_cast<std::int8_t>(shadow::IntakeMode::Store));
     } else {
       intake.corridor();
+      shadow::event(shadow::Kind::Intake, static_cast<std::int8_t>(shadow::IntakeMode::Corridor));
     }
   }
   // Reject
   else if(mainController.get_digital(DIGITAL_L2)) {
     intake.reject();
+    shadow::event(shadow::Kind::Intake, static_cast<std::int8_t>(shadow::IntakeMode::Reject));
   }
   // Score Low
   else if(mainController.get_digital(DIGITAL_L1)) {
     intake.score(Intake::BOTTOM);
+    shadow::event(shadow::Kind::Intake, static_cast<std::int8_t>(shadow::IntakeMode::Bottom));
   }
 
   // Lever
@@ -78,13 +84,16 @@ inline void DriveKevin() {
 
     if(currentTime - lastR1PressTime < DOUBLE_TAP_TIME){
       intake.resetLever();
+      shadow::event(shadow::Kind::Lever, 0);
     } else {
       intake.extendLever();
+      shadow::event(shadow::Kind::Lever, 1);
     }
 
     lastR1PressTime = currentTime;
   } else if (intake.leverFinished()) {
     intake.resetLever();
+    shadow::event(shadow::Kind::Lever, 0);
   }
 
   // Optional single tap
@@ -101,30 +110,37 @@ inline void DriveKevin() {
     intake.corridor(0);
     intake.elevator(0);
     intake.judge(0);
+    shadow::event(shadow::Kind::Intake, static_cast<std::int8_t>(shadow::IntakeMode::Idle));
   }
   
   // Change Height
   if(mainController.get_digital_new_press(DIGITAL_B)) {
     intake.toggleScorerHeight();
+    shadow::toggleEvent(shadow::Kind::ScorerHeight);
   }
   // Match loaders mechanism
   else if(mainController.get_digital_new_press(DIGITAL_A)) {
     intake.toggleCart();
+    shadow::toggleEvent(shadow::Kind::Cart);
   }
   else if(mainController.get_digital_new_press(DIGITAL_RIGHT)) {
     drivetrain.toggleTurbo();
   }
   else if(mainController.get_digital_new_press(DIGITAL_Y)) {
     intake.toggleTrapdoor();
+    shadow::toggleEvent(shadow::Kind::Trapdoor);
   }
   else if(mainController.get_digital_new_press(DIGITAL_UP)) {
     brooks.toggle();
+    shadow::toggleEvent(shadow::Kind::Brooks);
   }
 
   if(mainController.get_digital(DIGITAL_DOWN)) {
     arrow.deactivate();
+    shadow::event(shadow::Kind::Arrow, 0);
   } else {
     arrow.activate();
+    shadow::event(shadow::Kind::Arrow, 1);
   }
 
   #endif
@@ -139,15 +155,26 @@ inline void DriveFabian() {
   double rightX = scaler.transform(-mainController.get_analog(ANALOG_RIGHT_X));
   double rightY = scaler.transform(-mainController.get_analog(ANALOG_RIGHT_Y));
   drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::HOLONOMIC);
+  shadow::poll(leftY, leftX, rightX);
 
+  // Record the final intake intent, excluding commands superseded below.
+  const bool unsortedScore = !sortEnabled &&
+      (mainController.get_digital(DIGITAL_R1) || mainController.get_digital(DIGITAL_R2));
   if(mainController.get_digital(DIGITAL_L1)){
     intake.store();
+    if (!unsortedScore)
+      shadow::event(shadow::Kind::Intake, static_cast<std::int8_t>(shadow::IntakeMode::Store));
   }
   else if(mainController.get_digital(DIGITAL_L2)){
     intake.score(Intake::BOTTOM);
+    if (!unsortedScore)
+      shadow::event(shadow::Kind::Intake, static_cast<std::int8_t>(shadow::IntakeMode::Bottom));
   }
   else if(!sortActive){
     intake.stop();
+    // Unsorted R1/R2 scoring below supersedes this transient stop in this loop.
+    if (!unsortedScore)
+      shadow::event(shadow::Kind::Intake, static_cast<std::int8_t>(shadow::IntakeMode::Idle));
   }
 
   // Evaluate new_press unconditionally so internal state resets on release
@@ -160,6 +187,7 @@ inline void DriveFabian() {
       if(r1NewPress) {
         intake.setSortHeights(Intake::TOP);
         intake.startReleasing();
+        shadow::event(shadow::Kind::Sort, 1);
         sortActive = true;
       }
     }
@@ -168,34 +196,41 @@ inline void DriveFabian() {
       if(r2NewPress) {
         intake.setSortHeights(Intake::MIDDLE);
         intake.startReleasing();
+        shadow::event(shadow::Kind::Sort, 2);
         sortActive = true;
       }
     }
     // neither held — stop sorting only if it was previously active
     else if(sortActive) {
       intake.stopReleasing();
+      shadow::event(shadow::Kind::Sort, 0);
       sortActive = false;
     }
   } else {
     // Sort off — reuse scoring behavior
     if(mainController.get_digital(DIGITAL_R1)) {
       intake.score(Intake::TOP);
+      shadow::event(shadow::Kind::Intake, static_cast<std::int8_t>(shadow::IntakeMode::Top));
     } else if(mainController.get_digital(DIGITAL_R2)) {
       intake.score(Intake::MIDDLE);
+      shadow::event(shadow::Kind::Intake, static_cast<std::int8_t>(shadow::IntakeMode::Middle));
     }
   }
 
   // Change Brooks Height
   if(mainController.get_digital_new_press(DIGITAL_B)) {
     brooks.toggle();
+    shadow::toggleEvent(shadow::Kind::Brooks);
   }
 
   else if(mainController.get_digital_new_press(DIGITAL_LEFT)) {
     sem.toggle();
+    shadow::toggleEvent(shadow::Kind::Sem);
   }
   // Match loaders mechanism
   else if(mainController.get_digital_new_press(DIGITAL_UP)) {
     intake.toggleCart();
+    shadow::toggleEvent(shadow::Kind::Cart);
   }
 
   else if(mainController.get_digital_new_press(DIGITAL_X)) {
@@ -205,6 +240,7 @@ inline void DriveFabian() {
     sortEnabled = !sortEnabled;
     if (!sortEnabled && sortActive) {
       intake.stopReleasing();
+      shadow::event(shadow::Kind::Sort, 0);
       sortActive = false;
     }
   }
