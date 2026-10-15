@@ -89,9 +89,11 @@ public:
 
   // User provides live pose via this callback
   std::function<Pose()> mapGetPose = nullptr;
+  std::function<bool()> poseReady = nullptr;
 
   // Register the pose provider (called once in globals/opcontrol setup)
   void setMapDataProvider(std::function<Pose()> getPose) override;
+  void setPoseReadyProvider(std::function<bool()> ready) override { poseReady = std::move(ready); }
 
   // Append a new pose sample; computes running distance
   void AddMapPoint(double x, double y, double theta);  // theta in degrees (matches Pose)

@@ -22,6 +22,7 @@ void DifferentialDrive::setEncoderUnits(pros::MotorEncoderUnits units){
   leftMotors.tare_position();
   rightMotors.set_encoder_units(units);
   rightMotors.tare_position();
+  if (odometry) odometry->resetMotorBaselines();
 }
 
 void DifferentialDrive::setSlewRate(double slew){
@@ -36,6 +37,7 @@ double DifferentialDrive::getRPM(){
 }
 
 void DifferentialDrive::goToPose(const Pose& pose) {
+  if (!odometry->hasFreshPose()) { stop(); return; }
   PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
 
   std::pair<double, double> output = {-1, -1};
@@ -49,6 +51,7 @@ void DifferentialDrive::goToPose(const Pose& pose) {
   Timer timer;
   timer.start(timeoutMs);
   while (odometry->getPose().distanceTo(pose) > 2.0 && !timer.isCompleted()){
+    if (!odometry->hasFreshPose()) { stop(); return; }
     now = pros::micros() / 1E6;
     dt = now - lastTime;
     output = controller.go(pose, this->odometry->getPose(), dt);
@@ -65,7 +68,7 @@ void DifferentialDrive::goToPose(const Pose& pose) {
     pros::delay(10);
   }
 
-  this->turnToHeading(pose.theta);
+  if (odometry->hasFreshPose()) this->turnToHeading(pose.theta);
 
   this->stop();
 }

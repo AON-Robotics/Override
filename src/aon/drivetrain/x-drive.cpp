@@ -134,7 +134,10 @@ double XDrive::getRPM(){
 
 // Using Motion Profile
 void XDrive::goToPose(const Pose& target){
+  if (!hasFreshPose()) { stop(); return; }
   const double delay = 20; // ms
+  Timer timer;
+  timer.start(std::max<uint32_t>(3000, static_cast<uint32_t>(getPose().distanceTo(target) * 1000)));
 
   double remainingX = abs(target.x - this->getX());
   double remainingY = abs(target.y - this->getY());
@@ -146,7 +149,9 @@ void XDrive::goToPose(const Pose& target){
   const double circumference = M_TWOPI * ROBOT_RADIUS;
 
   // TODO: add timeouts for safety
-  while(remainingX > 0.05 || remainingY > 0.05 || remainingTheta > 0.05){
+  while((remainingX > 0.05 || remainingY > 0.05 || remainingTheta > 0.05) &&
+        !timer.isCompleted()){
+    if (!hasFreshPose()) { stop(); return; }
 
     pros::lcd::print(0, "(x, y, theta): (%.2f, %.2f, %.2f)", this->getX(), this->getY(), this->getTheta());
     remainingX = target.x - this->getX();
@@ -193,6 +198,7 @@ void XDrive::goToPose(const Pose& target){
 }
 
 void XDrive::follow(const std::vector<Pose>& path) {
+  if (path.empty() || !hasFreshPose()) { stop(); return; }
   PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
 
   std::pair<double, double> output = {-1, -1};
@@ -202,27 +208,28 @@ void XDrive::follow(const std::vector<Pose>& path) {
   double lastTime = now;
 
   // Generous timeout
-  const uint32_t timeoutMs = (this->odometry->getPose().distanceTo(pose)) * 1E3;
+  const uint32_t timeoutMs = (math::length(path)) * 1E3;
   Timer timer;
   timer.start(timeoutMs);
   while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted()) {
+    if (!hasFreshPose()) { stop(); return; }
     now = pros::micros() / 1E6;
     dt = now - lastTime;
-    output = controller.go(pose, this->odometry->getPose(), dt);
+    output = controller.follow(path, this->odometry->getPose(), dt);
     lastTime = now;
     this->tank(output.first, output.second);
 
     pros::lcd::print(0, "Current: Pose(%.2f, %.2f, %.2f)", odometry->getX(), odometry->getY(), odometry->getDegrees());
-    pros::lcd::print(1, "Target: Pose(%.2f, %.2f, %.2f)", pose.x, pose.y, pose.theta);
-    pros::lcd::print(2, "Distance: %.2f", odometry->getPose().distanceTo(pose));
-    pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "Distance: %.2f", odometry->getPose().distanceTo(pose));
+    pros::lcd::print(1, "Target: Pose(%.2f, %.2f, %.2f)", path.back().x, path.back().y, path.back().theta);
+    pros::lcd::print(2, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
+    pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
 
     if (output.first == 0 && output.second == 0) { break; }
 
     pros::delay(10);
   }
 
-  this->turnToHeading(path.back().theta);
+  if (hasFreshPose()) this->turnToHeading(path.back().theta);
 
   this->stop();
 }

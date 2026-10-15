@@ -20,7 +20,9 @@ class DifferentialDrive : public Drivetrain {
           )
       : leftMotors(leftPorts, 0, MAX_ACCEL),
         rightMotors(rightPorts, 0, MAX_ACCEL),
-        Drivetrain(pose, std::move(odometry), speedFactors, nullptr, std::move(yProfile), std::move(thetaProfile)) {}
+        Drivetrain(pose, std::move(odometry), speedFactors, nullptr, std::move(yProfile), std::move(thetaProfile)) {
+    if (this->odometry) this->odometry->setDriveMotorGroups(&leftMotors, &rightMotors);
+  }
 
   /// @brief Drives the robot using tank control, mapping left and right inputs directly to each side of the drivetrain
   /// @param left The \b RPM to send to the left-side motors (positive is forward)
@@ -49,7 +51,7 @@ class DifferentialDrive : public Drivetrain {
 
   /// @brief Goes to the target point
   /// @param pose The target pose
-  /// @note Uses coordinate system from GPS in \b meters
+  /// @note Pose X/Y are inches; heading is clockwise degrees.
   void goToPose(const Pose &pose) override; // TODO: add optional `settle` boolean
 
 };

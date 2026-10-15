@@ -149,6 +149,7 @@ public:
   virtual void registerResetHandler(const std::string& /*name*/, const std::function<void()>& /*cb*/) {}
   virtual void invokeResetHandler() {}
   virtual void setMapDataProvider(std::function<Pose()> /*getPose*/) {}
+  virtual void setPoseReadyProvider(std::function<bool()> /*ready*/) {}
 
   // Auton selection helper
   void selectAutonByList(Alliance alliance, int index1Based);

@@ -3,6 +3,7 @@
 #include <cmath>
 #include "../constants.hpp"
 #include "../globals.hpp"
+#include "./driver-feedback.hpp"
 
 /// @brief Encapsulates functions and state for operator control.
 /// @details Practically uses Singleton design pattern, but classes would have

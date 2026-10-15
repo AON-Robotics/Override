@@ -28,7 +28,16 @@ class Intake {
 
 #if USING_BIG_ROBOT
  public:
-  enum SortState { INIT, IDLE, KICKBACK, SETTLE, WAIT_ACCEPT, CONFIRM_ACCEPT, WAIT_REJECT, CONFIRM_REJECT };
+  enum SortState {
+    INIT,
+    IDLE,
+    KICKBACK,
+    SETTLE,
+    WAIT_ACCEPT,
+    CONFIRM_ACCEPT,
+    WAIT_REJECT,
+    CONFIRM_REJECT
+  };
 
  private:
   SortState sortState = INIT;
@@ -103,9 +112,12 @@ class Intake {
 
   volatile bool scanning = true;
   volatile bool scoreDown = false;
+  int leverTarget = 0;
 
  public:
-  std::shared_ptr<void> leverController = nullptr;  // TODO: Replace okapi::AsyncPositionController with custom implementation
+  std::shared_ptr<void> leverController =
+      nullptr;  // TODO: Replace okapi::AsyncPositionController with custom
+                // implementation
   Intake(const std::initializer_list<std::int8_t>& corridorPorts,
          const std::initializer_list<std::int8_t>& elevatorPorts,
          const std::initializer_list<std::int8_t>& judgePorts,
@@ -146,7 +158,8 @@ class Intake {
   void resetLever();
 
   /// @brief Determines whether the lever is within 10 units of its set position
-  /// @return `true` if the lever is within 10 units from its set position, `false` otherwise
+  /// @return `true` if the lever is within 10 units from its set position,
+  /// `false` otherwise
   bool leverFinished();
 
   /// @brief Discards blocks through the back of the robot
@@ -184,8 +197,7 @@ class Intake {
   /// @brief Configures the subsytems of the intake
   /// @param brakeModeThe braking paradigm we will use, usually `coast`
   /// @param gearset The gearbox the physical motors contain
-  void configure(pros::MotorBrake brakeMode,
-                 pros::MotorGears gearset);
+  void configure(pros::MotorBrake brakeMode, pros::MotorGears gearset);
 
   /// @brief Moves the entire intake system at the same `rpm`
   /// @param rpm The rpm to set to the motors
