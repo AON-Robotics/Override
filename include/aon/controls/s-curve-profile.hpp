@@ -30,7 +30,7 @@ class MotionProfile {
   };
 
  private:
-  double MAX_VELOCITY, MAX_ACCELERATION, MAX_DECELERATION, JERK;
+  double MAX_VELOCITY = 0, MAX_ACCELERATION = 0, MAX_DECELERATION = 0, JERK = 0;
   double currVelocity = 0;
   double currAccel = 0;
   double targetFinalVelocity = 0;
@@ -50,6 +50,17 @@ class MotionProfile {
   /// @brief Returns the current stage of the motion profile
   /// @return The stage of the motion profile
   Stage getStage() const { return this->stage; }
+
+  double getMaxVelocity() const { return MAX_VELOCITY; }
+  double getMaxDeceleration() const { return MAX_DECELERATION; }
+
+  /// @brief Reject unusable profiles before starting experimental path control.
+  bool isValid() const {
+    return std::isfinite(MAX_VELOCITY) && MAX_VELOCITY > 0 &&
+           std::isfinite(MAX_ACCELERATION) && MAX_ACCELERATION > 0 &&
+           std::isfinite(MAX_DECELERATION) && MAX_DECELERATION > 0 &&
+           std::isfinite(JERK) && JERK > 0;
+  }
 
   // TODO: Desmos this function below
 
