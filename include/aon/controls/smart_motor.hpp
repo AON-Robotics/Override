@@ -149,6 +149,13 @@ class SmartMotorGroup : public pros::MotorGroup {
   /// @param ivelocity – The new motor velocity in \b rpm from -+-100, +-200, or +-600 depending on the motor's gearset
   /// @returns 1 if the operation was successful or PROS_ERR if the operation failed, setting errno.
   std::int32_t move_velocity(std::int16_t ivelocity) {
+    // A single stop request must not leave a ramped nonzero setpoint active
+    // after a path timeout, cancellation, or unsupported-configuration return.
+    if (ivelocity == 0) {
+      current_velocity = 0;
+      now = previous_time = pros::micros();
+      return pros::MotorGroup::move_velocity(0);
+    }
     if (this->GetAcceleration() != 0) {
       now = pros::micros();
 

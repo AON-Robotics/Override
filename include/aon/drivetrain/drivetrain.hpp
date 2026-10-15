@@ -8,6 +8,7 @@
 #include "../math/timer.hpp"
 #include "../controls/pure-pursuit.hpp"
 #include <cfloat>
+#include <atomic>
 
 
 namespace aon {
@@ -54,6 +55,18 @@ class Drivetrain {
   std::unique_ptr<MotionProfile> xProfile;
   std::unique_ptr<MotionProfile> yProfile;
   std::unique_ptr<MotionProfile> thetaProfile;
+
+  std::atomic<uint32_t> pathCancelGeneration{0};
+  std::atomic<bool> pathActive{false};
+  std::atomic<PurePursuit::Status> pathStatus{PurePursuit::Status::IDLE};
+
+  // Only configurations with validated differential wheel kinematics opt in.
+  virtual bool supportsPurePursuit() const { return false; }
+
+  virtual bool commandPath(double left, double right) {
+    tank(left,right);
+    return true;
+  }
   
   public:
 
@@ -252,7 +265,12 @@ class Drivetrain {
   }
 
   /// @brief Stops all motors
-  virtual void stop() { this->motors(0); }
+  virtual void stop() { cancelPath(); this->motors(0); }
+
+  /// @brief Request path cancellation from another task. The follow loop stops
+  /// within its next 10ms iteration; direct stop() also latches cancellation.
+  void cancelPath() { pathCancelGeneration.fetch_add(1); }
+  PurePursuit::Status getPathStatus() const { return pathStatus.load(); }
 
   /// @brief Configures the general settings for the motors
   /// @param brakeMode The braking paradigm we will use, usually `holding` for
@@ -778,46 +796,77 @@ class Drivetrain {
   /// @note Pose X/Y are inches; heading is clockwise degrees.
   virtual void goToPose(const Pose &pose) = 0;
 
-  /// @brief Follows a path using a pure pursuit controller
-  /// @param path The path to follow
-  /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
-  virtual void follow(const std::vector<Pose>& path) {
-    if (path.empty() || !hasFreshPose()) { stop(); return; }
-    PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
+  struct PathResult {
+    PurePursuit::Status status = PurePursuit::Status::IDLE;
+    double finalHeading = 0; // requested clockwise degrees; usable on SUCCESS
+    PurePursuit::Diagnostics diagnostics;
+    uint32_t elapsedMs = 0;
+    uint32_t maxUpdateUs = 0; // controller compute only, excludes I/O/delay
+  };
 
-    std::pair<double, double> output = {-1, -1};
-
-    double dt = 0.02;
-    double now = pros::micros() / 1E6;
-    double lastTime = now;
-
-    // Generous timeout
-    const uint32_t timeoutMs = (math::length(path)) * 1E3;
-    Timer timer;
-    timer.start(timeoutMs);
-
-    while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted()) {
-      if (!hasFreshPose()) { stop(); return; }
-      now = pros::micros() / 1E6;
-      dt = now - lastTime;
-      output = controller.follow(path, this->odometry->getPose(), dt);
-      lastTime = now;
-      this->tank(output.first, output.second);
-
-      pros::lcd::print(0, "Current: Pose(%.2f, %.2f, %.2f)", odometry->getX(), odometry->getY(), odometry->getDegrees());
-      pros::lcd::print(1, "Target: Pose(%.2f, %.2f, %.2f)", path.back().x, path.back().y, path.back().theta);
-      pros::lcd::print(2, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
-      pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
-
-      if (output.first == 0 && output.second == 0) { break; }
-
+  /// @brief Synchronously follow an experimental forward differential path.
+  /// @param timeoutMs Hard deadline including path preparation, default 15s.
+  /// @param caps Optional per-waypoint motor RPM ceilings (export independent).
+  /// @note SUCCESS is settled translation. Issue 33's movement layer owns final
+  /// heading alignment, only after SUCCESS. This function never aligns heading.
+  /// Other motion requests must be serialized by the caller. Cancellation is
+  /// task-safe; a second follow request fails without disturbing the active one.
+  PathResult followPath(const std::vector<Pose>& path, uint32_t timeoutMs = 15000,
+                        const std::vector<double>& caps = {}, bool reversed = false) {
+    using Status = PurePursuit::Status;
+    PathResult result;
+    const uint32_t generation = pathCancelGeneration.load();
+    if (pathActive.exchange(true)) {
+      result.status = Status::CONTROL_FAILURE;
+      return result;
+    }
+    struct StopOnExit {
+      Drivetrain* drive;
+      ~StopOnExit() { drive->stop(); drive->pathActive.store(false); }
+    } stopOnExit{this};
+    const uint32_t started = pros::millis();
+    auto finish = [&](Status status) {
+      result.status = status;
+      result.elapsedMs = uint32_t(pros::millis()-started);
+      pathStatus.store(status);
+      return result;
+    };
+    pathStatus.store(Status::RUNNING);
+    if (!supportsPurePursuit() || reversed)
+      return finish(Status::UNSUPPORTED_CONFIGURATION);
+    if (!yProfile || !thetaProfile) return finish(Status::CONTROL_FAILURE);
+    PurePursuit controller(*yProfile, *thetaProfile, 5, 2.5, 2.5);
+    const Status prepared = controller.setPath(path,caps);
+    if (prepared != Status::RUNNING) return finish(prepared);
+    result.finalHeading = controller.finalHeading();
+    uint32_t lastTime = uint32_t(pros::micros());
+    bool first = true;
+    while (true) {
+      if (pathCancelGeneration.load() != generation) return finish(Status::CANCELLED);
+      if (uint32_t(pros::millis()-started) >= timeoutMs) return finish(Status::TIMEOUT);
+      if (!hasFreshPose()) return finish(Status::CONTROL_FAILURE);
+      const Pose current = odometry->getPose();
+      const uint32_t now = uint32_t(pros::micros());
+      const double dt = first ? 0.01 : uint32_t(now-lastTime)/1e6;
+      first = false; lastTime = now;
+      const uint32_t computeStart = uint32_t(pros::micros());
+      const auto output = controller.update(current,dt);
+      result.maxUpdateUs = std::max(result.maxUpdateUs,
+          uint32_t(uint32_t(pros::micros())-computeStart));
+      result.diagnostics = controller.getDiagnostics();
+      // Recheck asynchronous cancellation and deadline before publishing commands
+      // or success. Zero commands alone are never evidence of completion.
+      if (pathCancelGeneration.load() != generation) return finish(Status::CANCELLED);
+      if (uint32_t(pros::millis()-started) >= timeoutMs) return finish(Status::TIMEOUT);
+      if (controller.status() != Status::RUNNING) return finish(controller.status());
+      if (!commandPath(output.first,output.second)) return finish(Status::CONTROL_FAILURE);
       pros::delay(10);
     }
-
-    if (hasFreshPose()) this->turnToHeading(path.back().theta);
-
-    this->stop();
   }
+
+  /// @brief Compatibility wrapper; inspect getPathStatus or use followPath for
+  /// the explicit result and requested heading. Does not align final heading.
+  virtual void follow(const std::vector<Pose>& path) { (void)followPath(path); }
 
   /// @brief Scales a joystick input to drivetrain motor intensity according to a percentage
   /// @param input The joystick input to be scaled
