@@ -35,7 +35,7 @@ enum Driver {
 
 const DriverProfile DRIVER1_PROFILE = DriverProfile("Driver1", ScalerType::PILONS, 10, 5);
 const DriverProfile DRIVER2_PROFILE = DriverProfile("Driver2", ScalerType::CUBIC, 0.6, 8);
-const DriverProfile DEFAULT_PROFILE = DriverProfile("Default", ScalerType::PILONS, 7, 6);
+const DriverProfile DEFAULT_PROFILE = DriverProfile("Default", ScalerType::EXPONENTIAL, 15, 0.5);
 
 inline void LoadDriverProfile(aon::operator_control::Driver driver);
 

@@ -40,10 +40,10 @@ inline void DriveDRIVER1() {
   #if !USING_BIG_ROBOT
   //# From now on, all drivetrains used will need to use this format for driving
   double leftX = scaler -> scale(mainController.get_analog(ANALOG_LEFT_X));
-  double rightX = scaler -> scale(mainController.get_analog(ANALOG_LEFT_Y));
-  double leftY = scaler -> scale(mainController.get_analog(ANALOG_RIGHT_X));
+  double leftY = scaler -> scale(mainController.get_analog(ANALOG_LEFT_Y));
+  double rightX = scaler -> scale(mainController.get_analog(ANALOG_RIGHT_X));
   double rightY = scaler -> scale(mainController.get_analog(ANALOG_RIGHT_Y));
-  drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::HOLONOMIC);
+  drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::SPLIT_ARCADE);
 
   if(mainController.get_digital_new_press(DIGITAL_R2)) {
     size_t currentTime = pros::millis();
