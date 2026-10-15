@@ -11,7 +11,8 @@
 namespace aon {
 
 /// Experimental forward differential path follower. Inches, clockwise degrees,
-/// motor RPM. Final-heading alignment belongs to the movement layer, not this controller. The path is a contiguous sequence of poses; 
+/// motor RPM. Final-heading alignment belongs to the movement layer.
+/// The path is a contiguous sequence of poses;
 //  the controller does not search for the nearest point. The lookahead distance is independent of the path sampling;
 //  the controller will interpolate between points to find the lookahead target. The controller is forward-only;
 //  it will not reverse to reach a target behind the robot. The controller is not thread-safe;
@@ -165,7 +166,7 @@ class PurePursuit {
 
   /// @brief Copy and validate once before movement. Caller must explicitly start
   /// each new request; follow() never switches an active request's path.
-  /// @param caps Optional waypoint speed ceilings in motor RPM, independent of
+  /// @param caps Optional waypoint center-speed ceilings in equivalent motor RPM, independent of
   /// export format. Positive except optional terminal zero. Reverse is unsupported.
   Status setPath(const std::vector<Pose>& path,
                  const std::vector<double>& caps = {}, bool reversed = false) {
@@ -237,10 +238,9 @@ class PurePursuit {
     previousPose = current; hasPreviousPose = true;
 
     // Follow only contiguous segments, never a global nearest-point search.
-    // A local arc-length window prevents a global jump at crossings. Polyline
-    // progress cannot be budgeted by chord travel: corner cutting is shorter.
+    // A movement budget prevents jumping to a later crossing/overlapping branch.
     double progressLimit = std::min(diagnostics.length,
-        diagnostics.progress + moved + lookaheadDistance);
+        diagnostics.progress + moved + (canSettle ? 0 : lookaheadDistance));
     while (segment + 1 < points.size()) {
       const Pose& a = points[segment]; const Pose& b = points[segment+1];
       const double length = distances[segment+1] - distances[segment];
@@ -251,16 +251,21 @@ class PurePursuit {
           std::min(projection, progressLimit));
       if (segment + 2 == points.size()) break;
       if (diagnostics.progress < distances[segment+1] - 1e-9) {
-        // Permit adjacent-segment acquisition around a corner, but only inside
-        // the local window and when that segment is strictly closer.
-        if (distances[segment+1] > progressLimit) break;
+        // Corner cutting shortens robot travel relative to polyline distance.
+        // Reanchor only at an adjacent non-collinear corner, after displacement,
+        // and inside one lookahead. Stationary calls cannot recharge progress.
+        if (moved <= 1e-9 || distances[segment+1]-diagnostics.progress > lookaheadDistance) break;
         const Pose& next = points[segment+2];
         const double nextLength = distances[segment+2]-distances[segment+1];
+        const double dot = ((b.x-a.x)*(next.x-b.x)+(b.y-a.y)*(next.y-b.y))/(length*nextLength);
+        if (dot > 1-1e-6) break;
         const double nextT = std::clamp(((current.x-b.x)*(next.x-b.x)+
             (current.y-b.y)*(next.y-b.y))/(nextLength*nextLength),0.0,1.0);
         const Pose here = a+(b-a)*std::clamp(t,0.0,1.0);
         if (current.distanceTo(b+(next-b)*nextT)+1e-9 >= current.distanceTo(here)) break;
         diagnostics.progress = distances[segment+1];
+        progressLimit = std::max(progressLimit,distances[segment+1]+
+            std::min(nextT*nextLength,lookaheadDistance));
       }
       ++segment;
     }
@@ -307,9 +312,14 @@ class PurePursuit {
     double cap = linearProfile.getMaxVelocity();
     if (segment + 1 < points.size()) {
       const double decel = math::linearSpeed(linearProfile.getMaxDeceleration()*0.5);
+      // Projected end progress does not imply arrival: retain braking distance
+      // to the actual endpoint while recovering a lateral offset or overshoot.
+      const double brakingDistance = segment+2 == points.size() ?
+          std::max(distances[segment+1]-diagnostics.progress,endError) :
+          distances[segment+1]-diagnostics.progress;
       cap = std::min(speedCaps[segment], std::sqrt(
           std::pow(speedCaps[segment+1]*unit,2) +
-          2*decel*(distances[segment+1]-diagnostics.progress))/unit);
+          2*decel*brakingDistance)/unit);
     }
     const double curveCap = std::sqrt(maxLateralAcceleration /
         std::max(std::abs(diagnostics.curvature),1e-9))/unit;
@@ -326,7 +336,8 @@ class PurePursuit {
     } else { angularProfile.setVelocity(0); angularProfile.setAccel(0); }
     double left = rpm+turnRPM, right = rpm-turnRPM;
     const double wheelLimit = std::min(double(MAX_RPM),linearProfile.getMaxVelocity());
-    const double scale = std::max({1.0,std::abs(left)/wheelLimit,std::abs(right)/wheelLimit});
+    const double scale = std::max({1.0,std::abs(left)/wheelLimit,std::abs(right)/wheelLimit,
+        std::abs(turnRPM)/angularProfile.getMaxVelocity()});
     left /= scale; right /= scale;
     if (!std::isfinite(left) || !std::isfinite(right) || rpm < 0)
       return fail(Status::CONTROL_FAILURE);
