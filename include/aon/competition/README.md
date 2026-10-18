@@ -35,10 +35,12 @@ Corners cannot replenish it. Noncollinear branch transitions require directed
 crossings of corner gates in order; a reversal uses the incoming endpoint plane.
 Fold-aware lookahead and active-branch recovery avoid coincident targets. Capped
 acquisition retains a fixed earned reference until arrival. A missed gate requires
-returning strictly before its plane, then crossing again. Near-coincidence
-1e-6-inch and gate equality 1e-9 thresholds address numerical singularities,
-not sensor resolution; the former matches the square root of the 1e-12-inch²
-chord floor and is approximately 25 nanometers. This
+returning strictly before its plane, then crossing again. A corner target within
+`max(1e-6 inches, linearSpeed(1 RPM)*dt)` uses an incoming-tangent extension by one
+lookahead to cross the existing gate through measured displacement. This avoids
+zero-center integer-command oscillation near a vertex, without adding progress.
+The 1e-6-inch numerical floor matches the squared-chord guard and is approximately
+25 nanometers; gate equality uses 1e-9. Neither is sensor resolution. This
 is a conservative traversal policy, not proof of physical visitation: odometry
 noise/jumps are still measured displacement. Severe shortcuts can require
 reacquisition or timeout. Frozen but freshly timestamped odometry is not detected
@@ -83,7 +85,10 @@ Correction starts only after verified translation SUCCESS and a zero-command
 handoff. It uses the exact final heading, shortest wrapped error and the existing
 PID. It requires endpoint position still within 2.5 inches, valid fresh pose,
 heading within the configured tolerance and measured heading rate <=5 degrees/s
-through the entire configured dwell. It reports failure instead of correcting
+and translational speed <=1 inch/s through the entire configured dwell. Both
+rates use the measured pose-to-pose interval; the first sample establishes a
+baseline and earns no dwell. Intermittent motion resets the full dwell. It reports
+failure instead of correcting
 X/Y drift. Heading SUCCESS sets `headingCorrected`; unsuccessful translation,
 cancellation or invalid configuration cannot authorize this stage. One request
 guard covers translation and correction. Reentrant path requests fail without
@@ -114,14 +119,42 @@ Terminal status is published after those attempts complete. CONTROL_FAILURE
 overrides other results on a motor-write/stop error; otherwise cancellation wins
 over the current result, and a translation deadline wins a success tie at the
 loop's check. Terminal status proves completed stop attempts, never physical
-braking or successful zero delivery after a transport error. A reentrant rejected
-call does not stop another request. Each new accepted request resets controller
+braking or successful zero delivery after a transport error. A success candidate
+is also checked against its active stage budget after all terminal stop attempts;
+blocking I/O can overrun a deadline but cannot preserve SUCCESS once expiry is
+observed there. Settlement describes sampled pose evidence; it is not an atomic
+guarantee about sensor updates or physical motion after the last pose observation.
+A reentrant rejected call does not stop another request. Each new accepted request resets controller
 state and accepts the current cancellation generation, enabling explicit restart
 after any terminal state; there is no automatic restart or recovery.
 
 Motor-group state and transport writes are synchronized. Path commands bypass
-the manual wheel slew limiter and quantize toward zero to integer RPM. Center
-profiling does not globally constrain final wheel acceleration/deceleration or
+the manual wheel slew limiter. Paired integer conversion starts with truncation
+toward zero, then decreases positive wheel magnitude if needed so conversion
+does not increase requested center speed or exceed the angular ceiling. Reducing
+individual magnitudes alone does not preserve these coupled limits. Geometry
+feasibility uses this same conversion as DifferentialDrive publication. Diagnostics
+contain normalized floating requests; final integer commands may be smaller.
+Low-speed quantization changes curvature; it cannot preserve every floating
+wheel ratio or establish physical tracking accuracy.
+
+If both bounded integer tracking commands are zero while heading error exceeds
+acquisition tolerance, the controller latches a stationary acquisition turn.
+Targets behind the robot also acquire. Exit tolerance is the configured angular
+deadband, floored by one +/-1RPM heading step `2*linearSpeed(1)*dt/DRIVE_WIDTH`,
+and capped at 45 degrees. The floor avoids chasing a tolerance smaller than an
+integer yaw step; the cap guarantees a forward cone with cosine at least sqrt(.5).
+The latch prevents repeated entry/exit near perpendicular targets. These are
+representation/geometry rules, not robot tuning or physical dead-zone claims.
+No minimum RPM is injected and no speed ceiling is raised. An active translation
+ceiling below 1 RPM, or required stationary acquisition with angular ceiling below
+1 RPM, returns zero/UNSUPPORTED_CONFIGURATION. Arrival settlement takes precedence,
+so already-arrived singleton/tiny terminal paths remain supported. Positive caps
+remain accepted at preparation; unsupported resolution is detected when active
+motion requires it. Limits below 0.5 RPM cannot express any nonzero integer wheel
+difference; such requests can reject acquisition or time out without steering.
+
+Center profiling does not globally constrain final wheel acceleration/deceleration or
 jerk: geometry, proportional wheel normalization, curvature/lateral and waypoint
 speed ceilings, acquisition turns, settlement and fault/cancel stops can override
 smoothness. Safety ceilings and stopping take priority over ramp continuity;
