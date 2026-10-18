@@ -48,6 +48,10 @@ class PurePursuit {
   Diagnostics diagnostics;
   Pose previousPose;
   bool hasPreviousPose = false;
+  double progressAllowance = 0; // absolute inches; one acquisition + twice pose travel
+  bool recoveringProgress = false;
+  Pose recoveryReference;
+  double recoveryTolerance = 0;
   double settledSeconds = 0;
   double maxLateralAcceleration = 30; // in/s^2; experimental, tune on robot
 
@@ -63,6 +67,23 @@ class PurePursuit {
 
   double linearDeadband;  // Tune
   double angularDeadband;  // Tune
+
+  bool validControlInput(const Pose& target, const Pose& current, double dt) const {
+    return finitePose(target) && finitePose(current) && std::isfinite(dt) &&
+        dt > 0 && dt <= 0.25 && linearProfile.isValid() && angularProfile.isValid() &&
+        std::isfinite(linearDeadband) && linearDeadband > 0 &&
+        std::isfinite(angularDeadband) && angularDeadband > 0 &&
+        std::isfinite(DRIVE_WIDTH) && DRIVE_WIDTH > 0 &&
+        std::isfinite(math::linearSpeed(1)) && math::linearSpeed(1) > 0;
+  }
+
+  std::pair<double, double> boundedLegacy(double left, double right) {
+    if (!std::isfinite(left) || !std::isfinite(right))
+      return fail(Status::CONTROL_FAILURE);
+    const double limit = std::min(double(MAX_RPM),linearProfile.getMaxVelocity());
+    const double scale = std::max({1.0,std::abs(left)/limit,std::abs(right)/limit});
+    return {left/scale,right/scale};
+  }
 
  public:
   PurePursuit(MotionProfile linearProfile, MotionProfile angularProfile,
@@ -81,6 +102,7 @@ class PurePursuit {
   /// @return A pair of \b RPM commands for the left and right sides of the drivetrain
   std::pair<double, double> go(Pose target, Pose current, double dt = 0.02) {
     // Basic Pure Pursuit-style controller (simplified for single target)
+    if (!validControlInput(target,current,dt)) return fail(Status::CONTROL_FAILURE);
 
     // Extract positions
     double dx = target.x - current.x;
@@ -88,17 +110,16 @@ class PurePursuit {
 
     // linearError to target
     double linearError = std::hypot(dx, dy);
+    if (!std::isfinite(linearError)) return fail(Status::CONTROL_FAILURE);
 
     // Desired heading
     double targetAngle = std::atan2(dy, dx) * 180 / M_PI;
 
-    // Current heading (convert to radians)
-    double currentHeading = current.theta;
+    // Current heading in degrees, reduced before computing the error.
+    double currentHeading = std::remainder(current.theta,360.0);
 
     // Heading angularError (normalize to [-180, 180])
-    double angularError = targetAngle - currentHeading;
-    while (angularError > 180) angularError -= 360;
-    while (angularError < -180) angularError += 360;
+    double angularError = std::remainder(targetAngle - currentHeading,360.0);
 
     double linearSign = (linearError == 0) ? 0 : (linearError / std::abs(linearError));
     double angularSign = (angularError == 0) ? 0 : (angularError / std::abs(angularError));
@@ -129,7 +150,7 @@ class PurePursuit {
     if (std::abs(linearError) <= linearDeadband)
       return {0, 0};
 
-    return {left, right};
+    return boundedLegacy(left,right);
   }
 
   /// @brief Calculates the action from the `current` `Pose` to the `target` `Pose` to align heading
@@ -137,17 +158,17 @@ class PurePursuit {
   /// @param current  The `Pose` the robot is currently at
   /// @return A pair of \b RPM commands for the left and right sides of the drivetrain
   std::pair<double, double> turn(Pose target, Pose current, double dt = 0.02) {
+    if (!validControlInput(target,current,dt)) return fail(Status::CONTROL_FAILURE);
     // TODO: determine if this is necessary
     // Current heading
-    double currentHeading = current.theta;
+    double currentHeading = std::remainder(current.theta,360.0);
 
     // Desired final heading
-    double targetHeading = target.theta;
+    double targetHeading = std::remainder(target.theta,360.0);
 
-    // Compute angular error (normalize to [-pi, pi])
-    double angularError = targetHeading - currentHeading;
-    while (angularError > 180) angularError -= 360;
-    while (angularError < -180) angularError += 360;
+    // Reduce each finite heading before subtraction, avoiding overflow and loops.
+    // The resulting angular error is in degrees, in [-180, 180].
+    double angularError = std::remainder(targetHeading - currentHeading,360.0);
 
     double sign = (angularError == 0) ? 0 : (angularError / abs(angularError));
 
@@ -157,7 +178,7 @@ class PurePursuit {
     // Deadband (symmetric for turning)
     if (std::abs(angularError) <= angularDeadband) return {0, 0};
 
-    return {angularVel, -angularVel};
+    return boundedLegacy(angularVel,-angularVel);
   }
 
   Status status() const { return pathStatus; }
@@ -173,6 +194,8 @@ class PurePursuit {
     points.clear(); distances.clear(); speedCaps.clear();
     diagnostics = Diagnostics{};
     segment = 0; settledSeconds = 0; hasPreviousPose = false;
+    progressAllowance = lookaheadDistance;
+    recoveringProgress = false;
     pathStatus = Status::RUNNING;
     linearProfile.setVelocity(0); linearProfile.setAccel(0);
     angularProfile.setVelocity(0); angularProfile.setAccel(0);
@@ -235,37 +258,69 @@ class PurePursuit {
             std::remainder(previousPose.theta, 360.0), 360.0)) / dt : 0;
     diagnostics.measuredSpeed = moved / dt;
     const bool canSettle = hasPreviousPose;
+    const Pose lastPose = previousPose;
     previousPose = current; hasPreviousPose = true;
+    if (!std::isfinite(moved) || !std::isfinite(diagnostics.measuredSpeed) ||
+        !std::isfinite(angularSpeed)) return fail(Status::CONTROL_FAILURE);
 
     // Follow only contiguous segments, never a global nearest-point search.
-    // A movement budget prevents jumping to a later crossing/overlapping branch.
-    double progressLimit = std::min(diagnostics.length,
-        diagnostics.progress + moved + (canSettle ? 0 : lookaheadDistance));
+    // The acquisition allowance is issued once. Corner cuts may consume up to
+    // two path inches per measured inch, but no corner can replenish this bound.
+    progressAllowance = std::min(diagnostics.length,progressAllowance + 2*moved);
+    const double progressLimit = progressAllowance;
+    // Non-collinear branches require directed corner-bisector crossings, in
+    // increasing order along this pose displacement. A pose already past an
+    // unvisited gate cannot repeatedly authorize later branches. Exact reversals
+    // use the incoming endpoint plane because their bisector has zero length.
+    double lastCrossing = -1;
+    bool progressLimited = false;
+    bool missedGate = false;
+    Pose gateRecoveryReference;
+    double gateRecoveryTolerance = 0;
     while (segment + 1 < points.size()) {
       const Pose& a = points[segment]; const Pose& b = points[segment+1];
       const double length = distances[segment+1] - distances[segment];
       double t = ((current.x-a.x)*(b.x-a.x)+(current.y-a.y)*(b.y-a.y)) /
                  (length*length);
       double projection = distances[segment] + std::clamp(t, 0.0, 1.0)*length;
+      progressLimited = projection > progressLimit+1e-9;
       diagnostics.progress = std::max(diagnostics.progress,
           std::min(projection, progressLimit));
       if (segment + 2 == points.size()) break;
-      if (diagnostics.progress < distances[segment+1] - 1e-9) {
-        // Corner cutting shortens robot travel relative to polyline distance.
-        // Reanchor only at an adjacent non-collinear corner, after displacement,
-        // and inside one lookahead. Stationary calls cannot recharge progress.
-        if (moved <= 1e-9 || distances[segment+1]-diagnostics.progress > lookaheadDistance) break;
-        const Pose& next = points[segment+2];
-        const double nextLength = distances[segment+2]-distances[segment+1];
-        const double dot = ((b.x-a.x)*(next.x-b.x)+(b.y-a.y)*(next.y-b.y))/(length*nextLength);
-        if (dot > 1-1e-6) break;
-        const double nextT = std::clamp(((current.x-b.x)*(next.x-b.x)+
-            (current.y-b.y)*(next.y-b.y))/(nextLength*nextLength),0.0,1.0);
-        const Pose here = a+(b-a)*std::clamp(t,0.0,1.0);
-        if (current.distanceTo(b+(next-b)*nextT)+1e-9 >= current.distanceTo(here)) break;
+      const Pose& next = points[segment+2];
+      const double nextLength = distances[segment+2]-distances[segment+1];
+      const double ux = (b.x-a.x)/length, uy = (b.y-a.y)/length;
+      const double vx = (next.x-b.x)/nextLength, vy = (next.y-b.y)/nextLength;
+      const double dot = ux*vx+uy*vy;
+      if (dot > 1-1e-6) {
+        if (diagnostics.progress < distances[segment+1]-1e-9) break;
+      } else {
+        double nx = ux+vx, ny = uy+vy;
+        if (nx*nx+ny*ny <= 1e-12) { nx=ux; ny=uy; }
+        const double before = (lastPose.x-b.x)*nx+(lastPose.y-b.y)*ny;
+        const double after = (current.x-b.x)*nx+(current.y-b.y)*ny;
+        const bool directed = canSettle && moved > 1e-9 && before <= 1e-9 &&
+            after >= -1e-9 && after-before > 1e-9;
+        const double crossing = directed ? std::clamp(-before/(after-before),0.0,1.0) : 0;
+        const bool ordered = directed && crossing > lastCrossing+1e-9;
+        if (after > 1e-9 && !ordered) {
+          missedGate = true;
+          // Retreat along the gate normal, not merely along the incoming edge:
+          // near reversals that edge can run almost parallel to the gate.
+          const double retreat = std::min(lookaheadDistance,length)*0.5;
+          const double norm = std::hypot(nx,ny);
+          gateRecoveryReference = Pose(b.x-nx/norm*retreat,b.y-ny/norm*retreat);
+          // This arrival ball lies strictly before the gate (radius <= retreat/2).
+          gateRecoveryTolerance = std::min(linearDeadband,retreat*0.5);
+        }
+        if (distances[segment+1] > progressLimit && after >= -1e-9)
+          progressLimited = true;
+        if (!canSettle || moved <= 1e-9 ||
+            distances[segment+1] > progressLimit ||
+            distances[segment+1]-diagnostics.progress > lookaheadDistance) break;
+        if (!ordered) break;
+        lastCrossing = crossing;
         diagnostics.progress = distances[segment+1];
-        progressLimit = std::max(progressLimit,distances[segment+1]+
-            std::min(nextT*nextLength,lookaheadDistance));
       }
       ++segment;
     }
@@ -289,8 +344,22 @@ class PurePursuit {
       return {0, 0};
     }
     settledSeconds = 0;
-    const double targetDistance = std::min(diagnostics.length,
+    double targetDistance = std::min(diagnostics.length,
         diagnostics.progress + lookaheadDistance);
+    // Do not aim through an untraversed fold back onto the incoming branch.
+    // The bound depends on segment direction, not waypoint count, so adding
+    // collinear samples does not change it. Ordinary corner cutting is retained.
+    if (segment+1 < points.size()) {
+      const double length = distances[segment+1]-distances[segment];
+      const double ux = (points[segment+1].x-points[segment].x)/length;
+      const double uy = (points[segment+1].y-points[segment].y)/length;
+      for (size_t i=segment+1; i+1 < points.size() && distances[i]<targetDistance; ++i) {
+        const double nextLength = distances[i+1]-distances[i];
+        const double vx = (points[i+1].x-points[i].x)/nextLength;
+        const double vy = (points[i+1].y-points[i].y)/nextLength;
+        if (ux*vx+uy*vy < -1e-6) { targetDistance=distances[i]; break; }
+      }
+    }
     size_t ahead = segment;
     while (ahead + 1 < points.size() && distances[ahead+1] < targetDistance) ++ahead;
     diagnostics.lookahead = points.back();
@@ -298,6 +367,29 @@ class PurePursuit {
       const double t = (targetDistance-distances[ahead]) /
           (distances[ahead+1]-distances[ahead]);
       diagnostics.lookahead = points[ahead] + (points[ahead+1]-points[ahead])*t;
+    }
+    // Recover to a fixed earned reference before looking forward again. Latch
+    // the target until arrival: alternating between acquisition and lookahead
+    // as a projection touches its allowance can otherwise strand the controller
+    // rotating between two targets without earning any further displacement.
+    if ((progressLimited || missedGate) && !recoveringProgress) {
+      recoveryReference = missedGate ? gateRecoveryReference : diagnostics.reference;
+      recoveryTolerance = missedGate ? gateRecoveryTolerance :
+          std::min(linearDeadband,lookaheadDistance*0.25);
+      recoveringProgress = true;
+    }
+    if (recoveringProgress) {
+      if (current.distanceTo(recoveryReference) <= recoveryTolerance) recoveringProgress = false;
+      else diagnostics.lookahead = recoveryReference;
+    }
+    // A folded or closed path can place its arc-length target exactly at the
+    // robot. Recover on the active branch instead of faulting or skipping it.
+    if (current.distanceTo(diagnostics.lookahead) <= 1e-6 &&
+        segment+1 < points.size()) {
+      diagnostics.lookahead = points[segment+1];
+      if (current.distanceTo(diagnostics.lookahead) <= 1e-6)
+        diagnostics.lookahead = segment+2 < points.size() ?
+            points[segment+2] : diagnostics.reference;
     }
     const double dx = diagnostics.lookahead.x-current.x;
     const double dy = diagnostics.lookahead.y-current.y;
