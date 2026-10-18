@@ -11,8 +11,10 @@ class DifferentialDrive : public Drivetrain {
   bool commandPath(double left, double right) override {
     // Pure Pursuit has already profiled and bounded these commands. A second,
     // independent wheel slew limiter can override speed caps and curvature.
-    const auto l = leftMotors.moveVelocityDirect(static_cast<int16_t>(left));
-    const auto r = rightMotors.moveVelocityDirect(static_cast<int16_t>(right));
+    // Conversion must preserve coupled center/turn bounds, not just each wheel.
+    const auto command = PurePursuit::motorCommands(left,right,thetaProfile->getMaxVelocity());
+    const auto l = leftMotors.moveVelocityDirect(command.first);
+    const auto r = rightMotors.moveVelocityDirect(command.second);
     return l == 1 && r == 1;
   }
 

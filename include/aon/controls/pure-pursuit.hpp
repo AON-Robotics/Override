@@ -6,6 +6,7 @@
 #include <float.h>
 #include <vector>
 #include <algorithm>
+#include <cstdint>
 #include "./s-curve-profile.hpp"
 
 namespace aon {
@@ -50,6 +51,7 @@ class PurePursuit {
   bool hasPreviousPose = false;
   double progressAllowance = 0; // absolute inches; one acquisition + twice pose travel
   bool recoveringProgress = false;
+  bool acquiringHeading = false;
   Pose recoveryReference;
   double recoveryTolerance = 0;
   double settledSeconds = 0;
@@ -182,6 +184,27 @@ class PurePursuit {
   }
 
   Status status() const { return pathStatus; }
+  /// @brief Convert a finite, normalized forward wheel pair to the actual motor
+  /// representation. Independent truncation can increase center or turn RPM.
+  /// Reduce only positive wheel magnitude to preserve the requested center and
+  /// configured angular ceiling. Same-sign truncation changes the difference by
+  /// less than 1RPM; opposite signs change the sum by less than 1RPM. Thus each
+  /// coupled constraint needs at most one decrement, with no loop or added speed.
+  /// @pre Wheel magnitudes are within motor int16 range, left+right >= 0,
+  /// and the finite input pair already respects the finite angularLimit >= 0.
+  static std::pair<int16_t,int16_t> motorCommands(double left, double right,
+                                               double angularLimit) {
+    int16_t l = static_cast<int16_t>(left), r = static_cast<int16_t>(right);
+    if (l+r > left+right) {
+      if (l >= r) --l;
+      else --r;
+    }
+    if (std::abs(l-r) > 2*angularLimit) {
+      if (l > r) --l;
+      else --r;
+    }
+    return {l,r};
+  }
   const Diagnostics& getDiagnostics() const { return diagnostics; }
   double finalHeading() const { return points.empty() ? 0 : points.back().theta; }
 
@@ -196,6 +219,7 @@ class PurePursuit {
     segment = 0; settledSeconds = 0; hasPreviousPose = false;
     progressAllowance = lookaheadDistance;
     recoveringProgress = false;
+    acquiringHeading = false;
     pathStatus = Status::RUNNING;
     linearProfile.setVelocity(0); linearProfile.setAccel(0);
     angularProfile.setVelocity(0); angularProfile.setAccel(0);
@@ -382,14 +406,21 @@ class PurePursuit {
       if (current.distanceTo(recoveryReference) <= recoveryTolerance) recoveringProgress = false;
       else diagnostics.lookahead = recoveryReference;
     }
-    // A folded or closed path can place its arc-length target exactly at the
-    // robot. Recover on the active branch instead of faulting or skipping it.
-    if (current.distanceTo(diagnostics.lookahead) <= 1e-6 &&
+    // An active corner target closer than one integer-RPM travel step can
+    // produce opposing integer wheels with no center motion, even though its
+    // floating curvature is finite. Recover on the incoming tangent, crossing
+    // the existing gate by measured displacement rather than minting progress.
+    const double minimumChord = std::max(1e-6,math::linearSpeed(1)*dt);
+    if (current.distanceTo(diagnostics.lookahead) <= minimumChord &&
         segment+1 < points.size()) {
       diagnostics.lookahead = points[segment+1];
-      if (current.distanceTo(diagnostics.lookahead) <= 1e-6)
-        diagnostics.lookahead = segment+2 < points.size() ?
-            points[segment+2] : diagnostics.reference;
+      if (current.distanceTo(diagnostics.lookahead) <= minimumChord) {
+        if (segment+2 < points.size()) {
+          const double length = distances[segment+1]-distances[segment];
+          diagnostics.lookahead = points[segment+1] +
+              (points[segment+1]-points[segment])*(lookaheadDistance/length);
+        } else diagnostics.lookahead = diagnostics.reference;
+      }
     }
     const double dx = diagnostics.lookahead.x-current.x;
     const double dy = diagnostics.lookahead.y-current.y;
@@ -413,21 +444,47 @@ class PurePursuit {
           std::pow(speedCaps[segment+1]*unit,2) +
           2*decel*brakingDistance)/unit);
     }
+    // SmartMotor truncates to integer RPM. Reject an unrepresentable active
+    // translation ceiling instead of raising it or running forever at zero.
+    // Arrival above takes precedence, including singleton and tiny end segments.
+    if (std::min({cap,double(MAX_RPM),linearProfile.getMaxVelocity()}) < 1)
+      return fail(Status::UNSUPPORTED_CONFIGURATION);
     const double curveCap = std::sqrt(maxLateralAcceleration /
         std::max(std::abs(diagnostics.curvature),1e-9))/unit;
     const double error = std::atan2(lateral,forward);
     rpm = std::min({rpm, cap, curveCap, double(MAX_RPM)}) *
           std::max(0.0,std::cos(error));
     double turnRPM = rpm*diagnostics.curvature*DRIVE_WIDTH/2;
-    // Forward-only tracking needs a stationary acquisition turn when the target
-    // lies behind; curvature*v alone would lock the robot at zero center speed.
-    if (std::abs(error) >= M_PI/2) {
+    const double wheelLimit = std::min(double(MAX_RPM),linearProfile.getMaxVelocity());
+    const double trackingScale = std::max({1.0,std::abs(rpm+turnRPM)/wheelLimit,
+        std::abs(rpm-turnRPM)/wheelLimit,
+        std::abs(turnRPM)/angularProfile.getMaxVelocity()});
+    const auto trackingCommand = motorCommands((rpm+turnRPM)/trackingScale,
+        (rpm-turnRPM)/trackingScale,angularProfile.getMaxVelocity());
+    // Forward-only tracking also needs acquisition when both final wheel
+    // commands would truncate to zero in SmartMotor's integer-RPM transport.
+    // Test after all wheel/turn limits, without raising either requested speed.
+    // Latch to the existing angular tolerance: releasing at the first nonzero
+    // wheel can chatter at the representability boundary near 90 degrees.
+    // A permissive tolerance must still leave the target in the forward cone
+    // (forward >= |lateral|), keeping cosine attenuation away from its zero.
+    // One +/-1 RPM turn step is the smallest transported heading increment.
+    // A smaller requested tolerance must not latch an unachievable heading.
+    const double acquisitionTolerance = std::min(std::max(
+        angularDeadband*M_PI/180,2*unit*dt/DRIVE_WIDTH),M_PI/4);
+    if (std::abs(error) >= M_PI/2 ||
+        (std::abs(error) > acquisitionTolerance &&
+         trackingCommand.first == 0 && trackingCommand.second == 0))
+      acquiringHeading = true;
+    if (std::abs(error) <= acquisitionTolerance) acquiringHeading = false;
+    if (acquiringHeading) {
+      if (std::min(wheelLimit,angularProfile.getMaxVelocity()) < 1)
+        return fail(Status::UNSUPPORTED_CONFIGURATION);
       rpm = 0;
       turnRPM = std::copysign(angularProfile.update(
           std::abs(error)*DRIVE_WIDTH/2,dt), error);
     } else { angularProfile.setVelocity(0); angularProfile.setAccel(0); }
     double left = rpm+turnRPM, right = rpm-turnRPM;
-    const double wheelLimit = std::min(double(MAX_RPM),linearProfile.getMaxVelocity());
     const double scale = std::max({1.0,std::abs(left)/wheelLimit,std::abs(right)/wheelLimit,
         std::abs(turnRPM)/angularProfile.getMaxVelocity()});
     left /= scale; right /= scale;
@@ -435,7 +492,8 @@ class PurePursuit {
       return fail(Status::CONTROL_FAILURE);
     diagnostics.targetRPM = rpm/scale;
     diagnostics.angularVelocity = (left-right)*unit/DRIVE_WIDTH;
-    // Feed applied center speed back to avoid profile windup behind speed caps.
+    // Feed normalized floating center speed back to avoid cap windup while
+    // retaining sub-RPM profile accumulation. Integer transport may reduce it.
     linearProfile.setVelocity(diagnostics.targetRPM);
     return {left,right};
   }
