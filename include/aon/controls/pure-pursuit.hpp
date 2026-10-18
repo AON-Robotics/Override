@@ -55,7 +55,7 @@ class PurePursuit {
   Pose recoveryReference;
   double recoveryTolerance = 0;
   double settledSeconds = 0;
-  double maxLateralAcceleration = 30; // in/s^2; experimental, tune on robot
+  static constexpr double maxLateralAcceleration = 30; // in/s^2; experimental, tune on robot
 
   static bool finitePose(const Pose& p) {
     return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.theta);
@@ -189,7 +189,11 @@ class PurePursuit {
   /// Reduce only positive wheel magnitude to preserve the requested center and
   /// configured angular ceiling. Same-sign truncation changes the difference by
   /// less than 1RPM; opposite signs change the sum by less than 1RPM. Thus each
-  /// coupled constraint needs at most one decrement, with no loop or added speed.
+  /// center/angular constraint needs at most one decrement. The final lateral
+  /// bound also constrains the larger wheel: |a| = u^2*|l^2-r^2|/(2*width),
+  /// where u is inches/second per RPM. For a forward pair the larger signed
+  /// wheel is >= |other|. Reducing it toward |other| decreases center, turn and
+  /// lateral acceleration together, without reversing center or adding speed.
   /// @pre Wheel magnitudes are within motor int16 range, left+right >= 0,
   /// and the finite input pair already respects the finite angularLimit >= 0.
   static std::pair<int16_t,int16_t> motorCommands(double left, double right,
@@ -202,6 +206,16 @@ class PurePursuit {
     if (std::abs(l-r) > 2*angularLimit) {
       if (l > r) --l;
       else --r;
+    }
+    const double unit = math::linearSpeed(1);
+    const double squaredLimit = 2*DRIVE_WIDTH*maxLateralAcceleration/(unit*unit);
+    int16_t& larger = l >= r ? l : r;
+    const double other = l >= r ? r : l;
+    if (double(larger)*larger-other*other > squaredLimit) {
+      larger = static_cast<int16_t>(std::floor(std::sqrt(other*other+squaredLimit)));
+      // No physical margin: this one-step guard covers sqrt rounding at an
+      // integer boundary. All squares are evaluated in double, not int16/int.
+      if (double(larger)*larger-other*other > squaredLimit) --larger;
     }
     return {l,r};
   }
@@ -292,6 +306,7 @@ class PurePursuit {
     // two path inches per measured inch, but no corner can replenish this bound.
     progressAllowance = std::min(diagnostics.length,progressAllowance + 2*moved);
     const double progressLimit = progressAllowance;
+    const double minimumChord = std::max(1e-6,math::linearSpeed(1)*dt);
     // Non-collinear branches require directed corner-bisector crossings, in
     // increasing order along this pose displacement. A pose already past an
     // unvisited gate cannot repeatedly authorize later branches. Exact reversals
@@ -329,13 +344,31 @@ class PurePursuit {
         const bool ordered = directed && crossing > lastCrossing+1e-9;
         if (after > 1e-9 && !ordered) {
           missedGate = true;
-          // Retreat along the gate normal, not merely along the incoming edge:
-          // near reversals that edge can run almost parallel to the gate.
-          const double retreat = std::min(lookaheadDistance,length)*0.5;
-          const double norm = std::hypot(nx,ny);
-          gateRecoveryReference = Pose(b.x-nx/norm*retreat,b.y-ny/norm*retreat);
-          // This arrival ball lies strictly before the gate (radius <= retreat/2).
-          gateRecoveryTolerance = std::min(linearDeadband,retreat*0.5);
+          if (!recoveringProgress) {
+            // Retreat along the gate normal, not merely along the incoming edge:
+            // near reversals that edge can run almost parallel to the gate.
+            // Sampling must not shrink a geometric corner's recovery ball. Walk
+            // back over its contiguous incoming straight run, retaining every
+            // waypoint (and its speed restriction) in the prepared path.
+            size_t incoming = segment;
+            while (incoming > 0) {
+              const double priorLength = distances[incoming]-distances[incoming-1];
+              const double px = (points[incoming].x-points[incoming-1].x)/priorLength;
+              const double py = (points[incoming].y-points[incoming-1].y)/priorLength;
+              if (px*ux+py*uy <= 1-1e-6) break;
+              --incoming;
+            }
+            const double incomingLength = distances[segment+1]-distances[incoming];
+            // Two minimum travel steps leave a representable arrival ball even
+            // for a genuinely short run. This only chooses a recovery target;
+            // it never changes progress, a gate witness or final arrival bounds.
+            const double retreat = std::max(2*minimumChord,
+                std::min(lookaheadDistance,incomingLength)*0.5);
+            const double norm = std::hypot(nx,ny);
+            gateRecoveryReference = Pose(b.x-nx/norm*retreat,b.y-ny/norm*retreat);
+            // This arrival ball lies strictly before the gate (radius <= retreat/2).
+            gateRecoveryTolerance = std::min(std::max(linearDeadband,minimumChord),retreat*0.5);
+          }
         }
         if (distances[segment+1] > progressLimit && after >= -1e-9)
           progressLimited = true;
@@ -345,6 +378,9 @@ class PurePursuit {
         if (!ordered) break;
         lastCrossing = crossing;
         diagnostics.progress = distances[segment+1];
+        // An earned crossing changes the geometric branch. A recovery point
+        // for the old branch is obsolete; collinear samples alone do not.
+        recoveringProgress = false;
       }
       ++segment;
     }
@@ -410,7 +446,6 @@ class PurePursuit {
     // produce opposing integer wheels with no center motion, even though its
     // floating curvature is finite. Recover on the incoming tangent, crossing
     // the existing gate by measured displacement rather than minting progress.
-    const double minimumChord = std::max(1e-6,math::linearSpeed(1)*dt);
     if (current.distanceTo(diagnostics.lookahead) <= minimumChord &&
         segment+1 < points.size()) {
       diagnostics.lookahead = points[segment+1];
