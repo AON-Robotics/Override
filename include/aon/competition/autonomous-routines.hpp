@@ -352,13 +352,18 @@ void colorSorting(){
 }
 
 void purePursuitPoint(){
-  drivetrain.goToPose(Pose(TILE_WIDTH, -TILE_WIDTH / 2, 0));
-  drivetrain.goToPose(Pose(TILE_WIDTH * 2, TILE_WIDTH / 2, 90));
-  drivetrain.goToPose(Pose(0, TILE_WIDTH / 2, 180));
-  drivetrain.goToPose(Pose(0, -TILE_WIDTH / 2, 270));
-  drivetrain.goToPose(Pose(TILE_WIDTH, TILE_WIDTH / 2, 0));
-  drivetrain.goToPose(Pose(TILE_WIDTH * 2, -TILE_WIDTH / 2, 90));
-  drivetrain.goToPose(Pose(0, 0, 0));
+  const std::vector<Pose> targets = {
+    Pose(TILE_WIDTH, -TILE_WIDTH / 2, 0),
+    Pose(TILE_WIDTH * 2, TILE_WIDTH / 2, 90),
+    Pose(0, TILE_WIDTH / 2, 180), Pose(0, -TILE_WIDTH / 2, 270),
+    Pose(TILE_WIDTH, TILE_WIDTH / 2, 0),
+    Pose(TILE_WIDTH * 2, -TILE_WIDTH / 2, 90), Pose(0, 0, 0)
+  };
+  for (const Pose& target : targets) {
+    // A failed translation must not authorize the next autonomous action.
+    if (drivetrain.followPath({drivetrain.getPose(), target}).status !=
+        PurePursuit::Status::SUCCESS) return;
+  }
 }
 
 void purePursuitSimpleFollow(){
@@ -372,7 +377,7 @@ void purePursuitSimpleFollow(){
     Pose(0, 0, 0),
    
   };
-  drivetrain.follow(path);
+  if (drivetrain.followPath(path).status != PurePursuit::Status::SUCCESS) return;
 }
 
 void purePursuitPath(){
@@ -421,7 +426,7 @@ void purePursuitPath(){
     Pose(37, 10.5, 0),
     Pose(38, 12.0, 270) // test with 180 as well
   };
-  drivetrain.follow(path);
+  if (drivetrain.followPath(path).status != PurePursuit::Status::SUCCESS) return;
 }
 
 #if USING_BIG_ROBOT
