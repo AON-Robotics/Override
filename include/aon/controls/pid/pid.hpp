@@ -82,6 +82,9 @@ class PID {
   double GetKD() { return kD; }
   /// Retrieves the constant time period.
   double GetKT() { return kT; }
+  /// @brief Set the measured controller interval in seconds. Caller validates
+  /// a finite positive interval before updating; preserve integral/history.
+  void SetKT(double seconds) { kT = seconds; }
   /// Retrieves and accumulates the integral when the error reaches a value.
   double GetStartIntegral() { return start_integral; }
   /// Retrieves the calculated range where the integral must stay within.

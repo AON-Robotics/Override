@@ -9,6 +9,8 @@
 #include "../controls/pure-pursuit.hpp"
 #include <cfloat>
 #include <atomic>
+#include <mutex>
+#include "pros/rtos.hpp"
 
 
 namespace aon {
@@ -59,6 +61,27 @@ class Drivetrain {
   std::atomic<uint32_t> pathCancelGeneration{0};
   std::atomic<bool> pathActive{false};
   std::atomic<PurePursuit::Status> pathStatus{PurePursuit::Status::IDLE};
+
+  // Lock order: drivetrain command mutex, then an individual motor-group mutex.
+  // Hold only for generation/state changes and a finite pair of motor writes;
+  // never across pose reads, controller computation, delays or user callbacks.
+  // Kernel scheduling and motor I/O still prevent a hard real-time guarantee.
+  pros::Mutex pathCommandMutex;
+  bool pathMotorFailure = false; // protected by pathCommandMutex
+
+  // These virtual transport hooks run with pathCommandMutex held. Overrides
+  // must not reenter stop/cancel/publish or acquire this mutex through tank().
+  virtual bool stopPathMotors() { this->motors(0); return true; }
+
+  PurePursuit::Status publishPath(uint32_t generation, double left, double right) {
+    std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+    if (pathCancelGeneration.load() != generation) return PurePursuit::Status::CANCELLED;
+    if (pathMotorFailure || !commandPath(left,right)) {
+      pathMotorFailure = true;
+      return PurePursuit::Status::CONTROL_FAILURE;
+    }
+    return PurePursuit::Status::RUNNING;
+  }
 
   // Only configurations with validated differential wheel kinematics opt in.
   virtual bool supportsPurePursuit() const { return false; }
@@ -265,11 +288,22 @@ class Drivetrain {
   }
 
   /// @brief Stops all motors
-  virtual void stop() { cancelPath(); this->motors(0); }
+  virtual void stop() {
+    // Revoke admission before waiting so the publishing task cannot repeatedly
+    // reacquire the mutex with further commands while a stop is pending.
+    pathCancelGeneration.fetch_add(1);
+    std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+    if (!stopPathMotors()) pathMotorFailure = true;
+  }
 
   /// @brief Request path cancellation from another task. The follow loop stops
-  /// within its next 10ms iteration; direct stop() also latches cancellation.
-  void cancelPath() { pathCancelGeneration.fetch_add(1); }
+  /// cooperatively after the current command publication. No later command from
+  /// that request may publish once cancellation returns. Use stop() to also send
+  /// immediate zeros; cancellation itself does not write the motors.
+  void cancelPath() {
+    pathCancelGeneration.fetch_add(1);
+    std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+  }
   PurePursuit::Status getPathStatus() const { return pathStatus.load(); }
 
   /// @brief Configures the general settings for the motors
@@ -798,21 +832,39 @@ class Drivetrain {
 
   struct PathResult {
     PurePursuit::Status status = PurePursuit::Status::IDLE;
+    PurePursuit::Status translationStatus = PurePursuit::Status::IDLE;
+    bool headingCorrected = false;
+    double headingErrorDeg = 0;
     double finalHeading = 0; // requested clockwise degrees; usable on SUCCESS
     PurePursuit::Diagnostics diagnostics;
     uint32_t elapsedMs = 0;
     uint32_t maxUpdateUs = 0; // controller compute only, excludes I/O/delay
   };
 
+  /// Issue 33's opt-in movement stage. Gains produce motor RPM from degrees;
+  /// no robot tuning is implied. PID timestep is replaced by measured seconds.
+  /// Supply finite gains, finite integral activation/bound, positive maxRPM and
+  /// tolerance, nonzero settlement and timeout. A null config disables alignment.
+  struct HeadingCorrection {
+    PID controller;
+    double maxRPM;
+    double toleranceDeg;
+    uint32_t settleMs;
+    uint32_t timeoutMs;
+  };
+
   /// @brief Synchronously follow an experimental forward differential path.
-  /// @param timeoutMs Hard deadline including path preparation, default 15s.
+  /// @param timeoutMs Cooperative translation/preparation budget, default 15s.
+  /// Optional heading correction has its own subsequent timeout budget.
   /// @param caps Optional per-waypoint motor RPM ceilings (export independent).
   /// @note SUCCESS is settled translation. Issue 33's movement layer owns final
-  /// heading alignment, only after SUCCESS. This function never aligns heading.
+  /// heading alignment, only after SUCCESS. Optional alignment reuses PID under
+  /// the same movement guard; the path geometry controller never aligns heading.
   /// Other motion requests must be serialized by the caller. Cancellation is
   /// task-safe; a second follow request fails without disturbing the active one.
   PathResult followPath(const std::vector<Pose>& path, uint32_t timeoutMs = 15000,
-                        const std::vector<double>& caps = {}, bool reversed = false) {
+                        const std::vector<double>& caps = {}, bool reversed = false,
+                        const HeadingCorrection* headingCorrection = nullptr) {
     using Status = PurePursuit::Status;
     PathResult result;
     const uint32_t generation = pathCancelGeneration.load();
@@ -820,21 +872,57 @@ class Drivetrain {
       result.status = Status::CONTROL_FAILURE;
       return result;
     }
-    struct StopOnExit {
+    // Reentrant requests fail above without waiting for the command mutex.
+    struct ReleaseOnExit {
       Drivetrain* drive;
-      ~StopOnExit() { drive->stop(); drive->pathActive.store(false); }
-    } stopOnExit{this};
+      ~ReleaseOnExit() { drive->pathActive.store(false); }
+    } releaseOnExit{this};
+    {
+      std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+      if (pathCancelGeneration.load() == generation) pathMotorFailure = false;
+      pathStatus.store(Status::RUNNING);
+    }
     const uint32_t started = pros::millis();
     auto finish = [&](Status status) {
+      std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+      if (pathCancelGeneration.load() != generation && status != Status::CONTROL_FAILURE)
+        status = Status::CANCELLED;
+      // Publish terminal status only after both zero attempts have completed.
+      // A failed terminal write must not be reported as settled success.
+      if (!stopPathMotors()) pathMotorFailure = true;
+      if (pathCancelGeneration.load() != generation && status != Status::CONTROL_FAILURE)
+        status = Status::CANCELLED;
+      if (pathMotorFailure) status = Status::CONTROL_FAILURE;
+      if (status != Status::SUCCESS) result.headingCorrected = false;
       result.status = status;
+      if (result.translationStatus == Status::IDLE) result.translationStatus = status;
       result.elapsedMs = uint32_t(pros::millis()-started);
       pathStatus.store(status);
       return result;
     };
-    pathStatus.store(Status::RUNNING);
     if (!supportsPurePursuit() || reversed)
       return finish(Status::UNSUPPORTED_CONFIGURATION);
     if (!yProfile || !thetaProfile) return finish(Status::CONTROL_FAILURE);
+    // Copy configuration before motion: the caller must not mutate it during
+    // this call. Use finite anti-windup bounds, including when Ki is zero.
+    HeadingCorrection correction{PID(0,0,0,0.01,0,0),0,0,0,0};
+    if (headingCorrection) {
+      correction = *headingCorrection;
+      PID& pid = correction.controller;
+      if (!std::isfinite(pid.GetKP()) || !std::isfinite(pid.GetKI()) ||
+          !std::isfinite(pid.GetKD()) || pid.GetKP() < 0 || pid.GetKI() < 0 ||
+          pid.GetKD() < 0 || pid.GetKP()+pid.GetKI()+pid.GetKD() <= 0 ||
+          !std::isfinite(pid.GetStartIntegral()) || pid.GetStartIntegral() < 0 ||
+          !std::isfinite(pid.GetAntiWindup()) || pid.GetAntiWindup() < 0 ||
+          !std::isfinite(correction.maxRPM) || correction.maxRPM < 1 ||
+          correction.maxRPM > std::min({double(MAX_RPM),yProfile->getMaxVelocity(),
+                                       thetaProfile->getMaxVelocity()}) ||
+          !std::isfinite(correction.toleranceDeg) || correction.toleranceDeg <= 0 ||
+          correction.toleranceDeg >= 180 || correction.settleMs == 0 ||
+          correction.timeoutMs <= correction.settleMs)
+        return finish(Status::CONTROL_FAILURE);
+      pid.Reset();
+    }
     PurePursuit controller(*yProfile, *thetaProfile, 5, 2.5, 2.5);
     const Status prepared = controller.setPath(path,caps);
     if (prepared != Status::RUNNING) return finish(prepared);
@@ -858,8 +946,67 @@ class Drivetrain {
       // or success. Zero commands alone are never evidence of completion.
       if (pathCancelGeneration.load() != generation) return finish(Status::CANCELLED);
       if (uint32_t(pros::millis()-started) >= timeoutMs) return finish(Status::TIMEOUT);
-      if (controller.status() != Status::RUNNING) return finish(controller.status());
-      if (!commandPath(output.first,output.second)) return finish(Status::CONTROL_FAILURE);
+      if (controller.status() != Status::RUNNING) {
+        result.translationStatus = controller.status();
+        if (controller.status() != Status::SUCCESS || !headingCorrection)
+          return finish(controller.status());
+        break;
+      }
+      const Status published = publishPath(generation,output.first,output.second);
+      if (published != Status::RUNNING) return finish(published);
+      pros::delay(10);
+    }
+    // Translation is verified settled. Stop before handing off to the single
+    // heading owner, but retain ownership and generation across the handoff.
+    Status published = publishPath(generation,0,0);
+    if (published != Status::RUNNING) return finish(published);
+    const uint32_t correctionStarted = pros::millis();
+    double settledSeconds = 0;
+    bool previouslyArrived = false;
+    double previousHeading = 0;
+    lastTime = uint32_t(pros::micros());
+    first = true;
+    while (true) {
+      if (pathCancelGeneration.load() != generation) return finish(Status::CANCELLED);
+      if (uint32_t(pros::millis()-correctionStarted) >= correction.timeoutMs)
+        return finish(Status::TIMEOUT);
+      if (!hasFreshPose()) return finish(Status::CONTROL_FAILURE);
+      const Pose current = odometry->getPose();
+      const uint32_t now = uint32_t(pros::micros());
+      const uint32_t elapsedUs = first ? 0 : uint32_t(now-lastTime);
+      const double dt = first ? 0.01 : elapsedUs/1e6;
+      first = false; lastTime = now;
+      if (!std::isfinite(current.x) || !std::isfinite(current.y) ||
+          !std::isfinite(current.theta) || dt <= 0 || dt > 0.25 ||
+          current.distanceTo(path.back()) > 2.5)
+        return finish(Status::CONTROL_FAILURE);
+      result.headingErrorDeg = std::remainder(std::remainder(result.finalHeading,360.0)-
+          std::remainder(current.theta,360.0),360.0);
+      const double normalizedHeading = std::remainder(current.theta,360.0);
+      const double angularSpeed = elapsedUs == 0 ? 0 :
+          std::abs(std::remainder(normalizedHeading-previousHeading,360.0))/dt;
+      previousHeading = normalizedHeading;
+      // Match translation's pose-motion settlement ceiling; tolerance alone
+      // must not call a robot still rotating through the target settled.
+      const bool arrived = std::abs(result.headingErrorDeg) <= correction.toleranceDeg &&
+          angularSpeed <= 5;
+      // Only intervals whose endpoints were both in tolerance count as dwell.
+      if (arrived && previouslyArrived) settledSeconds += elapsedUs/1e6;
+      else settledSeconds = 0;
+      previouslyArrived = arrived;
+      correction.controller.SetKT(dt);
+      double rpm = arrived ? 0 : correction.controller.Output(result.headingErrorDeg,0);
+      if (!std::isfinite(rpm)) return finish(Status::CONTROL_FAILURE);
+      rpm = std::clamp(rpm,-correction.maxRPM,correction.maxRPM);
+      if (pathCancelGeneration.load() != generation) return finish(Status::CANCELLED);
+      if (uint32_t(pros::millis()-correctionStarted) >= correction.timeoutMs)
+        return finish(Status::TIMEOUT);
+      published = publishPath(generation,rpm,-rpm);
+      if (published != Status::RUNNING) return finish(published);
+      if (arrived && settledSeconds >= correction.settleMs/1000.0) {
+        result.headingCorrected = true;
+        return finish(Status::SUCCESS);
+      }
       pros::delay(10);
     }
   }

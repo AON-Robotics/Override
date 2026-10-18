@@ -11,10 +11,15 @@ class DifferentialDrive : public Drivetrain {
   bool commandPath(double left, double right) override {
     // Pure Pursuit has already profiled and bounded these commands. A second,
     // independent wheel slew limiter can override speed caps and curvature.
-    leftMotors.SetCurrentVelocity(left);
-    rightMotors.SetCurrentVelocity(right);
-    const auto l = leftMotors.pros::MotorGroup::move_velocity(static_cast<int16_t>(left));
-    const auto r = rightMotors.pros::MotorGroup::move_velocity(static_cast<int16_t>(right));
+    const auto l = leftMotors.moveVelocityDirect(static_cast<int16_t>(left));
+    const auto r = rightMotors.moveVelocityDirect(static_cast<int16_t>(right));
+    return l == 1 && r == 1;
+  }
+
+  bool stopPathMotors() override {
+    // Always attempt both zeros, even when one transport reports failure.
+    const auto l = leftMotors.move_velocity(0);
+    const auto r = rightMotors.move_velocity(0);
     return l == 1 && r == 1;
   }
 
@@ -41,16 +46,6 @@ class DifferentialDrive : public Drivetrain {
   /// @param left The \b RPM to send to the left-side motors (positive is forward)
   /// @param right The \b RPM to send to the right-side motors (positive is forward)
   void tank(const double &left, const double &right) override;
-
-  /// @brief Stop immediately and latch path cancellation. Bypass the motor-group
-  /// slew limiter: a single ramped zero can leave a nonzero setpoint after a
-  /// timeout/fault returns. Reset its state before the next movement request.
-  void stop() override {
-    cancelPath();
-    // Shared zero-command handling resets both velocity and slew timestamp.
-    leftMotors.move_velocity(0);
-    rightMotors.move_velocity(0);
-  }
 
   /// @brief Sets the brake mode for all motors of the drivetrain
   /// @param brakeMode The new brake mode for the drivetrain

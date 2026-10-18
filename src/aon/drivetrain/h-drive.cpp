@@ -48,8 +48,7 @@ double HDrive::getRPM(){
 }
 
 void HDrive::stop(){
-  this->motors(0);
-  this->sideways(0);
+  Drivetrain::stop();
 }
 
 // Using PID

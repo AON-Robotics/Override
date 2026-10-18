@@ -5,6 +5,15 @@
 namespace aon {
 
 class MecanumDrive : public Drivetrain {
+ protected:
+  bool stopPathMotors() override {
+    const auto fl = frontLeftMotors.move_velocity(0);
+    const auto fr = frontRightMotors.move_velocity(0);
+    const auto bl = backLeftMotors.move_velocity(0);
+    const auto br = backRightMotors.move_velocity(0);
+    return fl == 1 && fr == 1 && bl == 1 && br == 1;
+  }
+
  private:
   SmartMotorGroup frontLeftMotors;
   SmartMotorGroup frontRightMotors;
