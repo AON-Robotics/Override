@@ -35,7 +35,19 @@ Corners cannot replenish it. Noncollinear branch transitions require directed
 crossings of corner gates in order; a reversal uses the incoming endpoint plane.
 Fold-aware lookahead and active-branch recovery avoid coincident targets. Capped
 acquisition retains a fixed earned reference until arrival. A missed gate requires
-returning strictly before its plane, then crossing again. A corner target within
+returning strictly before its plane, then crossing again. Recovery retreat uses
+the contiguous incoming straight run, retaining all waypoint speed restrictions.
+Each preceding direction is compared with the corner's incoming direction using
+the gate classification threshold, dot product > `1-1e-6`. Retreat is half the smaller of lookahead and run length,
+floored at two `max(1e-6 inches, linearSpeed(1 RPM)*dt)` travel steps. Its arrival
+radius is at most half the retreat, so the entire recovery ball remains strictly
+before the gate. This internal actuator floor does not enlarge final arrival
+tolerance. Only an earned noncollinear crossing invalidates an obsolete recovery
+target; redundant samples retain the latch. The backward run scan occurs only
+when creating a recovery target and is bounded by the prepared path size.
+Collinear resampling preserves recovery geometry; exact RPM equivalence is not
+guaranteed because the existing per-waypoint braking envelope can change speeds.
+A corner target within
 `max(1e-6 inches, linearSpeed(1 RPM)*dt)` uses an incoming-tangent extension by one
 lookahead to cross the existing gate through measured displacement. This avoids
 zero-center integer-command oscillation near a vertex, without adding progress.
@@ -135,6 +147,13 @@ does not increase requested center speed or exceed the angular ceiling. Reducing
 individual magnitudes alone does not preserve these coupled limits. Geometry
 feasibility uses this same conversion as DifferentialDrive publication. Diagnostics
 contain normalized floating requests; final integer commands may be smaller.
+The final pair also enforces the 30 inches/s^2 lateral ceiling. With
+`u=linearSpeed(1 RPM)`, its ideal commanded lateral acceleration is
+`u^2*abs(L^2-R^2)/(2*DRIVE_WIDTH)`. If necessary, conversion reduces the larger
+signed wheel toward the other wheel's absolute magnitude; for forward motion this
+decreases center, angular and lateral magnitudes together. Work is fixed, with
+at most one square root and a rounding postcheck, without a physical safety margin
+or a raised limit. This can change curvature and is not a traction guarantee.
 Low-speed quantization changes curvature; it cannot preserve every floating
 wheel ratio or establish physical tracking accuracy.
 
