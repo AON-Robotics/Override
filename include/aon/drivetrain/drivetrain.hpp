@@ -883,6 +883,8 @@ class Drivetrain {
       pathStatus.store(Status::RUNNING);
     }
     const uint32_t started = pros::millis();
+    uint32_t activeBudgetStarted = started;
+    uint32_t activeBudgetMs = timeoutMs;
     auto finish = [&](Status status) {
       std::lock_guard<pros::Mutex> lock(pathCommandMutex);
       if (pathCancelGeneration.load() != generation && status != Status::CONTROL_FAILURE)
@@ -893,10 +895,16 @@ class Drivetrain {
       if (pathCancelGeneration.load() != generation && status != Status::CONTROL_FAILURE)
         status = Status::CANCELLED;
       if (pathMotorFailure) status = Status::CONTROL_FAILURE;
+      const uint32_t finished = pros::millis();
+      // Cooperative I/O may overrun a budget. Once writes return, a known
+      // expired deadline must not become SUCCESS; stop errors/cancellation win.
+      if (status == Status::SUCCESS &&
+          uint32_t(finished-activeBudgetStarted) >= activeBudgetMs)
+        status = Status::TIMEOUT;
       if (status != Status::SUCCESS) result.headingCorrected = false;
       result.status = status;
       if (result.translationStatus == Status::IDLE) result.translationStatus = status;
-      result.elapsedMs = uint32_t(pros::millis()-started);
+      result.elapsedMs = uint32_t(finished-started);
       pathStatus.store(status);
       return result;
     };
@@ -960,10 +968,15 @@ class Drivetrain {
     // heading owner, but retain ownership and generation across the handoff.
     Status published = publishPath(generation,0,0);
     if (published != Status::RUNNING) return finish(published);
+    // The zero handoff still belongs to translation. Blocking publication must
+    // not authorize heading correction after that stage's budget has expired.
+    if (uint32_t(pros::millis()-started) >= timeoutMs) return finish(Status::TIMEOUT);
     const uint32_t correctionStarted = pros::millis();
+    activeBudgetStarted = correctionStarted;
+    activeBudgetMs = correction.timeoutMs;
     double settledSeconds = 0;
     bool previouslyArrived = false;
-    double previousHeading = 0;
+    Pose previousCorrectionPose;
     lastTime = uint32_t(pros::micros());
     first = true;
     while (true) {
@@ -973,6 +986,7 @@ class Drivetrain {
       if (!hasFreshPose()) return finish(Status::CONTROL_FAILURE);
       const Pose current = odometry->getPose();
       const uint32_t now = uint32_t(pros::micros());
+      const bool measuredInterval = !first;
       const uint32_t elapsedUs = first ? 0 : uint32_t(now-lastTime);
       const double dt = first ? 0.01 : elapsedUs/1e6;
       first = false; lastTime = now;
@@ -983,13 +997,18 @@ class Drivetrain {
       result.headingErrorDeg = std::remainder(std::remainder(result.finalHeading,360.0)-
           std::remainder(current.theta,360.0),360.0);
       const double normalizedHeading = std::remainder(current.theta,360.0);
-      const double angularSpeed = elapsedUs == 0 ? 0 :
-          std::abs(std::remainder(normalizedHeading-previousHeading,360.0))/dt;
-      previousHeading = normalizedHeading;
-      // Match translation's pose-motion settlement ceiling; tolerance alone
-      // must not call a robot still rotating through the target settled.
-      const bool arrived = std::abs(result.headingErrorDeg) <= correction.toleranceDeg &&
-          angularSpeed <= 5;
+      const double angularSpeed = measuredInterval ? std::abs(std::remainder(
+          normalizedHeading-std::remainder(previousCorrectionPose.theta,360.0),360.0))/dt : 0;
+      const double translationalSpeed = measuredInterval ?
+          current.distanceTo(previousCorrectionPose)/dt : 0; // inches/second
+      previousCorrectionPose = current;
+      if (!std::isfinite(translationalSpeed)) return finish(Status::CONTROL_FAILURE);
+      // Final handoff must retain translation's <=1in/s and <=5deg/s motion
+      // settlement, not merely stay inside the position/heading tolerances.
+      // The first sample establishes a baseline and supplies no dwell evidence.
+      const bool arrived = measuredInterval &&
+          std::abs(result.headingErrorDeg) <= correction.toleranceDeg &&
+          translationalSpeed <= 1 && angularSpeed <= 5;
       // Only intervals whose endpoints were both in tolerance count as dwell.
       if (arrived && previouslyArrived) settledSeconds += elapsedUs/1e6;
       else settledSeconds = 0;
