@@ -13,11 +13,14 @@ void initialize() {
   pros::Task intakeSorting([]{intake.sort();});
 }
 
-void disabled() {}
+void disabled() {
+  drivetrain.setPathEnabled(false);
+}
 
 void competition_initialize() {}
 
 void autonomous() {
+  drivetrain.setPathEnabled(true);
   aon::Configure(false); // Set drivetrain to hold for auton
   // TODO: add presetFunction
   aon::autonomousReader->ExecuteFunction("autonomous");
@@ -29,6 +32,7 @@ void autonomous() {
 // Program slot 2 with Planet Icon is for autonomous routine
 // Program slot 3 with Alien Icon is for tests or miscellaneous components
 void opcontrol() {
+  drivetrain.setPathEnabled(true);
   aon::Configure();
   while (true) {
     #if TESTING_AUTONOMOUS

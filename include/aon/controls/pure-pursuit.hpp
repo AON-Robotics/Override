@@ -20,6 +20,10 @@ namespace aon {
 //  the caller must ensure that only one thread calls `setPath` or `update` at a time.
 class PurePursuit {
  public:
+  // Path execution normally samples at 10ms. Longer than 50ms has demonstrated
+  // sampled-target overshoot; reject it rather than assume convergence. This is
+  // an observed scheduling envelope, not a hard real-time or physical guarantee.
+  static constexpr double maxPathInterval = 0.05; // seconds; legacy go/turn unchanged
   enum class Status {
     IDLE, RUNNING, SUCCESS, TIMEOUT, CANCELLED, INVALID_PATH,
     UNSUPPORTED_CONFIGURATION, CONTROL_FAILURE
@@ -287,7 +291,7 @@ class PurePursuit {
   /// 5deg/s pose motion. Success covers translation, never final alignment.
   std::pair<double, double> update(Pose current, double dt = 0.02) {
     if (pathStatus != Status::RUNNING) return {0, 0};
-    if (!finitePose(current) || !std::isfinite(dt) || dt <= 0 || dt > 0.25)
+    if (!finitePose(current) || !std::isfinite(dt) || dt <= 0 || dt > maxPathInterval)
       return fail(Status::CONTROL_FAILURE);
 
     const double moved = hasPreviousPose ? current.distanceTo(previousPose) : 0;
@@ -406,18 +410,30 @@ class PurePursuit {
     settledSeconds = 0;
     double targetDistance = std::min(diagnostics.length,
         diagnostics.progress + lookaheadDistance);
-    // Do not aim through an untraversed fold back onto the incoming branch.
-    // The bound depends on segment direction, not waypoint count, so adding
-    // collinear samples does not change it. Ordinary corner cutting is retained.
+    // Bound the horizon at folds relative to both the active tangent and each
+    // preceding future tangent. Positive active-direction projections alone can
+    // hide a reversal between two future edges. Retain ordinary corner cutting.
+    size_t nextGate = points.size();
+    double gateNX = 0, gateNY = 0;
     if (segment+1 < points.size()) {
       const double length = distances[segment+1]-distances[segment];
       const double ux = (points[segment+1].x-points[segment].x)/length;
       const double uy = (points[segment+1].y-points[segment].y)/length;
+      double previousX = ux, previousY = uy;
       for (size_t i=segment+1; i+1 < points.size() && distances[i]<targetDistance; ++i) {
         const double nextLength = distances[i+1]-distances[i];
         const double vx = (points[i+1].x-points[i].x)/nextLength;
         const double vy = (points[i+1].y-points[i].y)/nextLength;
-        if (ux*vx+uy*vy < -1e-6) { targetDistance=distances[i]; break; }
+        const double dot = previousX*vx+previousY*vy;
+        if (nextGate == points.size() && dot <= 1-1e-6) {
+          nextGate = i;
+          gateNX = previousX+vx; gateNY = previousY+vy;
+          if (gateNX*gateNX+gateNY*gateNY <= 1e-12) {
+            gateNX = previousX; gateNY = previousY;
+          }
+        }
+        if (ux*vx+uy*vy < -1e-6 || dot < -1e-6) { targetDistance=distances[i]; break; }
+        previousX = vx; previousY = vy;
       }
     }
     size_t ahead = segment;
@@ -428,6 +444,13 @@ class PurePursuit {
           (distances[ahead+1]-distances[ahead]);
       diagnostics.lookahead = points[ahead] + (points[ahead+1]-points[ahead])*t;
     }
+    // Several non-reversing future turns can still put the horizon back before
+    // the first outstanding gate. Aim at that gate instead of an unreachable
+    // target through it. This earns no progress; the directed witness is unchanged.
+    if (nextGate < points.size() && targetDistance > distances[nextGate] &&
+        (diagnostics.lookahead.x-points[nextGate].x)*gateNX+
+        (diagnostics.lookahead.y-points[nextGate].y)*gateNY < -1e-9)
+      diagnostics.lookahead = points[nextGate];
     // Recover to a fixed earned reference before looking forward again. Latch
     // the target until arrival: alternating between acquisition and lookahead
     // as a projection touches its allowance can otherwise strand the controller

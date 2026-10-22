@@ -59,6 +59,7 @@ class Drivetrain {
   std::unique_ptr<MotionProfile> thetaProfile;
 
   std::atomic<uint32_t> pathCancelGeneration{0};
+  std::atomic<bool> pathEnabled{true}; // lifecycle admission; direct/manual API starts enabled
   std::atomic<bool> pathActive{false};
   std::atomic<PurePursuit::Status> pathStatus{PurePursuit::Status::IDLE};
 
@@ -75,7 +76,8 @@ class Drivetrain {
 
   PurePursuit::Status publishPath(uint32_t generation, double left, double right) {
     std::lock_guard<pros::Mutex> lock(pathCommandMutex);
-    if (pathCancelGeneration.load() != generation) return PurePursuit::Status::CANCELLED;
+    if (!pathEnabled.load() || pathCancelGeneration.load() != generation)
+      return PurePursuit::Status::CANCELLED;
     if (pathMotorFailure || !commandPath(left,right)) {
       pathMotorFailure = true;
       return PurePursuit::Status::CONTROL_FAILURE;
@@ -303,6 +305,23 @@ class Drivetrain {
   void cancelPath() {
     pathCancelGeneration.fetch_add(1);
     std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+  }
+
+  /// @brief Persistently allow/reject followPath requests at the competition boundary.
+  /// Disabling revokes the active translation/heading generation before waiting,
+  /// then attempts zeros under the publication barrier. Enabling permits a new
+  /// explicit request; it never revives a cancelled request. Raw driver commands
+  /// and legacy motion APIs remain caller-owned and are not gated by this flag.
+  void setPathEnabled(bool enabled) {
+    if (!enabled) {
+      pathEnabled.store(false);
+      pathCancelGeneration.fetch_add(1);
+    }
+    std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+    // Reassert admission under the mutex so concurrent lifecycle changes have
+    // the same completion boundary as motor publication and terminal stopping.
+    pathEnabled.store(enabled);
+    if (!enabled && !stopPathMotors()) pathMotorFailure = true;
   }
   PurePursuit::Status getPathStatus() const { return pathStatus.load(); }
 
@@ -877,9 +896,11 @@ class Drivetrain {
       Drivetrain* drive;
       ~ReleaseOnExit() { drive->pathActive.store(false); }
     } releaseOnExit{this};
+    bool admitted = false;
     {
       std::lock_guard<pros::Mutex> lock(pathCommandMutex);
-      if (pathCancelGeneration.load() == generation) pathMotorFailure = false;
+      admitted = pathEnabled.load();
+      if (admitted && pathCancelGeneration.load() == generation) pathMotorFailure = false;
       pathStatus.store(Status::RUNNING);
     }
     const uint32_t started = pros::millis();
@@ -908,6 +929,7 @@ class Drivetrain {
       pathStatus.store(status);
       return result;
     };
+    if (!admitted) return finish(Status::CANCELLED);
     if (!supportsPurePursuit() || reversed)
       return finish(Status::UNSUPPORTED_CONFIGURATION);
     if (!yProfile || !thetaProfile) return finish(Status::CONTROL_FAILURE);
@@ -991,7 +1013,7 @@ class Drivetrain {
       const double dt = first ? 0.01 : elapsedUs/1e6;
       first = false; lastTime = now;
       if (!std::isfinite(current.x) || !std::isfinite(current.y) ||
-          !std::isfinite(current.theta) || dt <= 0 || dt > 0.25 ||
+          !std::isfinite(current.theta) || dt <= 0 || dt > PurePursuit::maxPathInterval ||
           current.distanceTo(path.back()) > 2.5)
         return finish(Status::CONTROL_FAILURE);
       result.headingErrorDeg = std::remainder(std::remainder(result.finalHeading,360.0)-
