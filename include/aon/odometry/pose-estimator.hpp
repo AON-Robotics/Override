@@ -33,7 +33,11 @@ struct EstimatorPose {
          std::isfinite(pose.headingRadians);
 }
 
-/** @brief Converts incremental wheel travel in inches to robot-local motion. */
+/** @brief Converts wheel arcs to midpoint-frame chords (inches/clockwise radians).
+ * Requires both parallel wheels. Back offset is positive behind the turn center;
+ * back travel during a positive in-place turn is negative. Missing lateral data
+ * yields zero right motion and lateralValid=false. Invalid geometry yields zero.
+ */
 LocalMotion localMotion(WheelDeltas wheels,
                         TrackingGeometry geometry) noexcept;
 

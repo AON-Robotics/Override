@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 
 namespace aon {
 namespace {
@@ -11,29 +12,34 @@ constexpr double kSparkPositionWeight = 0.5;
 constexpr double kMaximumSparkDisagreementInches = 6.0;
 constexpr double kMaximumWheelStepInches = 6.0;
 
-bool rotationInches(pros::Rotation& sensor, bool reversed, double& inches) {
+bool rotationInches(pros::Rotation& sensor, bool reversed, double diameter,
+                    double& inches) {
   const std::int32_t centidegrees = sensor.get_position();
-  if (centidegrees == PROS_ERR) return false;
+  if (centidegrees == PROS_ERR || !std::isfinite(diameter) || diameter <= 0) return false;
   inches = (reversed ? -1.0 : 1.0) * centidegrees / 100.0 *
-           (M_PI * TRACKING_WHEEL_DIAMETER / 360.0);
+           (M_PI * diameter / 360.0);
   return true;
 }
 
 bool motorDegrees(pros::MotorGroup* group, double& degrees) {
   if (!group) return false;
   const auto positions = group->get_position_all();
+  const auto units = group->get_encoder_units_all();
+  if (positions.empty() || positions.size() != units.size()) return false;
   double total = 0.0;
-  int count = 0;
-  for (double position : positions) {
-    if (std::isfinite(position)) { total += position; ++count; }
+  for (std::size_t i = 0; i < positions.size(); ++i) {
+    // A changing subset of motors would change the absolute average baseline.
+    // Only explicitly supported degree encoders may supply fallback motion.
+    if (!std::isfinite(positions[i]) || units[i] != pros::MotorUnits::degrees)
+      return false;
+    total += positions[i] / positions.size();
   }
-  if (count == 0) return false;
-  degrees = total / count;
-  return true;
+  degrees = total;
+  return std::isfinite(degrees);
 }
 
 bool parsePose(const char* line, Pose& result) {
-  if (line[0] != 'O' || line[1] != ',') return false;
+  if (!line || line[0] != 'O' || line[1] != ',') return false;
   char* end = nullptr;
   const char* cursor = line + 2;
   const double x = std::strtod(cursor, &end);
@@ -51,23 +57,23 @@ bool parsePose(const char* line, Pose& result) {
 }  // namespace
 
 Odometry::Odometry(short left, short right, short back, short gpsPort, short gyro)
-    : headingFusion(V5_IMU_HEADING_SMOOTHING_SECONDS),
-      encoderLeft(std::abs(left)), encoderRight(std::abs(right)),
+    : leftReversed(left < 0), rightReversed(right < 0), backReversed(back < 0),
+      headingFusion(V5_IMU_HEADING_SMOOTHING_SECONDS),
+      encoderRight(std::abs(right)), encoderLeft(std::abs(left)),
       encoderBack(std::abs(back)),
       gps(gpsPort, GPS_INITIAL_X, GPS_INITIAL_Y, GPS_INITIAL_HEADING,
-          GPS_X_OFFSET, GPS_Y_OFFSET),
-      leftReversed(left < 0), rightReversed(right < 0), backReversed(back < 0)
+          GPS_X_OFFSET, GPS_Y_OFFSET)
 #if GYRO_ENABLED
       , gyroscope(gyro)
 #endif
 { resetInitial(); }
 
 Odometry::Odometry(const Odometry& other)
-    : headingFusion(V5_IMU_HEADING_SMOOTHING_SECONDS),
-      encoderLeft(other.encoderLeft), encoderRight(other.encoderRight),
-      encoderBack(other.encoderBack), gps(other.gps),
-      leftReversed(other.leftReversed), rightReversed(other.rightReversed),
-      backReversed(other.backReversed)
+    : leftReversed(other.leftReversed), rightReversed(other.rightReversed),
+      backReversed(other.backReversed),
+      headingFusion(V5_IMU_HEADING_SMOOTHING_SECONDS),
+      encoderRight(other.encoderRight), encoderLeft(other.encoderLeft),
+      encoderBack(other.encoderBack), gps(other.gps)
 #if GYRO_ENABLED
       , gyroscope(other.gyroscope)
 #endif
@@ -82,6 +88,32 @@ Pose Odometry::getPose() {
 double Odometry::getX() { return getPose().x; }
 double Odometry::getY() { return getPose().y; }
 double Odometry::getDegrees() { return getPose().theta; }
+double Odometry::getHeading() {
+  const double wrapped = std::fmod(getDegrees(), 360.0);
+  return wrapped < 0.0 ? wrapped + 360.0 : wrapped;
+}
+
+double Odometry::getTraveledDistance() {
+  pose_mutex.take(TIMEOUT_MAX);
+  const double distance = traveledDistance;
+  pose_mutex.give();
+  return distance;
+}
+
+OdometryHealth Odometry::getHealth() {
+  pose_mutex.take(TIMEOUT_MAX);
+  OdometryHealth result = health;
+  const auto now = pros::millis();
+  if (hasUpdate && now - lastUpdateMs > kPoseTimeoutMs) {
+    result.left = result.right = result.back = result.motors = result.imu =
+        SensorHealth::Stale;
+    result.leftMotors = result.rightMotors = SensorHealth::Stale;
+  }
+  if (hasPacket && now - lastPacketMs > kPoseTimeoutMs) result.otos = SensorHealth::Stale;
+  pose_mutex.give();
+  return result;
+}
+
 double Odometry::getRadians() { return getDegrees() * M_PI / 180.0; }
 Vector Odometry::getPosition() {
   const Pose p = getPose();
@@ -117,12 +149,14 @@ void Odometry::setDriveMotorGroups(pros::MotorGroup* left,
   driveLeft = left;
   driveRight = right;
   hasMotorSample = false;
+  health.motors = health.leftMotors = health.rightMotors = SensorHealth::Baselining;
   pose_mutex.give();
 }
 
 void Odometry::resetMotorBaselines() {
   pose_mutex.take(TIMEOUT_MAX);
   hasMotorSample = false;
+  health.motors = health.leftMotors = health.rightMotors = SensorHealth::Baselining;
   pose_mutex.give();
 }
 
@@ -142,22 +176,34 @@ double Odometry::getOtosDegrees() {
 }
 
 void Odometry::SetPosition(double x, double y) {
-  const Pose p = getPose();
-  resetCurrent(x, y, p.theta);
+  if (!std::isfinite(x) || !std::isfinite(y)) return;
+  pose_mutex.take(TIMEOUT_MAX);
+  resetCurrentLocked(x, y, currentPose.theta);
+  pose_mutex.give();
 }
 void Odometry::setDegrees(double degrees) {
-  const Pose p = getPose();
-  resetCurrent(p.x, p.y, degrees);
+  if (!std::isfinite(degrees)) return;
+  pose_mutex.take(TIMEOUT_MAX);
+  resetCurrentLocked(currentPose.x, currentPose.y, degrees);
+  pose_mutex.give();
 }
 void Odometry::setRadians(double radians) { setDegrees(radians * 180.0 / M_PI); }
 
 void Odometry::resetCurrent(double x, double y, double theta) {
+  if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(theta)) return;
   pose_mutex.take(TIMEOUT_MAX);
+  resetCurrentLocked(x, y, theta);
+  pose_mutex.give();
+}
+
+void Odometry::resetCurrentLocked(double x, double y, double theta) {
   fieldOrigin = Pose(x, y, theta);
   rawOrigin = rawPose;
-  originPending = !hasPacket;
+  originPending = true;
+  hasPacket = false;
   currentPose = fieldOrigin;
   headingFusion.reset(theta);
+  headingFusion.update(0.0, 0.0, false);
   fallbackHeading = 0.0;
   sparkConsumed = false;
   wasSparkFresh = false;
@@ -166,15 +212,32 @@ void Odometry::resetCurrent(double x, double y, double theta) {
   hasMotorSample = false;
   poseSource = 0;
   imuFusing = false;
-  pose_mutex.give();
+  traveledDistance = 0.0;
+  health = {};
+  hasUpdate = false;
 }
 
 void Odometry::resetInitial() {
   resetCurrent(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y, INITIAL_ODOMETRY_THETA);
 }
 
-void Odometry::acceptPose(const Pose& raw) {
+bool Odometry::acceptPose(const Pose& raw) {
   pose_mutex.take(TIMEOUT_MAX);
+  const auto now = pros::millis();
+  const double elapsed = hasPacket ? (now - lastPacketMs) / 1000.0 : 0.0;
+  const bool recent = hasPacket && now - lastPacketMs <= kPoseTimeoutMs;
+  if (!std::isfinite(raw.x) || !std::isfinite(raw.y) || !std::isfinite(raw.theta) ||
+      std::abs(raw.x) > 1e6 || std::abs(raw.y) > 1e6 || std::abs(raw.theta) > 1e9 ||
+      (recent && (std::hypot(raw.x - rawPose.x, raw.y - rawPose.y) >
+                      std::fmax(6.0, 300.0 * elapsed) ||
+                  std::abs(std::remainder(raw.theta - rawPose.theta, 360.0)) > 90.0))) {
+    health.otos = SensorHealth::Implausible;
+    hasPacket = false;
+    wasSparkFresh = false;
+    pose_mutex.give();
+    return false;
+  }
+  if (!recent) wasSparkFresh = false;
   Pose continuous = raw;
   if (hasPacket) {
     continuous.theta += 360.0 * std::round((rawPose.theta - raw.theta) / 360.0);
@@ -187,7 +250,9 @@ void Odometry::acceptPose(const Pose& raw) {
   }
   lastPacketMs = pros::millis();
   hasPacket = true;
+  health.otos = SensorHealth::Healthy;
   pose_mutex.give();
+  return true;
 }
 
 void Odometry::initialize() {
@@ -195,6 +260,9 @@ void Odometry::initialize() {
 #if GYRO_ENABLED
   // Keep the robot still during the V5 IMU's approximately two-second calibration.
   gyroscope.reset(true);
+#endif
+#if GPS_INITIALIZATION_ENABLED
+  initializeFromGps();
 #endif
   pros::Task sensorTask([this] {
     while (true) {
@@ -215,8 +283,7 @@ void Odometry::initialize() {
     if (c == '\n') {
       if (!overflow) {
         line[length] = '\0';
-        Pose raw;
-        if (parsePose(line, raw)) acceptPose(raw);
+        ingestOtosLine(line);
       }
       length = 0;
       overflow = false;
@@ -227,95 +294,102 @@ void Odometry::initialize() {
   }
 }
 
+bool Odometry::ingestOtosLine(const char* line) {
+  Pose raw;
+  if (!parsePose(line, raw)) {
+    if (line && line[0] == 'O' && line[1] == ',') {
+      pose_mutex.take(TIMEOUT_MAX);
+      health.otos = SensorHealth::Invalid;
+      pose_mutex.give();
+    }
+    return false;
+  }
+  return acceptPose(raw);
+}
+
 void Odometry::update() {
+  // Serialize reads, baselines, source changes and setters as one transaction.
+  pose_mutex.take(TIMEOUT_MAX);
+  const std::uint32_t nowMs = pros::millis();
+  const bool wasWheelHeading = health.motors == SensorHealth::Healthy ||
+      (health.left == SensorHealth::Healthy &&
+       health.right == SensorHealth::Healthy);
+  const bool gap = hasUpdate && nowMs - lastUpdateMs > kPoseTimeoutMs;
+  const double dt = hasUpdate ? (nowMs - lastUpdateMs) / 1000.0 : 0.02;
+  if (gap) {
+    hasTrackingSample = hadBackSample = hasMotorSample = wasSparkFresh = false;
+    headingFusion.update(fallbackHeading, 0.0, false);
+  }
+  hasUpdate = true;
+  lastUpdateMs = nowMs;
   double left = 0, right = 0, back = 0, motorLeft = 0, motorRight = 0;
-  const bool leftValid = rotationInches(encoderLeft, leftReversed, left);
-  const bool rightValid = rotationInches(encoderRight, rightReversed, right);
-  const bool backValid = rotationInches(encoderBack, backReversed, back);
+  const bool leftValid = rotationInches(encoderLeft, leftReversed,
+      LEFT_TRACKING_WHEEL_DIAMETER, left);
+  const bool rightValid = rotationInches(encoderRight, rightReversed,
+      RIGHT_TRACKING_WHEEL_DIAMETER, right);
+  const bool backValid = rotationInches(encoderBack, backReversed,
+      BACK_TRACKING_WHEEL_DIAMETER, back);
   const bool motorLeftValid = motorDegrees(driveLeft, motorLeft);
   const bool motorRightValid = motorDegrees(driveRight, motorRight);
-#if GYRO_ENABLED
-  const bool calibrating = gyroscope.is_calibrating();
-  const double imuRotation = calibrating ? 0.0 : gyroscope.get_rotation();
-  const bool imuValid = !calibrating && std::isfinite(imuRotation);
-#else
-  const double imuRotation = 0.0;
-  const bool imuValid = false;
-#endif
-  const std::uint32_t nowMs = pros::millis();
-  pose_mutex.take(TIMEOUT_MAX);
-  const bool trackingValid = leftValid && rightValid;
   const bool motorsValid = motorLeftValid && motorRightValid;
+  auto wheelHealth = [](bool valid, bool baseline, double delta) {
+    if (!valid) return SensorHealth::Unavailable;
+    if (!baseline) return SensorHealth::Baselining;
+    return std::abs(delta) <= kMaximumWheelStepInches ?
+        SensorHealth::Healthy : SensorHealth::Implausible;
+  };
+  const double dl = left - previousLeft;
+  const double dr = right - previousRight;
+  const double db = back - previousBack;
+  health.left = wheelHealth(leftValid, hasTrackingSample, dl);
+  health.right = wheelHealth(rightValid, hasTrackingSample, dr);
+  health.back = wheelHealth(backValid, hadBackSample, db);
+  const bool trackingAccepted = health.left == SensorHealth::Healthy &&
+                                health.right == SensorHealth::Healthy;
+  const bool backAccepted = health.back == SensorHealth::Healthy;
+  const auto track = localization::localMotion(
+      {dl, dr, db, trackingAccepted, trackingAccepted, backAccepted},
+      {DISTANCE_LEFT_TRACKING_WHEEL_CENTER, DISTANCE_RIGHT_TRACKING_WHEEL_CENTER,
+       DISTANCE_BACK_TRACKING_WHEEL_CENTER});
+  previousLeft = left;
+  previousRight = right;
+  previousBack = back;
+  hasTrackingSample = leftValid && rightValid;
+  hadBackSample = backValid;
+
+  const double inchesPerDegree = M_PI * DRIVE_WHEEL_DIAMETER *
+                                 MOTOR_TO_DRIVE_RATIO / 360.0;
+  const double ml = (motorLeft - previousMotorLeft) * inchesPerDegree;
+  const double mr = (motorRight - previousMotorRight) * inchesPerDegree;
+  health.leftMotors = wheelHealth(motorLeftValid, hasMotorSample, ml);
+  health.rightMotors = wheelHealth(motorRightValid, hasMotorSample, mr);
+  health.motors = !motorsValid ? SensorHealth::Unavailable :
+      (health.leftMotors == SensorHealth::Implausible ||
+       health.rightMotors == SensorHealth::Implausible) ?
+          SensorHealth::Implausible : health.leftMotors;
+  const bool motorsAccepted = health.motors == SensorHealth::Healthy;
+  const auto motor = localization::localMotion(
+      {ml, mr, 0, motorsAccepted, motorsAccepted, false},
+      {DRIVE_WIDTH / 2.0, DRIVE_WIDTH / 2.0, 0});
+  previousMotorLeft = motorLeft;
+  previousMotorRight = motorRight;
+  hasMotorSample = motorsValid;
+
   const bool sparkFresh = hasPacket && nowMs - lastPacketMs <= kPoseTimeoutMs;
-  bool trackingAccepted = false;
-  bool motorsAccepted = false;
-  bool backAccepted = false;
-  double trackForward = 0, trackRight = 0, trackHeading = 0;
-  double motorForward = 0, motorHeading = 0;
-  double sparkX = 0, sparkY = 0, sparkHeading = 0;
-
-  if (trackingValid) {
-    if (hasTrackingSample) {
-      const double dLeft = left - previousLeft;
-      const double dRight = right - previousRight;
-      if (std::abs(dLeft) <= kMaximumWheelStepInches &&
-          std::abs(dRight) <= kMaximumWheelStepInches) {
-        trackingAccepted = true;
-        trackForward = (dLeft + dRight) / 2.0;
-        trackHeading = (dLeft - dRight) /
-                       (DISTANCE_LEFT_TRACKING_WHEEL_CENTER +
-                        DISTANCE_RIGHT_TRACKING_WHEEL_CENTER) * 180.0 / M_PI;
-        if (backValid && hadBackSample &&
-            std::abs(back - previousBack) <= kMaximumWheelStepInches) {
-          backAccepted = true;
-          trackRight = back - previousBack;
-        }
-      }
-    }
-    previousLeft = left;
-    previousRight = right;
-    previousBack = back;
-    hadBackSample = backValid;
-    hasTrackingSample = true;
-  } else {
-    hasTrackingSample = false;
-    hadBackSample = false;
-  }
-
-  if (motorsValid) {
-    if (hasMotorSample) {
-      const double inchesPerDegree = M_PI * DRIVE_WHEEL_DIAMETER *
-                                     MOTOR_TO_DRIVE_RATIO / 360.0;
-      const double dLeft = (motorLeft - previousMotorLeft) * inchesPerDegree;
-      const double dRight = (motorRight - previousMotorRight) * inchesPerDegree;
-      if (std::abs(dLeft) <= kMaximumWheelStepInches &&
-          std::abs(dRight) <= kMaximumWheelStepInches) {
-        motorsAccepted = true;
-        motorForward = (dLeft + dRight) / 2.0;
-        motorHeading = (dLeft - dRight) / DRIVE_WIDTH * 180.0 / M_PI;
-      }
-    }
-    previousMotorLeft = motorLeft;
-    previousMotorRight = motorRight;
-    hasMotorSample = true;
-  } else {
-    hasMotorSample = false;
-  }
-
-  // Source selection uses accepted deltas; read-only baselines and jumps
-  // cannot supply movement or refresh the estimate. Rebase after a switch.
+  if (hasPacket && !sparkFresh) health.otos = SensorHealth::Stale;
   if ((poseSource == 4 && !trackingAccepted) ||
-      (poseSource == 3 && trackingAccepted)) wasSparkFresh = false;
+      (poseSource == 3 && trackingAccepted) ||
+      (wasWheelHeading && !trackingAccepted && !motorsAccepted))
+    wasSparkFresh = false;
   const bool newSpark = sparkFresh && !sparkConsumed;
   const bool sparkRebased = newSpark && !wasSparkFresh;
-
+  double sparkX = 0, sparkY = 0, sparkHeading = 0;
   if (newSpark) {
     const double angle = (fieldOrigin.theta - rawOrigin.theta) * M_PI / 180.0;
-    const double dx = rawPose.x - rawOrigin.x;
-    const double dy = rawPose.y - rawOrigin.y;
+    const double dx = rawPose.x - rawOrigin.x, dy = rawPose.y - rawOrigin.y;
     sparkX = fieldOrigin.x + dx * std::cos(angle) - dy * std::sin(angle);
     sparkY = fieldOrigin.y + dx * std::sin(angle) + dy * std::cos(angle);
-    if (!wasSparkFresh) {
+    if (sparkRebased) {
       sparkOffsetX = currentPose.x - sparkX;
       sparkOffsetY = currentPose.y - sparkY;
     } else {
@@ -327,69 +401,112 @@ void Odometry::update() {
   if (!sparkFresh) wasSparkFresh = false;
   else if (newSpark) wasSparkFresh = true;
 
-  const double fallbackDelta = trackingAccepted ? trackHeading :
-                               motorsAccepted ? motorHeading : sparkHeading;
-  fallbackHeading += fallbackDelta;
-  const double dt = lastEstimateMs ? (nowMs - lastEstimateMs) / 1000.0 : 0.02;
+#if GYRO_ENABLED
+  const bool calibrating = gyroscope.is_calibrating();
+  const double imuRotation = calibrating ? 0.0 : gyroscope.get_rotation();
+  const bool imuValid = !calibrating && std::isfinite(imuRotation);
+#else
+  const double imuRotation = 0.0;
+  const bool imuValid = false;
+#endif
+  const auto motion = trackingAccepted ? track : motor;
+  fallbackHeading += trackingAccepted || motorsAccepted ?
+      localization::degrees(motion.headingRadians) : sparkHeading;
   const double previousHeading = currentPose.theta;
   const double heading = headingFusion.update(fallbackHeading, imuRotation,
                                               imuValid, dt);
   imuFusing = headingFusion.usingImu();
+  health.imu = !imuValid ? SensorHealth::Unavailable :
+      headingFusion.rejectedImu() ? SensorHealth::Implausible :
+      imuFusing ? SensorHealth::Healthy : SensorHealth::Baselining;
 
-  double driveX = 0, driveY = 0;
+  // Compensate wheel offsets with wheel rotation, not the delayed/smoothed IMU.
+  // Fused heading still orients the translation in the established field frame.
+  const double middle = (previousHeading + heading) * M_PI / 360.0;
+  double distance = 0.0;
   if (trackingAccepted || motorsAccepted) {
-    const double forward = trackingAccepted ? trackForward : motorForward;
-    const double lateral = trackingAccepted && backAccepted ?
-        trackRight + (heading - previousHeading) * M_PI / 180.0 *
-                     DISTANCE_BACK_TRACKING_WHEEL_CENTER : 0.0;
-    const double middleHeading = (previousHeading + heading) * M_PI / 360.0;
-    driveX = forward * std::cos(middleHeading) - lateral * std::sin(middleHeading);
-    driveY = forward * std::sin(middleHeading) + lateral * std::cos(middleHeading);
+    currentPose.x += motion.forwardInches * std::cos(middle) -
+                     motion.rightInches * std::sin(middle);
+    currentPose.y += motion.forwardInches * std::sin(middle) +
+                     motion.rightInches * std::cos(middle);
+    distance = std::hypot(motion.forwardInches, motion.rightInches) /
+               std::abs(localization::sinc(motion.headingRadians / 2.0));
   }
-  if (trackingAccepted) {
-    currentPose.x += driveX;
-    currentPose.y += driveY;
-    if (sparkFresh && newSpark && !sparkRebased) {
-      const double errorX = sparkX + sparkOffsetX - currentPose.x;
-      const double errorY = sparkY + sparkOffsetY - currentPose.y;
-      if (std::hypot(errorX, errorY) <= kMaximumSparkDisagreementInches) {
-        currentPose.x += kSparkPositionWeight * errorX;
-        currentPose.y += kSparkPositionWeight * errorY;
-      } else {
-        sparkOffsetX -= errorX;
-        sparkOffsetY -= errorY;
-      }
+  if (newSpark && !sparkRebased) {
+    const double errorX = sparkX + sparkOffsetX - currentPose.x;
+    const double errorY = sparkY + sparkOffsetY - currentPose.y;
+    if (std::hypot(errorX, errorY) <= kMaximumSparkDisagreementInches) {
+      const double weight = trackingAccepted || motorsAccepted ?
+                            kSparkPositionWeight : 1.0;
+      currentPose.x += weight * errorX;
+      currentPose.y += weight * errorY;
+      if (!trackingAccepted && !motorsAccepted) distance = std::hypot(errorX, errorY);
+    } else {
+      // Apply the same innovation gate even when OTOS is the only source.
+      sparkOffsetX -= errorX;
+      sparkOffsetY -= errorY;
+      health.otos = SensorHealth::Implausible;
     }
-    poseSource = sparkFresh ? 4 : 2;
-  } else if (sparkFresh) {
-    if (motorsAccepted) {
-      currentPose.x += driveX;
-      currentPose.y += driveY;
-    }
-    if (newSpark && !sparkRebased) {
-      const double correction = motorsAccepted ? kSparkPositionWeight : 1.0;
-      currentPose.x += correction * (sparkX + sparkOffsetX - currentPose.x);
-      currentPose.y += correction * (sparkY + sparkOffsetY - currentPose.y);
-    }
-    poseSource = 3;
-  } else if (motorsAccepted) {
-    currentPose.x += driveX;
-    currentPose.y += driveY;
-    poseSource = 1;
-  } else {
-    poseSource = 0;
   }
+  traveledDistance += distance;
+  poseSource = trackingAccepted ? (sparkFresh ? 4 : 2) :
+               sparkFresh ? 3 : motorsAccepted ? 1 : 0;
   currentPose.theta = heading;
   if (trackingAccepted || motorsAccepted || newSpark) lastEstimateMs = nowMs;
   pose_mutex.give();
 }
-Vector Odometry::gpsPosition() { return getPosition(); }
+
+bool Odometry::readGps(Pose& result) {
+  const auto position = gps.get_position();
+  const double error = gps.get_error();
+  const double heading = gps.get_heading();
+  if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
+      !std::isfinite(error) || !std::isfinite(heading) || error < 0.0 ||
+      error > GPS_MAX_ERROR_METERS || heading < 0.0 || heading >= 360.0 ||
+      std::abs(position.x) > GPS_FIELD_HALF_SIZE_METERS ||
+      std::abs(position.y) > GPS_FIELD_HALF_SIZE_METERS) {
+    health.gps = SensorHealth::Unavailable;
+    return false;
+  }
+  // PROS: +X east, +Y north, meters; this project's +X is heading zero.
+  result = Pose(position.y / 0.0254, position.x / 0.0254, heading);
+  health.gps = SensorHealth::Healthy;
+  return true;
+}
+
+bool Odometry::initializeFromGps() {
+  pose_mutex.take(TIMEOUT_MAX);
+  Pose initial;
+  const bool valid = readGps(initial);
+  if (valid) {
+    resetCurrentLocked(initial.x, initial.y, initial.theta);
+    health.gps = SensorHealth::Healthy;
+  }
+  pose_mutex.give();
+  return valid;
+}
+
+Vector Odometry::gpsPosition() {
+  pose_mutex.take(TIMEOUT_MAX);
+  const double invalid = std::numeric_limits<double>::quiet_NaN();
+  Pose position(invalid, invalid, 0);
+  readGps(position);
+  pose_mutex.give();
+  return Vector().SetPosition(position.x, position.y);
+}
 void Odometry::debug() {
   while (true) {
     const Pose p = getPose();
     pros::lcd::print(0, "Pose X %.2f Y %.2f H %.2f", p.x, p.y, p.theta);
     pros::lcd::print(1, "Pose source %d OTOS %d", getPoseSource(), hasFreshOtos());
     pros::lcd::print(2, "V5 IMU heading %s", isImuFusing() ? "on" : "off");
+    pros::lcd::print(3, "Distance %.2f in", getTraveledDistance());
+    const auto h = getHealth();
+    pros::lcd::print(4, "Health L%d R%d B%d M%d", static_cast<int>(h.left),
+                     static_cast<int>(h.right), static_cast<int>(h.back),
+                     static_cast<int>(h.motors));
+    pros::lcd::print(5, "Health IMU%d OTOS%d GPS%d", static_cast<int>(h.imu),
+                     static_cast<int>(h.otos), static_cast<int>(h.gps));
     pros::delay(50);
   }
 }

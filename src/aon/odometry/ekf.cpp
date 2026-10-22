@@ -100,8 +100,8 @@ bool Ekf::predict(LocalMotion motion) noexcept {
 
   const double deltaX = candidateState.xInches - state_.xInches;
   const double deltaY = candidateState.yInches - state_.yInches;
-  Matrix3 jacobian{{{1.0, 0.0, deltaY},
-                    {0.0, 1.0, -deltaX},
+  Matrix3 jacobian{{{1.0, 0.0, -deltaY},
+                    {0.0, 1.0, deltaX},
                     {0.0, 0.0, 1.0}}};
 
   Matrix3 candidateCovariance =

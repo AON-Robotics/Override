@@ -140,4 +140,23 @@
 /// Alliance color selected from the GUI before the match.
 enum Alliance : int { Red, Blue, Skills };
 
+// Optional GPS startup: field frame is +X north, +Y east, clockwise degrees.
+// GPS hardware offsets/initial coordinates above remain in PROS meters.
+#ifndef GPS_INITIALIZATION_ENABLED
+#define GPS_INITIALIZATION_ENABLED false
+#endif
+#define GPS_MAX_ERROR_METERS 0.05
+#define GPS_FIELD_HALF_SIZE_METERS 1.83
+
+// Individual wheel diameters (inches); defaults preserve existing geometry.
+#ifndef LEFT_TRACKING_WHEEL_DIAMETER
+#define LEFT_TRACKING_WHEEL_DIAMETER TRACKING_WHEEL_DIAMETER
+#endif
+#ifndef RIGHT_TRACKING_WHEEL_DIAMETER
+#define RIGHT_TRACKING_WHEEL_DIAMETER TRACKING_WHEEL_DIAMETER
+#endif
+#ifndef BACK_TRACKING_WHEEL_DIAMETER
+#define BACK_TRACKING_WHEEL_DIAMETER TRACKING_WHEEL_DIAMETER
+#endif
+
 #endif  // AON_CONSTANTS_HPP_
