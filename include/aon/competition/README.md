@@ -33,6 +33,10 @@ Progress is ordered, not a global nearest-point lookup. Its cumulative allowance
 is at most one initial lookahead plus twice total measured pose displacement.
 Corners cannot replenish it. Noncollinear branch transitions require directed
 crossings of corner gates in order; a reversal uses the incoming endpoint plane.
+The forward horizon stops at folds relative to both the active direction and
+adjacent future directions. If a horizon spanning the first outstanding gate
+returns strictly before that gate's plane, it instead targets the gate vertex.
+This retains ordinary corner cutting on the forward side and grants no progress.
 Fold-aware lookahead and active-branch recovery avoid coincident targets. Capped
 acquisition retains a fixed earned reference until arrival. A missed gate requires
 returning strictly before its plane, then crossing again. Recovery retreat uses
@@ -116,6 +120,17 @@ The 10ms delay is a requested polling delay, not a cancellation-latency guarante
 `maxUpdateUs` measures only path-controller compute; it excludes pose access,
 heading PID, motor writes, locks and delay. Host timing is not V5 timing.
 
+Path translation updates and optional final-heading correction require positive
+measured intervals <=50ms (`PurePursuit::maxPathInterval`); an observed overrun
+returns CONTROL_FAILURE through normal stop/error/cancellation handling. This
+explicitly replaces the former 250ms path acceptance. Long holds demonstrated
+recovery-target overshoot and timestep-dependent corner targeting; fixed/mixed
+5-50ms host cases passed, whereas fixed100ms cases failed. This is a tested
+scheduling envelope, not general polyline convergence or a real-time guarantee.
+An overrun is detected at the next observation; motion during a blocked hold is
+not bounded by that detection. Legacy single-target `go`/`turn` keep their prior
+250ms input domain and separate, unvalidated scheduling assumptions.
+
 Cancellation revokes the request generation before waiting on the command mutex.
 Generation revalidation and paired wheel publication use the same mutex as stop.
 An in-flight pair finishes before stop returns; after that boundary the cancelled
@@ -124,6 +139,15 @@ publication barrier but does not itself send zeros; use `stop` for immediate zer
 attempts. Lock order is drivetrain command mutex then one motor-group state
 mutex. No pose read, control computation or delay holds the command mutex. The
 finite number of writes is bounded; scheduler and device wall time are not.
+
+The actual `disabled()` callback calls `setPathEnabled(false)`, which persistently
+rejects new path requests and revokes active translation/heading before waiting
+for the publication barrier and attempting zeros. Autonomous and operator-control
+entry explicitly re-enable path admission. Enabling never revives a cancelled
+generation. Direct API instances start enabled for existing manual/offline callers.
+This gates `followPath` and its heading stage; raw driver commands and unrelated
+legacy movement routines remain caller-owned. Host callback tests do not verify
+PROS field-notification delivery, task scheduling or physical motor stopping.
 
 Every normal terminal return attempts zeros for all motor groups, even after a
 write error (both sides on DifferentialDrive, all three/four on holonomic drives).
