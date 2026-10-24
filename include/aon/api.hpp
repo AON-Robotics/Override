@@ -15,7 +15,6 @@
 
 #include "./tools/logging.hpp"
 #include "./tools/json.hpp"
-#include "./jerryio/path.hpp"
 #include "./tools/gui/gui.hpp"
 #include "./tools/gui/gui-debug.hpp"
 

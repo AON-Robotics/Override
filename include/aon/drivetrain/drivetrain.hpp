@@ -98,7 +98,11 @@ class Drivetrain {
   Drivetrain(Pose pose, std::unique_ptr<Odometry> odom, SpeedFactors speedFactors, 
              std::unique_ptr<MotionProfile> xProfile, std::unique_ptr<MotionProfile> yProfile, std::unique_ptr<MotionProfile> thetaProfile): 
              odometry(std::move(odom)), speedFactors(speedFactors),
-             xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) { setPose(pose); }
+             xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) {
+    // Missing odometry must reach followPath's freshness rejection and stop
+    // attempts without dereferencing a sensor during construction.
+    if (odometry) setPose(pose);
+  }
 
   enum DriveMode {
     TANK,
@@ -863,6 +867,51 @@ class Drivetrain {
     uint32_t maxUpdateUs = 0; // controller compute only, excludes I/O/delay
   };
 
+  enum class PathStage { TRANSLATION, HEADING };
+
+  /// Optional experimental measurement record. Timestamp is the pose observation
+  /// time, not the sensor's acquisition timestamp. RPM fields are converted
+  /// requests, never measured motor speeds. published means both transport APIs
+  /// returned success, not that the robot achieved the requested velocity.
+  struct PathSample {
+    uint32_t timestampUs = 0;
+    uint32_t intervalUs = 0; // preceding observed interval; first stage sample = 0
+    uint32_t computeUs = 0; // translation: controller update; heading: PID only
+    uint32_t publicationUs = 0; // mutex wait and command transport, excludes stop
+    PathStage stage = PathStage::TRANSLATION;
+    Pose pose;
+    PurePursuit::Diagnostics diagnostics; // heading stage retains translation geometry
+    double requestedLeftRPM = 0, requestedRightRPM = 0;
+    int16_t leftRPM = 0, rightRPM = 0;
+    PurePursuit::Status status = PurePursuit::Status::IDLE;
+    bool published = false;
+  };
+
+  /// Caller owns storage for the whole synchronous request. Read only after
+  /// followPath returns; this is deliberately not a concurrent ring buffer.
+  /// Full/zero-capacity storage drops samples without changing motor behavior.
+  /// Allocate outside the control task; capacity*sizeof(PathSample) is the exact
+  /// sample storage cost. No allocation, formatting or device reads in capture.
+  struct PathTrace {
+    PathSample* samples;
+    size_t capacity;
+    size_t size = 0;
+    uint32_t dropped = 0, maxIntervalUs = 0;
+    PurePursuit::Status status = PurePursuit::Status::IDLE;
+    PurePursuit::Status translationStatus = PurePursuit::Status::IDLE;
+    bool terminalStopSucceeded = false;
+
+    void reset() {
+      size = 0; dropped = 0; maxIntervalUs = 0;
+      status = translationStatus = PurePursuit::Status::IDLE;
+      terminalStopSucceeded = false;
+    }
+    void record(const PathSample& sample) {
+      if (samples && size < capacity) samples[size++] = sample;
+      else if (dropped != UINT32_MAX) ++dropped;
+    }
+  };
+
   /// Issue 33's opt-in movement stage. Gains produce motor RPM from degrees;
   /// no robot tuning is implied. PID timestep is replaced by measured seconds.
   /// Supply finite gains, finite integral activation/bound, positive maxRPM and
@@ -884,9 +933,12 @@ class Drivetrain {
   /// the same movement guard; the path geometry controller never aligns heading.
   /// Other motion requests must be serialized by the caller. Cancellation is
   /// task-safe; a second follow request fails without disturbing the active one.
+  /// @param trace Optional bounded diagnostics, disabled by default. Storage and
+  /// configuration must remain valid and unmodified until this call returns.
   PathResult followPath(const std::vector<Pose>& path, uint32_t timeoutMs = 15000,
                         const std::vector<double>& caps = {}, bool reversed = false,
-                        const HeadingCorrection* headingCorrection = nullptr) {
+                        const HeadingCorrection* headingCorrection = nullptr,
+                        PathTrace* trace = nullptr) {
     using Status = PurePursuit::Status;
     PathResult result;
     const uint32_t generation = pathCancelGeneration.load();
@@ -899,6 +951,7 @@ class Drivetrain {
       Drivetrain* drive;
       ~ReleaseOnExit() { drive->pathActive.store(false); }
     } releaseOnExit{this};
+    if (trace) trace->reset(); // rejected overlapping requests never touch capture
     bool admitted = false;
     {
       std::lock_guard<pros::Mutex> lock(pathCommandMutex);
@@ -915,7 +968,8 @@ class Drivetrain {
         status = Status::CANCELLED;
       // Publish terminal status only after both zero attempts have completed.
       // A failed terminal write must not be reported as settled success.
-      if (!stopPathMotors()) pathMotorFailure = true;
+      const bool stopped = stopPathMotors();
+      if (!stopped) pathMotorFailure = true;
       if (pathCancelGeneration.load() != generation && status != Status::CONTROL_FAILURE)
         status = Status::CANCELLED;
       if (pathMotorFailure) status = Status::CONTROL_FAILURE;
@@ -930,9 +984,15 @@ class Drivetrain {
       if (result.translationStatus == Status::IDLE) result.translationStatus = status;
       result.elapsedMs = uint32_t(finished-started);
       pathStatus.store(status);
+      if (trace) {
+        trace->status = status;
+        trace->translationStatus = result.translationStatus;
+        trace->terminalStopSucceeded = stopped;
+      }
       return result;
     };
     if (!admitted) return finish(Status::CANCELLED);
+    if (trace && trace->capacity && !trace->samples) return finish(Status::CONTROL_FAILURE);
     if (!supportsPurePursuit() || reversed)
       return finish(Status::UNSUPPORTED_CONFIGURATION);
     if (!yProfile || !thetaProfile) return finish(Status::CONTROL_FAILURE);
@@ -960,6 +1020,20 @@ class Drivetrain {
     const Status prepared = controller.setPath(path,caps);
     if (prepared != Status::RUNNING) return finish(prepared);
     result.finalHeading = controller.finalHeading();
+    const auto record = [&](PathStage stage, const Pose& pose, uint32_t timestamp,
+                            uint32_t interval, uint32_t compute, uint32_t publication,
+                            double left, double right, Status status, bool published) {
+      if (!trace) return;
+      PathSample sample;
+      sample.timestampUs = timestamp; sample.intervalUs = interval;
+      sample.computeUs = compute; sample.publicationUs = publication;
+      sample.stage = stage; sample.pose = pose; sample.diagnostics = result.diagnostics;
+      sample.requestedLeftRPM = left; sample.requestedRightRPM = right;
+      const auto pair = PurePursuit::motorCommands(left,right,thetaProfile->getMaxVelocity());
+      sample.leftRPM = pair.first; sample.rightRPM = pair.second;
+      sample.status = status; sample.published = published;
+      trace->record(sample);
+    };
     uint32_t lastTime = uint32_t(pros::micros());
     bool first = true;
     while (true) {
@@ -968,24 +1042,32 @@ class Drivetrain {
       if (!hasFreshPose()) return finish(Status::CONTROL_FAILURE);
       const Pose current = odometry->getPose();
       const uint32_t now = uint32_t(pros::micros());
-      const double dt = first ? 0.01 : uint32_t(now-lastTime)/1e6;
+      const uint32_t elapsedUs = first ? 0 : uint32_t(now-lastTime);
+      const double dt = first ? 0.01 : elapsedUs/1e6;
       first = false; lastTime = now;
+      if (trace) trace->maxIntervalUs = std::max(trace->maxIntervalUs,elapsedUs);
       const uint32_t computeStart = uint32_t(pros::micros());
       const auto output = controller.update(current,dt);
-      result.maxUpdateUs = std::max(result.maxUpdateUs,
-          uint32_t(uint32_t(pros::micros())-computeStart));
+      const uint32_t computeUs = uint32_t(uint32_t(pros::micros())-computeStart);
+      result.maxUpdateUs = std::max(result.maxUpdateUs,computeUs);
       result.diagnostics = controller.getDiagnostics();
       // Recheck asynchronous cancellation and deadline before publishing commands
       // or success. Zero commands alone are never evidence of completion.
       if (pathCancelGeneration.load() != generation) return finish(Status::CANCELLED);
       if (uint32_t(pros::millis()-started) >= timeoutMs) return finish(Status::TIMEOUT);
       if (controller.status() != Status::RUNNING) {
+        record(PathStage::TRANSLATION,current,now,elapsedUs,computeUs,0,
+               output.first,output.second,controller.status(),false);
         result.translationStatus = controller.status();
         if (controller.status() != Status::SUCCESS || !headingCorrection)
           return finish(controller.status());
         break;
       }
+      const uint32_t publicationStart = trace ? uint32_t(pros::micros()) : 0;
       const Status published = publishPath(generation,output.first,output.second);
+      record(PathStage::TRANSLATION,current,now,elapsedUs,computeUs,
+             trace ? uint32_t(uint32_t(pros::micros())-publicationStart) : 0,
+             output.first,output.second,published,published == Status::RUNNING);
       if (published != Status::RUNNING) return finish(published);
       pros::delay(10);
     }
@@ -1015,6 +1097,7 @@ class Drivetrain {
       const uint32_t elapsedUs = first ? 0 : uint32_t(now-lastTime);
       const double dt = first ? 0.01 : elapsedUs/1e6;
       first = false; lastTime = now;
+      if (trace) trace->maxIntervalUs = std::max(trace->maxIntervalUs,elapsedUs);
       if (!std::isfinite(current.x) || !std::isfinite(current.y) ||
           !std::isfinite(current.theta) || dt <= 0 || dt > PurePursuit::maxPathInterval ||
           current.distanceTo(path.back()) > 2.5)
@@ -1038,14 +1121,20 @@ class Drivetrain {
       if (arrived && previouslyArrived) settledSeconds += elapsedUs/1e6;
       else settledSeconds = 0;
       previouslyArrived = arrived;
+      const uint32_t computeStart = trace ? uint32_t(pros::micros()) : 0;
       correction.controller.SetKT(dt);
       double rpm = arrived ? 0 : correction.controller.Output(result.headingErrorDeg,0);
       if (!std::isfinite(rpm)) return finish(Status::CONTROL_FAILURE);
       rpm = std::clamp(rpm,-correction.maxRPM,correction.maxRPM);
+      const uint32_t computeUs = trace ? uint32_t(uint32_t(pros::micros())-computeStart) : 0;
       if (pathCancelGeneration.load() != generation) return finish(Status::CANCELLED);
       if (uint32_t(pros::millis()-correctionStarted) >= correction.timeoutMs)
         return finish(Status::TIMEOUT);
+      const uint32_t publicationStart = trace ? uint32_t(pros::micros()) : 0;
       published = publishPath(generation,rpm,-rpm);
+      record(PathStage::HEADING,current,now,elapsedUs,computeUs,
+             trace ? uint32_t(uint32_t(pros::micros())-publicationStart) : 0,
+             rpm,-rpm,published,published == Status::RUNNING);
       if (published != Status::RUNNING) return finish(published);
       if (arrived && settledSeconds >= correction.settleMs/1000.0) {
         result.headingCorrected = true;

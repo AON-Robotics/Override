@@ -1,18 +1,33 @@
 # Competition
 
-Code related to the driver controlled portion of the match and the autonomous routines should go here.
+Driver control and autonomous routine definitions live here. Competition lifecycle
+callbacks are in [src/main.cpp](../../../src/main.cpp); configured drivetrain,
+odometry and motion profiles are in [globals.hpp](../globals.hpp).
 
  - [Operator Control](./operator-control.hpp)
  - [Autonomous Routines](./autonomous-routines.hpp)
 
 ## Experimental motion execution: Issues 18 and 33
 
+### Software status as of 2026-10-24
+
+The audited native forward DifferentialDrive path-execution scope is software
+complete with documented limitations and ready for supervised hardware validation.
+Local verification passed 52 host suites normally and under AddressSanitizer,
+15 Python checks, focused static analysis, and forced PROS builds for both robot
+configurations. Static analysis and compilation retain documented warnings.
+Tests and audit evidence remain local; a public clone alone cannot reproduce
+the private verification suite. These results establish neither physical tracking
+accuracy nor loaded V5 timing, memory margin, motor stopping or field-callback
+delivery. Issue 18 remains open pending physical validation. Issue 8's JerryIO
+adapter and broader Issue 33 legacy-movement integration remain separate work.
+
 AI-assisted reference changes require student explanation, adaptation, validation
 and attribution before competition use. Host tests and compilation establish no
 physical accuracy. These execution contracts supersede the earlier motion notes
 where timing, geometry recovery or heading ownership differ.
 
-`followPath(path, translationTimeoutMs, caps, reversed, headingCorrection)` is a
+`followPath(path, translationTimeoutMs, caps, reversed, headingCorrection, trace)` is a
 synchronous request. DifferentialDrive alone supports its forward wheel model;
 H-drive, mecanum, X-drive and reversed paths return UNSUPPORTED_CONFIGURATION
 and attempt stopping. Tight curves can reverse an inner wheel. Intermediate
@@ -221,54 +236,103 @@ smaller tolerance. This is a conservative supported resolution, not a theorem
 that every accepted path converges or that smaller physical tolerances are
 impossible. The original 600RPM/0.1-inch/49-50ms E37 cases remain accepted.
 
-PATH.JERRYIO import is preparation-only through `aon::jerryio::decode` in
-`aon/jerryio/path.hpp` (also included by `aon/api.hpp`). It supports the verified
-editor 0.11.0 LemLib v0.5 GPS sampled export, not arbitrary editor formats. The
-versioned upstream exporter converts coordinates to inches before writing rows:
-[exporter source](https://github.com/Jerrylum/path.jerryio/blob/v0.11.0/src/format/LemLibFormatV0_4/index.tsx).
-`uol=2.54` describes editor inches; do not multiply exported XY by 2.54 again.
-GPS XY is east/north from field center. The caller explicitly supplies a calibrated
-orthonormal XY transform into AON inches; reflections are allowed. Final heading
-is caller-supplied AON clockwise degrees, never inferred from editor controls.
+### PR #31 compatibility
+
+Issue #18 owns native translation through `PurePursuit::setPath(path, caps,
+reversed)` and `update(pose, dtSeconds)`, and synchronous movement through:
 
 ```cpp
-aon::jerryio::Options options{
-    aon::jerryio::Export::V011LemLib05GpsInches,
-    aon::jerryio::Metadata::Required,
-    aon::jerryio::Endpoint::V011GhostTail,
-    {0, 0, 1, 0, 0, -1}, // Example only: match this to calibrated odometry.
-    180,                 // Explicit motor-RPM ceiling for normalized speed 127.
-    finalHeading};
-auto imported = aon::jerryio::decode(text, options);
-if (!imported) return; // Inspect imported.error and imported.line.
-// Only during a separately authorized movement:
-auto result = drivetrain.followPath(imported.points, 15000, imported.caps);
+Drivetrain::PathResult followPath(
+    const std::vector<Pose>& path, uint32_t translationTimeoutMs = 15000,
+    const std::vector<double>& caps = {}, bool reversed = false,
+    const HeadingCorrection* correction = nullptr, PathTrace* trace = nullptr);
 ```
 
-Normalized 63.5 with ceiling 180 produces a 90 RPM center ceiling. Existing controller
-limits may reduce it further; a center cap does not independently cap both wheels
-in turns. Ordered double samples and duplicates are preserved for controller
-preparation. Interior zero speeds are unsupported stops. A terminal positive row
-is a ceiling; the controller owns terminal braking/zero. `SampleRows` preserves
-all rows, including duplicates; bare diagnostics require `ExplicitDeclaration`.
-`V011GhostTail` requires supported metadata, full legacy footer, matching endpoint,
-a duplicate terminal zero and a forward collinear 20-inch zero ghost. It removes
-exactly the duplicate and ghost, retaining the real zero endpoint. Small explicit
-rounding bounds cover the export's three decimal places; arbitrary interior
-stops are never trimmed.
+`setPath` copies/validates preparation data and returns RUNNING or a failure;
+`update` uses the prepared path without allocation or I/O. Direct controller use
+requires caller serialization. `followPath` owns the command guard, freshness,
+timeouts, stop attempts and optional heading stage. Existing vector callers and
+`follow(vector)` remain source compatible; use `PathResult` for failure handling.
+Status values are IDLE, RUNNING, SUCCESS, TIMEOUT, CANCELLED, INVALID_PATH,
+UNSUPPORTED_CONFIGURATION and CONTROL_FAILURE. Rejected overlapping requests
+return CONTROL_FAILURE without stopping the active request.
 
-Unsupported metadata/enums/frames, malformed or truncated data, raw NUL metadata,
-duplicate JSON keys, nonfinite/out-of-range values and ambiguous tails reject
-with empty output. Limits are 4096 sample rows, 1 MiB text, JSON depth 32, 127-character
-numeric tokens, 4096 footer controls and transformed coordinates within 1e6 inches.
-Decimal/exponent numbers only. Parsing and bounded data-dependent allocation
-happen before control; no parser or JSON allocation enters updates. These bounds
-do not establish available V5 heap margin. No LemLib dependency is added.
+[PR #31](https://github.com/AON-Robotics/Override/pull/31), reviewed at head
+`4ab4a14ee15296e486ecb93c435d6cad87e0211b`, has its own PathView/PathRoute,
+FollowOptions, legacy PurePursuit and Drivetrain::follow implementations. Its
+future Issue #8 adapter must use this followPath lifecycle; do not merge a second
+follower or duplicate final-heading loop. The local JerryIO branch was inspected
+read-only. Parsing, metadata/frame conversion, generated routes, leg selection,
+actions, diagnostics and tuning workflows remain Issue #8 responsibilities.
+No importer is exposed by the Issue #18 API.
 
-Repository policy excludes local tests and audit records from commits. Another
-clone can build production sources but cannot reproduce this session's host,
-mutation, sanitizer, timing or simulation evidence from Git alone. A reviewed
-versioned test-artifact release attached to Issue 18, or a separately maintained
-regression repository with source-commit identifiers, is an acceptable proposed
-shared mechanism; publishing either needs an explicit follow-up. This change
-does not silently alter exclusion policy. Do not close Issue 18/33 from host checks.
+Construction without odometry skips sensor initialization so followPath can
+reject CONTROL_FAILURE and attempt zero commands safely. This does not provide
+manual-pose operation: legacy pose getters/setters and initialize still require
+configured odometry and remain outside this path-execution contract.
+
+| PR #31 input | Required future adapter contract |
+| --- | --- |
+| PathView / PathRoute | Validate pointer/count/cap storage and lifetime; copy the selected ordered leg into vector<Pose> and vector<double> before motion. Reject more than 4096 samples. Never use theta to carry speed. |
+| XY / heading | Supply calibrated AON inches (+X forward at zero, +Y right) and clockwise degrees. Intermediate headings are ignored; final heading is explicit, finite and stored in the last Pose. Issue #8 owns export transforms. |
+| Normalized speed s in [0,127] | Convert without integer rounding: capRPM = (double(s)/127.0)*referenceRPM. referenceRPM must match the export's declared full-scale motor RPM, not an inferred cartridge rating. For PR31's current runtime semantics it is FollowOptions.maximumRpm. Example: 63.5/127*180 = 90 RPM. Validate before conversion; clamp only downward under additional limits. |
+| Null speed pointer | Explicitly unrestricted by export; native profile/wheel/curvature limits still apply. If maximumRpm is requested, preserve its center ceiling in the caps. |
+| Duplicate XY / zero speeds | Native duplicate tolerance is 1e-9 inches; retain the stricter cap and last heading. Interior zero is INVALID_PATH; Issue #8 must split intentional stops into settled legs. Only optional terminal zero is accepted; native braking always ends at zero. Never silently discard a restrictive point. |
+| timeoutMs | Maps to the cooperative translation/preparation budget. Optional heading has a separate budget; a total sequence deadline must budget both stages. No hard real-time guarantee. |
+| finalHeading / headingTolerance | Resolve PR31's NaN fallback before the call; configure finite HeadingCorrection only when requested and tuned. Failed translation skips it. PurePursuit never performs final alignment. |
+| lookahead / lookaheadAtSpeed | Native drivetrain uses fixed 5-inch lookahead. Adaptive lookahead has no mapping. Reject unsupported requested semantics rather than silently accepting them. |
+| positionTolerance / settleMs / settledRpm | Native translation requires 2.5 inches, 150ms and pose speed <=1 inch/s plus heading rate <=5 degrees/s. PR31's configurable RPM settlement is different; explicit migration is required. |
+| maximumRpm / lateralAcceleration / profile scales | Caps constrain center RPM; they do not substitute for requested wheel/turn limits. Native wheel limits use configured profiles/MAX_RPM and lateral limit 30 inches/s^2. Arbitrary per-request profile changes and lateral-limit disabling have no mapping; retain stricter constraints or reject until separately reviewed. |
+| FollowHooks | There is no in-loop action callback. Return statuses govern travel/arrive/act; optional PathTrace is read after return. Online action hooks require a separately reviewed integration design. |
+| reverse / holonomic | Unsupported: reject safely. Differential forward tracking may reverse the inner wheel. |
+
+Integer publication may reduce commands further. Never round a fractional cap
+up to a minimum RPM. Positive caps below actuator resolution can reject active
+motion as UNSUPPORTED_CONFIGURATION or time out; they must not be raised.
+The cap is a center-speed bound, not a promise that either individual wheel is
+below that cap in a turn. The normalized conversion's rounding error must never
+be used to loosen the source ceiling.
+
+The removed unused historical decoder remains available in Git history at
+`ecb7d14` and in local reference snapshots. Issue #8/PR31 may evaluate its explicit
+format declarations, bounded strict metadata validation, calibrated orthonormal
+frame, ghost-tail policy and double-precision cap conversion. This is reference
+material, not an instruction to replace PR31's exporter or duplicate its parser.
+
+Repository policy keeps tests, simulations, benchmarks and audit records local.
+They are not reproducible from the public production repository alone. Preserve
+source-identified local packages and execution evidence; no public test release,
+issue attachment or testing workflow is authorized by this work.
+
+### Optional buffered measurements (Stage 2)
+
+`followPath` accepts a sixth optional `Drivetrain::PathTrace*`, default nullptr.
+This only captures measurements; no autonomous routine enables it automatically.
+Provide caller-owned `PathSample` storage outside the control task's stack, keep
+it alive and unmodified for the synchronous request, then read/export after return.
+There is no concurrent-reader contract. A full buffer drops later samples and
+increments `dropped`; zero capacity is allowed, but nonzero capacity with null
+storage rejects. Choose capacity using `sizeof(PathSample)` and a measured memory
+budget; input preparation and sensor tasks also require memory. A truncated trace
+cannot establish whole-run error or timing percentiles.
+
+Samples include pose observation timestamp, preceding interval, compute and
+publication duration, stage, geometry diagnostics, floating requests and converted
+integer RPM. First sample of each stage has interval zero because no preceding
+stage interval was measured; control keeps its existing synthetic startup timestep.
+Compute duration means controller update for translation and PID calculation only
+for heading. Publication duration includes mutex wait/transport; terminal stop
+attempts are separate. Heading samples retain the last translation diagnostics;
+use their pose and wheel fields for heading-stage motion. Timestamp is not the
+sensor acquisition time. `published` means both command APIs returned success,
+not physical application or measured wheel velocity. A failed publication may
+have partially affected hardware. Terminal handoff/stop pairs are not update
+samples; inspect the final result and `terminalStopSucceeded` separately.
+
+Capture adds fixed work when enabled but performs no formatting, allocation,
+logging or additional sensor reads. Measure its overhead on V5 before relying on
+traces. `maxIntervalUs` survives buffer exhaustion, including observed overruns.
+Terminal `status` and `translationStatus` are retained even when there are no
+samples. Rejected overlapping requests do not reset another request's capture.
+Independent measured wheel speeds, physical final pose and stop distance require
+external measurements; no such evidence is generated by this API.
