@@ -43,7 +43,8 @@ returning strictly before its plane, then crossing again. Recovery retreat uses
 the contiguous incoming straight run, retaining all waypoint speed restrictions.
 Each preceding direction is compared with the corner's incoming direction using
 the gate classification threshold, dot product > `1-1e-6`. Retreat is half the smaller of lookahead and run length,
-floored at two `max(1e-6 inches, linearSpeed(1 RPM)*dt)` travel steps. Its arrival
+floored at `2*r`, where `r=2*linearSpeed(1 RPM)*maxPathInterval` uses the longest
+supported following hold rather than the preceding measured interval. Its arrival
 radius is at most half the retreat, so the entire recovery ball remains strictly
 before the gate. This internal actuator floor does not enlarge final arrival
 tolerance. Only an earned noncollinear crossing invalidates an obsolete recovery
@@ -143,7 +144,10 @@ finite number of writes is bounded; scheduler and device wall time are not.
 The actual `disabled()` callback calls `setPathEnabled(false)`, which persistently
 rejects new path requests and revokes active translation/heading before waiting
 for the publication barrier and attempting zeros. Autonomous and operator-control
-entry explicitly re-enable path admission. Enabling never revives a cancelled
+entry explicitly re-enable path admission. Disable revokes the generation again
+inside the command mutex before publishing disabled/zeros: a request admitted
+during an overlapping enable is invalidated at that completed boundary. The
+pre-lock revocation remains immediate. Enabling never revives a cancelled
 generation. Direct API instances start enabled for existing manual/offline callers.
 This gates `followPath` and its heading stage; raw driver commands and unrelated
 legacy movement routines remain caller-owned. Host callback tests do not verify
@@ -204,13 +208,62 @@ smoothness. Safety ceilings and stopping take priority over ramp continuity;
 student testing must assess traction/current and use conservative speeds. Do not
 describe this implementation as globally acceleration- or jerk-constrained.
 
-PATH.JERRYIO restoration is an **open dependency of Issue 18's exported-speed
-requirement**, separate from these safety fixes. There is no active importer.
-Optional RPM caps do not verify exported-speed preservation. Before closing that
-requirement, inspect an actual export grammar/fixture and speed units, implement
-separate parsing/conversion, and test order/coordinates, duplicate samples,
-terminal zero, malformed/invalid speeds and explicit supported reversal policy.
-Do not encode speed in Pose.theta or add a LemLib dependency.
+Recovery uses a fixed earned reference and caps commanded center travel over
+any supported following hold to half its current distance. With
+`u=linearSpeed(1 RPM)` and `T=maxPathInterval`, its internal arrival radius is at
+least `r=2*u*T`; a gate recovery retreats at least `2*r` so the whole arrival ball
+remains before the unearned gate. These rules address integer recovery overshoot
+without granting progress or enlarging the requested final tolerance. Active
+translation requires linear tolerance >=r (about 0.010799 inches with the current
+wheel/gearing); smaller active requests return zero/UNSUPPORTED_CONFIGURATION.
+Already sampled terminal arrival is checked first and can still settle with a
+smaller tolerance. This is a conservative supported resolution, not a theorem
+that every accepted path converges or that smaller physical tolerances are
+impossible. The original 600RPM/0.1-inch/49-50ms E37 cases remain accepted.
+
+PATH.JERRYIO import is preparation-only through `aon::jerryio::decode` in
+`aon/jerryio/path.hpp` (also included by `aon/api.hpp`). It supports the verified
+editor 0.11.0 LemLib v0.5 GPS sampled export, not arbitrary editor formats. The
+versioned upstream exporter converts coordinates to inches before writing rows:
+[exporter source](https://github.com/Jerrylum/path.jerryio/blob/v0.11.0/src/format/LemLibFormatV0_4/index.tsx).
+`uol=2.54` describes editor inches; do not multiply exported XY by 2.54 again.
+GPS XY is east/north from field center. The caller explicitly supplies a calibrated
+orthonormal XY transform into AON inches; reflections are allowed. Final heading
+is caller-supplied AON clockwise degrees, never inferred from editor controls.
+
+```cpp
+aon::jerryio::Options options{
+    aon::jerryio::Export::V011LemLib05GpsInches,
+    aon::jerryio::Metadata::Required,
+    aon::jerryio::Endpoint::V011GhostTail,
+    {0, 0, 1, 0, 0, -1}, // Example only: match this to calibrated odometry.
+    180,                 // Explicit motor-RPM ceiling for normalized speed 127.
+    finalHeading};
+auto imported = aon::jerryio::decode(text, options);
+if (!imported) return; // Inspect imported.error and imported.line.
+// Only during a separately authorized movement:
+auto result = drivetrain.followPath(imported.points, 15000, imported.caps);
+```
+
+Normalized 63.5 with ceiling 180 produces a 90 RPM center ceiling. Existing controller
+limits may reduce it further; a center cap does not independently cap both wheels
+in turns. Ordered double samples and duplicates are preserved for controller
+preparation. Interior zero speeds are unsupported stops. A terminal positive row
+is a ceiling; the controller owns terminal braking/zero. `SampleRows` preserves
+all rows, including duplicates; bare diagnostics require `ExplicitDeclaration`.
+`V011GhostTail` requires supported metadata, full legacy footer, matching endpoint,
+a duplicate terminal zero and a forward collinear 20-inch zero ghost. It removes
+exactly the duplicate and ghost, retaining the real zero endpoint. Small explicit
+rounding bounds cover the export's three decimal places; arbitrary interior
+stops are never trimmed.
+
+Unsupported metadata/enums/frames, malformed or truncated data, raw NUL metadata,
+duplicate JSON keys, nonfinite/out-of-range values and ambiguous tails reject
+with empty output. Limits are 4096 sample rows, 1 MiB text, JSON depth 32, 127-character
+numeric tokens, 4096 footer controls and transformed coordinates within 1e6 inches.
+Decimal/exponent numbers only. Parsing and bounded data-dependent allocation
+happen before control; no parser or JSON allocation enters updates. These bounds
+do not establish available V5 heap margin. No LemLib dependency is added.
 
 Repository policy excludes local tests and audit records from commits. Another
 clone can build production sources but cannot reproduce this session's host,
