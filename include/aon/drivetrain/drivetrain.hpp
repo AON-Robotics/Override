@@ -318,8 +318,11 @@ class Drivetrain {
       pathCancelGeneration.fetch_add(1);
     }
     std::lock_guard<pros::Mutex> lock(pathCommandMutex);
-    // Reassert admission under the mutex so concurrent lifecycle changes have
-    // the same completion boundary as motor publication and terminal stopping.
+    // Revoke again at the serialized boundary: an overlapping enable may have
+    // admitted a request carrying the first revocation's generation while this
+    // disable waited. That request must stay cancelled after a later enable.
+    // The pre-lock revocation still interrupts earlier requests immediately.
+    if (!enabled) pathCancelGeneration.fetch_add(1);
     pathEnabled.store(enabled);
     if (!enabled && !stopPathMotors()) pathMotorFailure = true;
   }
