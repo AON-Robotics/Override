@@ -34,6 +34,7 @@ void autonomous() {
 void opcontrol() {
   drivetrain.setPathEnabled(true);
   aon::Configure();
+  aon::operator_control::LoadDriverProfile(driver);
   while (true) {
     #if TESTING_AUTONOMOUS
     aon::Configure(false); // Set drivetrain to hold for auton testing
