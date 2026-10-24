@@ -893,8 +893,8 @@ class Drivetrain {
   /// Allocate outside the control task; capacity*sizeof(PathSample) is the exact
   /// sample storage cost. No allocation, formatting or device reads in capture.
   struct PathTrace {
-    PathSample* samples;
-    size_t capacity;
+    PathSample* samples = nullptr;
+    size_t capacity = 0;
     size_t size = 0;
     uint32_t dropped = 0, maxIntervalUs = 0;
     PurePursuit::Status status = PurePursuit::Status::IDLE;

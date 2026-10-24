@@ -436,13 +436,16 @@ void purePursuitPath(){
 #else
 
 void xDriveRoutine(){
-  drivetrain.goToPose(Pose(-TILE_WIDTH, 0, 0));
-  drivetrain.goToPose(Pose(0, 12, 0));
-  drivetrain.goToPose(Pose(-12, 12, 0));
-  drivetrain.goToPose(Pose(0, 0, 90));
-  drivetrain.goToPose(Pose(-12, 18, 0));
-  drivetrain.goToPose(Pose(-TILE_WIDTH, TILE_WIDTH, 90));
-  drivetrain.goToPose(Pose(0, 0, 0));
+  const std::vector<Pose> targets = {
+    Pose(-TILE_WIDTH, 0, 0), Pose(0, 12, 0), Pose(-12, 12, 0),
+    Pose(0, 0, 90), Pose(-12, 18, 0), Pose(-TILE_WIDTH, TILE_WIDTH, 90),
+    Pose(0, 0, 0)
+  };
+  for (const Pose& target : targets) {
+    // A failed translation must not authorize the next autonomous action.
+    if (drivetrain.followPath({drivetrain.getPose(), target}).status !=
+        PurePursuit::Status::SUCCESS) return;
+  }
 }
 
 #endif
