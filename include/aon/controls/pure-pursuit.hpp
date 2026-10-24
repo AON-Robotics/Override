@@ -311,6 +311,10 @@ class PurePursuit {
     progressAllowance = std::min(diagnostics.length,progressAllowance + 2*moved);
     const double progressLimit = progressAllowance;
     const double minimumChord = std::max(1e-6,math::linearSpeed(1)*dt);
+    // Recovery's half-chord speed ceiling must still permit one integer RPM
+    // just outside its internal arrival ball, for any supported following hold.
+    // This resolution affects only recovery geometry, never final arrival.
+    const double recoveryResolution = 2*math::linearSpeed(1)*maxPathInterval;
     // Non-collinear branches require directed corner-bisector crossings, in
     // increasing order along this pose displacement. A pose already past an
     // unvisited gate cannot repeatedly authorize later branches. Exact reversals
@@ -363,15 +367,15 @@ class PurePursuit {
               --incoming;
             }
             const double incomingLength = distances[segment+1]-distances[incoming];
-            // Two minimum travel steps leave a representable arrival ball even
+            // Two recovery resolution steps leave a representable arrival ball even
             // for a genuinely short run. This only chooses a recovery target;
             // it never changes progress, a gate witness or final arrival bounds.
-            const double retreat = std::max(2*minimumChord,
+            const double retreat = std::max(2*recoveryResolution,
                 std::min(lookaheadDistance,incomingLength)*0.5);
             const double norm = std::hypot(nx,ny);
             gateRecoveryReference = Pose(b.x-nx/norm*retreat,b.y-ny/norm*retreat);
             // This arrival ball lies strictly before the gate (radius <= retreat/2).
-            gateRecoveryTolerance = std::min(std::max(linearDeadband,minimumChord),retreat*0.5);
+            gateRecoveryTolerance = std::min(std::max(linearDeadband,recoveryResolution),retreat*0.5);
           }
         }
         if (distances[segment+1] > progressLimit && after >= -1e-9)
@@ -408,6 +412,12 @@ class PurePursuit {
       return {0, 0};
     }
     settledSeconds = 0;
+    // Supported active-path resolution: the half-chord recovery ceiling must
+    // permit at least one integer RPM until its arrival ball is reached. This
+    // sufficient experimental envelope is not a claim that smaller tolerances
+    // are physically impossible. Already sampled arrival above still settles.
+    if (linearDeadband < recoveryResolution)
+      return fail(Status::UNSUPPORTED_CONFIGURATION);
     double targetDistance = std::min(diagnostics.length,
         diagnostics.progress + lookaheadDistance);
     // Bound the horizon at folds relative to both the active tangent and each
@@ -458,7 +468,7 @@ class PurePursuit {
     if ((progressLimited || missedGate) && !recoveringProgress) {
       recoveryReference = missedGate ? gateRecoveryReference : diagnostics.reference;
       recoveryTolerance = missedGate ? gateRecoveryTolerance :
-          std::min(linearDeadband,lookaheadDistance*0.25);
+          std::max(recoveryResolution,std::min(linearDeadband,lookaheadDistance*0.25));
       recoveringProgress = true;
     }
     if (recoveringProgress) {
@@ -491,6 +501,13 @@ class PurePursuit {
     double rpm = linearProfile.update(std::max(remaining,endError), dt);
     const double unit = math::linearSpeed(1);
     double cap = linearProfile.getMaxVelocity();
+    // A latched recovery target is an arrival task, not a forward horizon.
+    // Remaining path length cannot brake for it. Reserve half its current
+    // chord for the longest supported following command hold (50 ms); the
+    // measured dt describes the preceding hold and cannot predict that hold.
+    // Later cosine, wheel and integer-pair limits can only reduce translation.
+    if (recoveringProgress)
+      cap = std::min(cap,current.distanceTo(recoveryReference)/(2*maxPathInterval*unit));
     if (segment + 1 < points.size()) {
       const double decel = math::linearSpeed(linearProfile.getMaxDeceleration()*0.5);
       // Projected end progress does not imply arrival: retain braking distance
@@ -498,9 +515,9 @@ class PurePursuit {
       const double brakingDistance = segment+2 == points.size() ?
           std::max(distances[segment+1]-diagnostics.progress,endError) :
           distances[segment+1]-diagnostics.progress;
-      cap = std::min(speedCaps[segment], std::sqrt(
+      cap = std::min({cap,speedCaps[segment], std::sqrt(
           std::pow(speedCaps[segment+1]*unit,2) +
-          2*decel*brakingDistance)/unit);
+          2*decel*brakingDistance)/unit});
     }
     // SmartMotor truncates to integer RPM. Reject an unrepresentable active
     // translation ceiling instead of raising it or running forever at zero.
