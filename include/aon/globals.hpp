@@ -74,7 +74,7 @@ inline void LoadDriverProfile(Driver driver){
 aon::operator_control::Driver driver = aon::operator_control::DRIVER1;
 
 aon::Pose startingPose = aon::Pose(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y, INITIAL_ODOMETRY_THETA);
-aon::Odometry odometry = aon::Odometry(5, -6, 7, 0, 14);
+aon::Odometry odometry = aon::Odometry(0, 0, 0, 0, 14);
 
 aon::Drivetrain::SpeedFactors speedFactors = aon::Drivetrain::SpeedFactors(0.6, 1.0, 0.6, 1.0, 1.0, 1.0);
 
@@ -82,10 +82,11 @@ aon::MotionProfile xProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL, MAX_DECEL, 
 aon::MotionProfile yProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL, MAX_DECEL, MAX_ACCEL);
 aon::MotionProfile thetaProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL * 3, MAX_DECEL * 0.8, MAX_ACCEL * 3);
 
-aon::HDrive drivetrain = aon::HDrive(
-                          {12, -13, -18, 19},
-                          {-1, 2, 3, -4},
-                          {-15},
+aon::XDrive drivetrain = aon::XDrive(
+                          {5},   // Front left
+                          {10},  // Front right
+                          {19},  // Back left
+                          {20},  // Back right
                           startingPose,
                           std::make_unique<aon::Odometry>(odometry),
                           speedFactors,
@@ -93,10 +94,10 @@ aon::HDrive drivetrain = aon::HDrive(
                           std::make_unique<aon::MotionProfile>(yProfile),
                           std::make_unique<aon::MotionProfile>(thetaProfile));
                           
-                          aon::Intake intake = aon::Intake({20, -11, -10}, {17}, 'H', 9, 16, 'F', 'E');
+                          aon::Intake intake = aon::Intake({0, 0, 0}, {0}, 'z', 0, 0, 'z', 'z');
                           
-                          aon::Piston sem('G', aon::Piston::RETRACTED);
-                          aon::Piston brooks('D', aon::Piston::RETRACTED);
+                          aon::Piston sem('z', aon::Piston::RETRACTED);
+                          aon::Piston brooks('z', aon::Piston::RETRACTED);
   
 #else
 
@@ -108,7 +109,7 @@ aon::operator_control::Driver driver = aon::operator_control::DRIVER2;
 
 // aon::XDrive drivetrain = aon::XDrive({-13}, {11}, {-12}, {14});
 aon::Pose startingPose = aon::Pose(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y, INITIAL_ODOMETRY_THETA);
-aon::Odometry odometry = aon::Odometry(19, -18, 5, 0, 16);
+aon::Odometry odometry = aon::Odometry(0, 0, 0, 0, 16);
 
 aon::Drivetrain::SpeedFactors speedFactors = aon::Drivetrain::SpeedFactors(0.6, 0.0, 0.6, 1.0, 0.0, 0.667);
 
@@ -125,10 +126,10 @@ aon::DifferentialDrive drivetrain = aon::DifferentialDrive(
                                     std::make_unique<aon::MotionProfile>(thetaProfile));
 
 
-aon::Intake intake = aon::Intake({-9}, {-6}, {7}, {-8}, 'H', 'B', 'A', 20, 17);
+aon::Intake intake = aon::Intake({0}, {0}, {0}, {0}, 'z', 'z', 'z', 0, 0);
 
-aon::Piston arrow('C', aon::Piston::RETRACTED);
-aon::Piston brooks('G', aon::Piston::RETRACTED);
+aon::Piston arrow('z', aon::Piston::RETRACTED);
+aon::Piston brooks('z', aon::Piston::RETRACTED);
 
 #endif
 
