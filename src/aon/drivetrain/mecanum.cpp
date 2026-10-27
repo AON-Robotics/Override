@@ -187,6 +187,11 @@ void MecanumDrive::goToPose(const Pose& target){
   this->stop();
 }
 
+/// @brief Delegate unsupported mecanum paths to the shared lifecycle and stop hooks.
+/// @param path Ordered AON-inch waypoints; retained for compatibility, not tracking.
+/// @details No duplicated differential loop or final-heading turn is executed.
+/// An admitted rejection attempts four zero commands and exposes the outcome
+/// through getPathStatus(); explicit-result callers should use followPath().
 void MecanumDrive::follow(const std::vector<Pose>& path) {
   Drivetrain::follow(path); // safely rejects unvalidated holonomic kinematics
 }

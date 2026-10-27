@@ -351,6 +351,18 @@ void colorSorting(){
   intake.activateScan();
 }
 
+/**
+ * @brief Demonstrate sequential two-point translations with explicit failure gates.
+ * @details Each leg starts at the current odometry pose and uses native AON
+ * inches, clockwise degrees and followPath's default translation settlement.
+ * A non-SUCCESS result returns immediately, preventing a failed leg from
+ * authorizing another autonomous action. No final-heading configuration is
+ * supplied: target theta is retained metadata, not an automatic corrective turn.
+ * @pre Run only with configured/fresh odometry and a supported DifferentialDrive;
+ * the team must approve the path, clearances and tuning before physical testing.
+ * @todo Issue 18 physical validation: measure tracking and settlement across
+ * repeated supervised trials; these example coordinates are not acceptance data.
+ */
 void purePursuitPoint(){
   const std::vector<Pose> targets = {
     Pose(TILE_WIDTH, -TILE_WIDTH / 2, 0),
@@ -366,6 +378,15 @@ void purePursuitPoint(){
   }
 }
 
+/**
+ * @brief Exercise one sparse, multi-corner path through the native movement owner.
+ * @details The vector is prepared once in inches and passed synchronously to
+ * followPath. Reversals in geometric direction do not request reverse driving:
+ * the forward-only controller may turn to reacquire the next earned target.
+ * Failure returns from the routine; terminal zeros are attempted by followPath,
+ * not inferred from the last command. No final-heading correction is enabled.
+ * @pre Verify hardware mappings, current pose, field clearance and profile limits.
+ */
 void purePursuitSimpleFollow(){
   std::vector<Pose> path = {
     Pose(TILE_WIDTH, 0, 0),
@@ -380,6 +401,17 @@ void purePursuitSimpleFollow(){
   if (drivetrain.followPath(path).status != PurePursuit::Status::SUCCESS) return;
 }
 
+/**
+ * @brief Exercise an explicitly sampled S-shaped path using failure-aware execution.
+ * @details Waypoint spacing does not define the lookahead horizon: the controller
+ * interpolates a fixed physical distance along contiguous segments. Coordinates
+ * are inches; final theta is clockwise degrees. This routine supplies neither
+ * per-waypoint RPM caps nor an optional heading stage, so profile/curvature
+ * limits govern translation and the final 270-degree heading is metadata only.
+ * @note This is a development example, not a measured accuracy demonstration.
+ * @todo Issue 18 physical validation: independently measure error on this path
+ * after reviewing its clearance and tuning; do not infer success from plots alone.
+ */
 void purePursuitPath(){
   std::vector<Pose> path = {
     Pose(0, 0, 0),
@@ -435,6 +467,17 @@ void purePursuitPath(){
 
 #else
 
+/**
+ * @brief Preserve the legacy-named small-robot example using explicit path results.
+ * @details Despite its historical name, this configuration currently uses the
+ * native DifferentialDrive follower. The seven targets retain their original
+ * order. Each leg uses the current pose and default 15-second translation budget;
+ * a timeout, cancellation or control error prevents every subsequent leg.
+ * Requested headings are stored but not automatically aligned by this example.
+ * @pre A configured odometry object must exist for getPose(); select and verify
+ * the actual small-robot configuration rather than interpreting the name as
+ * evidence that holonomic PurePursuit has been implemented.
+ */
 void xDriveRoutine(){
   const std::vector<Pose> targets = {
     Pose(-TILE_WIDTH, 0, 0), Pose(0, 12, 0), Pose(-12, 12, 0),

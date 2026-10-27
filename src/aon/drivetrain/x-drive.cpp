@@ -197,6 +197,11 @@ void XDrive::goToPose(const Pose& target){
   this->stop();
 }
 
+/// @brief Delegate X-drive path requests to the common unsupported-model gate.
+/// @param path Ordered AON-inch waypoints; no X-drive follower is implemented here.
+/// @details The base owner preserves cancellation/admission precedence and uses
+/// this model's four-wheel stop hook. This compatibility entry cannot silently
+/// reinterpret differential left/right commands as validated X-drive kinematics.
 void XDrive::follow(const std::vector<Pose>& path) {
   Drivetrain::follow(path); // safely rejects unvalidated holonomic kinematics
 }

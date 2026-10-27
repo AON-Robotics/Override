@@ -58,22 +58,49 @@ class Drivetrain {
   std::unique_ptr<MotionProfile> yProfile;
   std::unique_ptr<MotionProfile> thetaProfile;
 
+  /// @brief Revocation epoch captured by each admitted synchronous request.
+  /// @details Incremented before waiting on publication so old requests lose
+  /// command authority promptly. Equality assumes fewer than 2^32 revocations
+  /// during one request; this counter is independent of the timing clocks.
   std::atomic<uint32_t> pathCancelGeneration{0};
-  std::atomic<bool> pathEnabled{true}; // lifecycle admission; direct/manual API starts enabled
+  /// @brief Persistent admission gate; direct/manual construction starts enabled.
+  /// @note Gates followPath only, including its optional heading stage.
+  std::atomic<bool> pathEnabled{true};
+  /// @brief Single followPath owner across preparation, both stages and cleanup.
   std::atomic<bool> pathActive{false};
+  /// @brief Last admitted request's published state; overlap rejection leaves it alone.
   std::atomic<PurePursuit::Status> pathStatus{PurePursuit::Status::IDLE};
 
-  // Lock order: drivetrain command mutex, then an individual motor-group mutex.
-  // Hold only for generation/state changes and a finite pair of motor writes;
-  // never across pose reads, controller computation, delays or user callbacks.
-  // Kernel scheduling and motor I/O still prevent a hard real-time guarantee.
+  /// @brief Serializes revocation barriers, motor publication and terminal stops.
+  /// @details Lock order: drivetrain command mutex, then an individual motor-group mutex.
+  /// Hold only for generation/state changes and a finite set of motor writes;
+  /// never across pose reads, controller computation, delays or user callbacks.
+  /// Kernel scheduling and motor I/O still prevent a hard real-time guarantee.
   pros::Mutex pathCommandMutex;
-  bool pathMotorFailure = false; // protected by pathCommandMutex
+  /// @brief Transport-failure latch protected by pathCommandMutex.
+  /// @details Cleared only on admission of a request with a current generation;
+  /// a failure takes precedence over cancellation and success during cleanup.
+  bool pathMotorFailure = false;
 
-  // These virtual transport hooks run with pathCommandMutex held. Overrides
-  // must not reenter stop/cancel/publish or acquire this mutex through tank().
+  /// @brief Attempt zero velocity through the drivetrain transport.
+  /// @return True when the implementation reports successful stop publication.
+  /// @pre pathCommandMutex is held by the caller.
+  /// @warning Overrides must not reenter stop(), cancelPath(), publishPath(),
+  /// setPathEnabled(), or acquire this mutex indirectly through tank(). The base
+  /// fallback cannot detect transport failures; supported configurations must
+  /// provide their validated transport contract. An API success is no physical
+  /// proof that the robot stopped.
   virtual bool stopPathMotors() { this->motors(0); return true; }
 
+  /// @brief Publish a wheel pair only while this request retains command authority.
+  /// @param generation Request's captured revocation epoch.
+  /// @param left Requested left wheel motor RPM; positive moves forward.
+  /// @param right Requested right wheel motor RPM; positive moves forward.
+  /// @return CANCELLED for revoked/disabled authority, CONTROL_FAILURE for a
+  /// latched or newly reported transport failure, otherwise RUNNING.
+  /// @details The gate check and transport share one mutex with cancellation.
+  /// A failing transport may already have updated one motor group; terminal
+  /// cleanup attempts zeros, but publication is not a hardware transaction.
   PurePursuit::Status publishPath(uint32_t generation, double left, double right) {
     std::lock_guard<pros::Mutex> lock(pathCommandMutex);
     if (!pathEnabled.load() || pathCancelGeneration.load() != generation)
@@ -85,9 +112,17 @@ class Drivetrain {
     return PurePursuit::Status::RUNNING;
   }
 
-  // Only configurations with validated differential wheel kinematics opt in.
+  /// @brief Opt in only configurations with validated differential wheel kinematics.
+  /// @return False by default; concrete supported drivetrains override this hook.
   virtual bool supportsPurePursuit() const { return false; }
 
+  /// @brief Send a path wheel pair through the concrete drivetrain transport.
+  /// @param left Requested left motor RPM, positive forward.
+  /// @param right Requested right motor RPM, positive forward.
+  /// @return Transport success; the base tank() fallback cannot detect errors.
+  /// @pre pathCommandMutex is held; obey stopPathMotors()'s non-reentry rule.
+  /// @note Concrete adapters own conversion and error reporting. One side can
+  /// succeed before the other fails; callers must handle partial publication.
   virtual bool commandPath(double left, double right) {
     tank(left,right);
     return true;
@@ -95,6 +130,15 @@ class Drivetrain {
   
   public:
 
+  /// @brief Construct a drivetrain and initialize its pose when odometry exists.
+  /// @param pose Initial X/Y in inches and clockwise heading in degrees.
+  /// @param odom Owned pose provider; null is accepted for fail-closed path rejection.
+  /// @param speedFactors Joystick scaling configuration.
+  /// @param xProfile Owned lateral motion profile used by other motion APIs.
+  /// @param yProfile Owned forward profile; required by followPath().
+  /// @param thetaProfile Owned wheel-equivalent turn profile; required by followPath().
+  /// @warning A null odom is safe for path admission/freshness checks only; legacy
+  /// pose accessors and initialize() still require a valid provider.
   Drivetrain(Pose pose, std::unique_ptr<Odometry> odom, SpeedFactors speedFactors, 
              std::unique_ptr<MotionProfile> xProfile, std::unique_ptr<MotionProfile> yProfile, std::unique_ptr<MotionProfile> thetaProfile): 
              odometry(std::move(odom)), speedFactors(speedFactors),
@@ -128,12 +172,23 @@ class Drivetrain {
   void setY(double y) { odometry->SetPosition(getX(), y); }
   void setTheta(double theta) { odometry->setDegrees(theta); }
 
+  /// @brief Query the provider's pose freshness gate without dereferencing null.
+  /// @return False with no odometry or when its existing freshness policy rejects.
+  /// @note This does not acquire a pose atomically with the freshness check.
   bool hasFreshPose() { return odometry && odometry->hasFreshPose(); }
+  /// @brief Query OTOS freshness under the provider's existing policy.
+  /// @return False when odometry is absent or OTOS is not fresh.
   bool hasFreshOtos() { return odometry && odometry->hasFreshOtos(); }
+  /// @brief Expose the provider's current pose-source identifier.
+  /// @return Provider-defined source value, or 0 without odometry.
   int getPoseSource() { return odometry ? odometry->getPoseSource() : 0; }
+  /// @brief Report whether the provider currently fuses IMU observations.
+  /// @return False without odometry; otherwise the provider's fusion state.
   bool isImuFusing() { return odometry && odometry->isImuFusing(); }
 
-  /// @return The OTOS heading, or PROS_ERR_F if odometry is unavailable.
+  /// @brief Read the OTOS clockwise heading in degrees.
+  /// @return The provider's OTOS heading, or PROS_ERR_F without odometry.
+  /// @note Availability here is not evidence of OTOS freshness.
   double getOtosTheta() { return odometry ? odometry->getOtosDegrees() : PROS_ERR_F; }
 
   void resetPose(double x = 0.0, double y = 0.0, double theta = 0.0) {
@@ -293,7 +348,13 @@ class Drivetrain {
     }
   }
 
-  /// @brief Stops all motors
+  /// @brief Revoke the current path generation and attempt zero motor commands.
+  /// @details Waits for any publication already inside the command mutex, then
+  /// attempts a stop through the concrete transport. Admission is unchanged;
+  /// if enabled, a later explicit request may run. Terminal status is finalized by the
+  /// follow task, not by this method.
+  /// @note Blocking mutex/transport latency is cooperative, not bounded real time.
+  /// @warning Raw/legacy motion writers must be serialized separately by callers.
   virtual void stop() {
     // Revoke admission before waiting so the publishing task cannot repeatedly
     // reacquire the mutex with further commands while a stop is pending.
@@ -302,17 +363,22 @@ class Drivetrain {
     if (!stopPathMotors()) pathMotorFailure = true;
   }
 
-  /// @brief Request path cancellation from another task. The follow loop stops
-  /// cooperatively after the current command publication. No later command from
-  /// that request may publish once cancellation returns. Use stop() to also send
-  /// immediate zeros; cancellation itself does not write the motors.
+  /// @brief Revoke a path and wait for the in-flight publication barrier.
+  /// @details Task-safe cooperative cancellation: after return, a request carrying
+  /// the revoked generation cannot publish another wheel pair. This waits for
+  /// current transport calls; it does not wait for followPath() to return, write
+  /// zeros itself, or prevent a newly requested path. The follow task attempts
+  /// terminal zeros when it next observes cancellation; use stop() to request
+  /// zeros at this barrier too.
+  /// @note getPathStatus() may remain RUNNING until terminal cleanup completes.
   void cancelPath() {
     pathCancelGeneration.fetch_add(1);
     std::lock_guard<pros::Mutex> lock(pathCommandMutex);
   }
 
   /// @brief Persistently allow/reject followPath requests at the competition boundary.
-  /// Disabling revokes the active translation/heading generation before waiting,
+  /// @param enabled True permits a new explicit request; false revokes and stops.
+  /// @details Disabling revokes the active translation/heading generation before waiting,
   /// then attempts zeros under the publication barrier. Enabling permits a new
   /// explicit request; it never revives a cancelled request. Raw driver commands
   /// and legacy motion APIs remain caller-owned and are not gated by this flag.
@@ -330,6 +396,11 @@ class Drivetrain {
     pathEnabled.store(enabled);
     if (!enabled && !stopPathMotors()) pathMotorFailure = true;
   }
+  /// @brief Read the last admitted request's atomic lifecycle status.
+  /// @return IDLE initially, RUNNING during admission/execution/cleanup, then its
+  /// terminal outcome. Overlap rejection does not replace the owner's status.
+  /// @note This snapshot does not imply physical motion or synchronize trace reads;
+  /// join/wait for followPath() to return before inspecting caller-owned capture.
   PurePursuit::Status getPathStatus() const { return pathStatus.load(); }
 
   /// @brief Configures the general settings for the motors
@@ -856,85 +927,180 @@ class Drivetrain {
   /// @note Pose X/Y are inches; heading is clockwise degrees.
   virtual void goToPose(const Pose &pose) = 0;
 
+  /// @brief Outcome and final diagnostics of one synchronous path request.
+  /// @note Default-valued measurements do not imply a stage actually executed.
   struct PathResult {
+    /// @brief Overall terminal outcome after stop attempts and precedence rules.
     PurePursuit::Status status = PurePursuit::Status::IDLE;
+    /// @brief Translation controller outcome, preserved if heading later fails.
+    /// @details If translation never reports a terminal status, cleanup fills
+    /// this with the overall outcome. Overlap rejection leaves it IDLE.
     PurePursuit::Status translationStatus = PurePursuit::Status::IDLE;
+    /// @brief True only for successful explicitly requested final heading settlement.
     bool headingCorrected = false;
+    /// @brief Latest signed shortest heading error in clockwise degrees.
+    /// @note Meaningful only after heading-stage evaluation; otherwise remains zero.
     double headingErrorDeg = 0;
-    double finalHeading = 0; // requested clockwise degrees; usable on SUCCESS
+    /// @brief Requested final clockwise heading in degrees, set after path preparation.
+    /// @note This is a target, not an observed final heading or evidence of alignment.
+    double finalHeading = 0;
+    /// @brief Last translation geometry/control diagnostics; retained during heading.
     PurePursuit::Diagnostics diagnostics;
+    /// @brief Milliseconds from post-admission budget start through terminal stop.
+    /// @note Excludes the initial admission mutex wait; overlap rejection stays zero.
     uint32_t elapsedMs = 0;
-    uint32_t maxUpdateUs = 0; // controller compute only, excludes I/O/delay
+    /// @brief Maximum timed translation controller.update() duration in microseconds.
+    /// @note Excludes pose reads, diagnostics copying, heading PID, transport,
+    /// mutex waits, trace recording, delays and terminal stop.
+    uint32_t maxUpdateUs = 0;
   };
 
+  /// @brief Identify the controller stage responsible for a trace observation.
+  /// @details TRANSLATION follows geometry; HEADING optionally aligns the endpoint.
   enum class PathStage { TRANSLATION, HEADING };
 
-  /// Optional experimental measurement record. Timestamp is the pose observation
-  /// time, not the sensor's acquisition timestamp. RPM fields are converted
-  /// requests, never measured motor speeds. published means both transport APIs
-  /// returned success, not that the robot achieved the requested velocity.
+  /// @brief Optional experimental observation of a path control iteration.
+  /// @details Timestamps observe pose reads, not sensor acquisition. RPM values
+  /// are requested commands, never measured motor speeds. No sample is promised
+  /// for every early exit, handoff zero or terminal stop; terminal trace fields
+  /// carry the cleanup outcome. Unsigned timing differences tolerate a single
+  /// clock rollover when elapsed durations fit the 32-bit clock range.
   struct PathSample {
+    /// @brief Low 32 bits of the microsecond clock after reading the pose.
     uint32_t timestampUs = 0;
-    uint32_t intervalUs = 0; // preceding observed interval; first stage sample = 0
-    uint32_t computeUs = 0; // translation: controller update; heading: PID only
-    uint32_t publicationUs = 0; // mutex wait and command transport, excludes stop
+    /// @brief Observed interval in microseconds; first sample of each stage is zero.
+    uint32_t intervalUs = 0;
+    /// @brief Microseconds around translation update, or heading timestep/PID/clamp.
+    /// @note Excludes heading error/speed/settlement evaluation and trace recording.
+    uint32_t computeUs = 0;
+    /// @brief Microseconds around publishPath(), including mutex wait and transport.
+    /// @note Excludes handoff zero, terminal stop and record construction.
+    uint32_t publicationUs = 0;
+    /// @brief Stage producing this observation.
     PathStage stage = PathStage::TRANSLATION;
+    /// @brief Observed X/Y in inches and clockwise heading in degrees.
     Pose pose;
-    PurePursuit::Diagnostics diagnostics; // heading stage retains translation geometry
+    /// @brief Last translation diagnostics; heading samples retain that geometry.
+    PurePursuit::Diagnostics diagnostics;
+    /// @brief Requested left/right floating motor RPM before transport conversion.
     double requestedLeftRPM = 0, requestedRightRPM = 0;
+    /// @brief Converted integer left/right RPM requests, even if not published.
     int16_t leftRPM = 0, rightRPM = 0;
+    /// @brief Controller terminal status or publication result for this sample.
     PurePursuit::Status status = PurePursuit::Status::IDLE;
+    /// @brief True when the transport reported successful pair publication.
+    /// @warning False can include a partial motor write; true is not evidence
+    /// that the physical motors achieved the requested speed.
     bool published = false;
   };
 
-  /// Caller owns storage for the whole synchronous request. Read only after
-  /// followPath returns; this is deliberately not a concurrent ring buffer.
-  /// Full/zero-capacity storage drops samples without changing motor behavior.
-  /// Allocate outside the control task; capacity*sizeof(PathSample) is the exact
-  /// sample storage cost. No allocation, formatting or device reads in capture.
+  /// @brief Caller-owned bounded sequential capture with no control-loop allocation.
+  /// @pre The trace and storage remain alive and unmodified until followPath returns.
+  /// @warning Not thread-safe: inspect only after the synchronous call returns.
+  /// @details Allocate outside the control task. capacity*sizeof(PathSample) is
+  /// sample storage only, excluding this object and path preparation allocations.
+  /// Full/zero-capacity capture drops observations without changing motor behavior.
+  /// @todo Measure usable capture capacity, stack/heap headroom and capture timing
+  /// on the actual V5 configuration before relying on physical-run diagnostics.
   struct PathTrace {
+    /// @brief Writable storage of at least capacity samples; null allowed at zero capacity.
     PathSample* samples = nullptr;
+    /// @brief Number of available sample slots, not bytes.
     size_t capacity = 0;
+    /// @brief Number of stored samples; never exceeds capacity.
     size_t size = 0;
+    /// @brief Saturating dropped-sample count and largest observed stage interval (us).
     uint32_t dropped = 0, maxIntervalUs = 0;
+    /// @brief Overall terminal status written after terminal stop attempts.
     PurePursuit::Status status = PurePursuit::Status::IDLE;
+    /// @brief Translation outcome copied from PathResult at cleanup.
     PurePursuit::Status translationStatus = PurePursuit::Status::IDLE;
+    /// @brief Whether the terminal stop hook reported success, not physical rest.
     bool terminalStopSucceeded = false;
 
+    /// @brief Clear capture counters/outcomes while retaining the supplied storage.
+    /// @pre No concurrent reader/writer; does not clear existing sample bytes.
     void reset() {
       size = 0; dropped = 0; maxIntervalUs = 0;
       status = translationStatus = PurePursuit::Status::IDLE;
       terminalStopSucceeded = false;
     }
+    /// @brief Append one observation or saturating-count it as dropped.
+    /// @param sample Observation copied by value into the next available slot.
+    /// @pre Exclusive access and valid storage for the declared capacity.
+    /// @note Performs no allocation, formatting, clock read or device read.
     void record(const PathSample& sample) {
       if (samples && size < capacity) samples[size++] = sample;
       else if (dropped != UINT32_MAX) ++dropped;
     }
   };
 
-  /// Issue 33's opt-in movement stage. Gains produce motor RPM from degrees;
-  /// no robot tuning is implied. PID timestep is replaced by measured seconds.
-  /// Supply finite gains, finite integral activation/bound, positive maxRPM and
-  /// tolerance, nonzero settlement and timeout. A null config disables alignment.
+  /// @brief Explicit opt-in Issue 33 endpoint-heading stage under the path owner.
+  /// @details No robot tuning is implied. Configuration is copied before motion;
+  /// the PID is reset and its timestep replaced with measured seconds each update.
+  /// Null configuration skips alignment. All gains/integral bounds must be finite
+  /// and nonnegative, with at least one positive gain, including when Ki is zero.
+  /// @todo Validate heading tuning and real translation-to-heading handoff on V5;
+  /// broader Issue 33 legacy movement integration remains separate work.
   struct HeadingCorrection {
+    /// @brief PID mapping clockwise degree error to signed motor RPM.
+    /// @note Integral activation and anti-windup bounds must be finite/nonnegative.
     PID controller;
+    /// @brief Finite wheel RPM ceiling, >=1 and <=MAX_RPM and both profile ceilings.
     double maxRPM;
+    /// @brief Finite absolute heading tolerance in degrees, strictly between 0 and 180.
     double toleranceDeg;
+    /// @brief Required continuous settled dwell in milliseconds; must be nonzero.
     uint32_t settleMs;
+    /// @brief Separate cooperative heading budget in milliseconds, greater than settleMs.
     uint32_t timeoutMs;
   };
 
   /// @brief Synchronously follow an experimental forward differential path.
-  /// @param timeoutMs Cooperative translation/preparation budget, default 15s.
-  /// Optional heading correction has its own subsequent timeout budget.
-  /// @param caps Optional per-waypoint motor RPM ceilings (export independent).
-  /// @note SUCCESS is settled translation. Issue 33's movement layer owns final
-  /// heading alignment, only after SUCCESS. Optional alignment reuses PID under
-  /// the same movement guard; the path geometry controller never aligns heading.
-  /// Other motion requests must be serialized by the caller. Cancellation is
-  /// task-safe; a second follow request fails without disturbing the active one.
-  /// @param trace Optional bounded diagnostics, disabled by default. Storage and
-  /// configuration must remain valid and unmodified until this call returns.
+  /// @param path Waypoint X/Y in inches and clockwise heading in degrees; nonempty,
+  /// at most 4096 finite poses within preparation bounds. Intermediate headings
+  /// do not steer geometry; the final heading is the optional alignment target.
+  /// @param timeoutMs Translation/preparation budget in milliseconds, default 15000.
+  /// Zero expires before an update. The initial admission mutex wait is excluded;
+  /// preparation, translation handoff and terminal stop consume this budget.
+  /// @param caps Optional per-waypoint center-speed ceilings in equivalent motor
+  /// RPM, independent of export format. Empty uses profile ceilings; otherwise
+  /// match path size, with finite positive entries except an optional final zero.
+  /// @param reversed True is explicitly rejected as UNSUPPORTED_CONFIGURATION.
+  /// @param headingCorrection Optional finite validated heading tuning; null skips
+  /// alignment. Its subsequent timeoutMs budget begins after the zero handoff.
+  /// @param trace Optional bounded capture; storage/configuration must remain alive
+  /// and unmodified through this call. Nonzero capacity requires nonnull storage.
+  /// @return Terminal PathResult: SUCCESS means settled translation, and settled
+  /// heading when requested; CANCELLED means revoked/disabled; TIMEOUT means a
+  /// checked stage budget expired; INVALID_PATH means rejected geometry/caps;
+  /// UNSUPPORTED_CONFIGURATION means unsupported drivetrain/reverse/controller
+  /// envelope; CONTROL_FAILURE covers invalid control/sensor/transport conditions
+  /// or overlap. A rejected overlap returns immediately without stopping the owner,
+  /// resetting trace, changing shared status, or running terminal cleanup.
+  /// @details Translation uses 5-inch lookahead and 2.5-inch arrival/progress
+  /// tolerances with 150ms motion settlement (<=1in/s and <=5deg/s). Optional
+  /// heading retains endpoint position within 2.5 inches and requires heading
+  /// tolerance plus those speed limits over measured intervals for settleMs.
+  /// The first sample of each stage supplies a 10ms controller startup timestep
+  /// but no measured interval or motion-settlement evidence. Later intervals use
+  /// unsigned microsecond subtraction and must be positive and <=50ms.
+  /// Budgets use unsigned millisecond subtraction across rollover, assuming each
+  /// elapsed duration fits its 32-bit clock range. Checks are cooperative: mutex
+  /// waits, preparation, scheduling and motor I/O can overrun deadlines; cleanup
+  /// rejects SUCCESS if its active budget has expired when stop calls return.
+  /// CONTROL_FAILURE (including transport failure) overrides cancellation;
+  /// cancellation overrides other outcomes; a known expired budget replaces an otherwise successful result.
+  /// Translation success is retained separately if heading or terminal cleanup fails.
+  /// @pre Serialize other motion writers. Keep this drivetrain, odometry, profiles,
+  /// input vectors, configuration and capture alive for the entire call.
+  /// @warning Cancellation is task-safe; raw driver/legacy APIs are not gated.
+  /// Do not destroy the object or forcibly remove its executing task: RAII owner
+  /// release and terminal zero attempts require normal cooperative return.
+  /// Software settlement/transport success is not measured physical accuracy.
+  /// @todo Validate actual V5 timing, motor-stop behavior and competition lifecycle
+  /// transitions physically. The Issue 8 export adapter remains separate work;
+  /// students must understand, adapt, validate and attribute this reference code.
   PathResult followPath(const std::vector<Pose>& path, uint32_t timeoutMs = 15000,
                         const std::vector<double>& caps = {}, bool reversed = false,
                         const HeadingCorrection* headingCorrection = nullptr,
@@ -946,9 +1112,13 @@ class Drivetrain {
       result.status = Status::CONTROL_FAILURE;
       return result;
     }
-    // Reentrant requests fail above without waiting for the command mutex.
+    // Overlap is the intentional cleanup exception: it has no command ownership.
+    /// @brief Release sole request ownership on every normal scoped return.
+    /// @warning Forced task removal/destruction cannot rely on this cleanup.
     struct ReleaseOnExit {
+      /// @brief Owning drivetrain; must outlive this synchronous request.
       Drivetrain* drive;
+      /// @brief Permit another request only after terminal cleanup has returned.
       ~ReleaseOnExit() { drive->pathActive.store(false); }
     } releaseOnExit{this};
     if (trace) trace->reset(); // rejected overlapping requests never touch capture
@@ -962,6 +1132,10 @@ class Drivetrain {
     const uint32_t started = pros::millis();
     uint32_t activeBudgetStarted = started;
     uint32_t activeBudgetMs = timeoutMs;
+    /// @brief Finalize an owned request after serialized terminal zero attempts.
+    /// @param status Proposed stage outcome, subject to failure/cancellation/deadline.
+    /// @return Final result with elapsed time and trace terminal fields updated.
+    /// @details Holds ownership until return; cleanup never revives a revoked epoch.
     auto finish = [&](Status status) {
       std::lock_guard<pros::Mutex> lock(pathCommandMutex);
       if (pathCancelGeneration.load() != generation && status != Status::CONTROL_FAILURE)
@@ -1020,6 +1194,18 @@ class Drivetrain {
     const Status prepared = controller.setPath(path,caps);
     if (prepared != Status::RUNNING) return finish(prepared);
     result.finalHeading = controller.finalHeading();
+    /// @brief Construct a bounded capture observation without I/O or allocation.
+    /// @param stage Stage owning this observation.
+    /// @param pose Pose observed in inches/clockwise degrees.
+    /// @param timestamp Observation clock in microseconds (low 32 bits).
+    /// @param interval Measured preceding stage interval in microseconds, or zero.
+    /// @param compute Timed controller work in microseconds, not full loop time.
+    /// @param publication Timed publication/mutex duration in microseconds, or zero.
+    /// @param left Requested floating left motor RPM.
+    /// @param right Requested floating right motor RPM.
+    /// @param status Controller or transport status at this observation.
+    /// @param published Whether transport reported success for the pair.
+    /// @note Conversion records an intended integer pair even when not published.
     const auto record = [&](PathStage stage, const Pose& pose, uint32_t timestamp,
                             uint32_t interval, uint32_t compute, uint32_t publication,
                             double left, double right, Status status, bool published) {
@@ -1144,8 +1330,12 @@ class Drivetrain {
     }
   }
 
-  /// @brief Compatibility wrapper; inspect getPathStatus or use followPath for
-  /// the explicit result and requested heading. Does not align final heading.
+  /// @brief Synchronous compatibility wrapper using followPath() defaults.
+  /// @param path Waypoints in inches and clockwise degrees; followPath rules apply.
+  /// @details Discards the explicit result and performs translation only. Inspect
+  /// getPathStatus() after return, or call followPath() for diagnostics and optional
+  /// heading alignment. Overlap rejection leaves the active request's status intact.
+  /// @pre Same lifetime and motion-writer serialization requirements as followPath().
   virtual void follow(const std::vector<Pose>& path) { (void)followPath(path); }
 
   /// @brief Scales a joystick input to drivetrain motor intensity according to a percentage

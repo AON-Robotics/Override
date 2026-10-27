@@ -6,6 +6,13 @@ namespace aon {
 
 class HDrive : public Drivetrain {
  protected:
+  /// @brief Attempt zero velocity on both drive sides and the strafe group.
+  /// @return True only when all three PROS group writes return 1.
+  /// @pre The shared drivetrain stop/path lifecycle holds pathCommandMutex.
+  /// @details H-drive is not opted into PurePursuit. Rejected path requests must
+  /// still stop the independent mid-wheel group, including when either drive
+  /// side reports a transport error. Each write occurs before combining results.
+  /// This hook avoids public motion methods to prevent recursive locking.
   bool stopPathMotors() override {
     const auto l = leftMotors.move_velocity(0);
     const auto r = rightMotors.move_velocity(0);
@@ -84,9 +91,14 @@ class HDrive : public Drivetrain {
   /// @note Pose X/Y are inches; heading is clockwise degrees.
   void goToPose(const Pose& target) override;
 
-  /// @brief Follows a path using a pure pursuit controller
-  /// @param path The path to follow
-  /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
+  /// @brief Route a path request through the shared unsupported-configuration gate.
+  /// @param path Ordered AON-inch poses; retained only for API compatibility here.
+  /// @details H-drive holonomic path kinematics have not been validated. The base
+  /// movement owner rejects the request, attempts all three group stops and
+  /// records UNSUPPORTED_CONFIGURATION, or CONTROL_FAILURE if a stop fails.
+  /// No path is tracked and no final-heading alignment is performed. Inspect
+  /// getPathStatus(), or use followPath() to obtain the explicit PathResult.
+  /// @note A concurrent request rejected before ownership does not stop its owner.
   void follow(const std::vector<Pose>& path) override;
 };
 

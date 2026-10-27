@@ -6,6 +6,12 @@ namespace aon {
 
 class MecanumDrive : public Drivetrain {
  protected:
+  /// @brief Attempt zero velocity on all four wheel groups during path cleanup.
+  /// @return True only when every PROS group write returns 1.
+  /// @pre The shared drivetrain stop/path lifecycle holds pathCommandMutex.
+  /// @details Mecanum paths are unsupported, but rejecting a path must still
+  /// attempt every wheel's stop. Separate assignments prevent a failed early
+  /// write from short-circuiting later stops; API success is not physical rest.
   bool stopPathMotors() override {
     const auto fl = frontLeftMotors.move_velocity(0);
     const auto fr = frontRightMotors.move_velocity(0);
@@ -79,9 +85,14 @@ class MecanumDrive : public Drivetrain {
   /// @note Pose X/Y are inches; heading is clockwise degrees.
   void goToPose(const Pose& target) override;
 
-  /// @brief Follows a path using a pure pursuit controller
-  /// @param path The path to follow
-  /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
+  /// @brief Reject unvalidated mecanum path kinematics through the shared lifecycle.
+  /// @param path Ordered AON-inch poses, accepted syntactically for compatibility.
+  /// @details Delegates to Drivetrain::follow instead of running a second copy
+  /// of the differential controller. An admitted request attempts all four stops
+  /// and reports UNSUPPORTED_CONFIGURATION; stop errors become CONTROL_FAILURE.
+  /// No path tracking or final-heading correction occurs. Use followPath() for
+  /// an explicit result, or inspect getPathStatus() after this void wrapper.
+  /// @note A request rejected for overlap leaves the active owner's motors alone.
   void follow(const std::vector<Pose>& path) override;
 };
 

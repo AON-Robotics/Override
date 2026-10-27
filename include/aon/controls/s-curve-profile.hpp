@@ -30,6 +30,9 @@ class MotionProfile {
   };
 
  private:
+  /// @brief Profile ceilings: RPM, RPM/s acceleration/deceleration, and RPM/s^2 jerk.
+  /// Zero initialization makes a default profile deterministically invalid for
+  /// path preparation instead of exposing indeterminate limits to arithmetic.
   double MAX_VELOCITY = 0, MAX_ACCELERATION = 0, MAX_DECELERATION = 0, JERK = 0;
   double currVelocity = 0;
   double currAccel = 0;
@@ -45,16 +48,36 @@ class MotionProfile {
     this->JERK = std::abs(JERK);  // RPM/(s^2)
   }
 
+  /// @brief Construct an unconfigured profile with zero limits and zero motion.
+  /// @note isValid() remains false until all required limits are configured;
+  /// PurePursuit rejects it before attempting path motion. This is not a request
+  /// for an unlimited profile or an implicit robot-specific tuning preset.
   MotionProfile(){}
 
   /// @brief Returns the current stage of the motion profile
   /// @return The stage of the motion profile
   Stage getStage() const { return this->stage; }
 
+  /// @brief Read the configured motor-equivalent speed ceiling without changing state.
+  /// @return Stored profile velocity limit in RPM; zero if unconfigured. The
+  /// setter stores values directly, so callers must check isValid() before
+  /// interpreting it as a finite positive ceiling.
+  /// @note This is a configured value, not measured wheel velocity. The path
+  /// controller may reduce it for curvature, heading, caps or motor resolution.
   double getMaxVelocity() const { return MAX_VELOCITY; }
+  /// @brief Read the configured braking magnitude used by path speed previews.
+  /// @return Deceleration magnitude in RPM/s, before the experimental 0.5 factor.
+  /// @details Path braking converts this motor-equivalent rate into inches/s^2
+  /// before applying the distance relation v^2 = u^2 + 2*a*s.
   double getMaxDeceleration() const { return MAX_DECELERATION; }
 
-  /// @brief Reject unusable profiles before starting experimental path control.
+  /// @brief Check that all four profile limits can support path calculations.
+  /// @return True only when velocity, acceleration, deceleration and jerk are
+  /// each finite and strictly positive; false for zero/default, NaN or infinity.
+  /// @details Checks configuration only: it neither resets motion history nor
+  /// establishes physical feasibility, actuator calibration or measured traction.
+  /// Constructors normalize signed limits by magnitude; this check sees those
+  /// stored magnitudes. The path controller validates its geometry separately.
   bool isValid() const {
     return std::isfinite(MAX_VELOCITY) && MAX_VELOCITY > 0 &&
            std::isfinite(MAX_ACCELERATION) && MAX_ACCELERATION > 0 &&
@@ -62,7 +85,10 @@ class MotionProfile {
            std::isfinite(JERK) && JERK > 0;
   }
 
-  // TODO: Desmos this function below
+  // TODO(Issue 18, physical validation): measure braking/overshoot with the
+  // current robot before accepting the inherited half-deceleration heuristic.
+  // Plotting the profile can explain its shape but cannot validate traction or
+  // establish global wheel jerk bounds after path safety limits are applied.
 
   /// @brief Calculates the target velocity to send to the motors for smooth and precise movements using an S-curve profile.
   /// @param remainingDist The remaining distance to the target in \b inches.
