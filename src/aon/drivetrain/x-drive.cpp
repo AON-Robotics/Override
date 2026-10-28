@@ -2,6 +2,15 @@
 
 namespace aon {
 
+bool XDrive::stopPathMotors() {
+  const auto fl = frontLeftMotors.move_velocity(0);
+  const auto fr = frontRightMotors.move_velocity(0);
+  const auto bl = backLeftMotors.move_velocity(0);
+  const auto br = backRightMotors.move_velocity(0);
+  return fl == 1 && fr == 1 && bl == 1 && br == 1;
+}
+
+
 void XDrive::sideways(const double &rpm, const int& delay) {
   if (dispatchMotion(MotionOperation::SIDEWAYS,rpm)) {
     if (delay!=0) { pros::delay(delay); this->stop(); }
@@ -207,11 +216,6 @@ void XDrive::goToPose(const Pose& target){
   this->stop();
 }
 
-/// @brief Delegate X-drive path requests to the common unsupported-model gate.
-/// @param path Ordered AON-inch waypoints; no X-drive follower is implemented here.
-/// @details The base owner preserves cancellation/admission precedence and uses
-/// this model's four-wheel stop hook. This compatibility entry cannot silently
-/// reinterpret differential left/right commands as validated X-drive kinematics.
 void XDrive::follow(const std::vector<Pose>& path) {
   Drivetrain::follow(path); // safely rejects unvalidated holonomic kinematics
 }

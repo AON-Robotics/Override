@@ -6,19 +6,7 @@ namespace aon {
 
 class XDrive : public Drivetrain {
  protected:
-  /// @brief Attempt zero velocity on all four X-drive wheel groups.
-  /// @return True only when all four PROS writes return 1, after every attempt.
-  /// @pre The drivetrain stop/path lifecycle holds pathCommandMutex.
-  /// @details Path following is not supported for this wheel model. Rejection
-  /// still needs an all-wheel stop rather than a differential two-group stop;
-  /// API errors on one group must not prevent attempts on the others.
-  bool stopPathMotors() override {
-    const auto fl = frontLeftMotors.move_velocity(0);
-    const auto fr = frontRightMotors.move_velocity(0);
-    const auto bl = backLeftMotors.move_velocity(0);
-    const auto br = backRightMotors.move_velocity(0);
-    return fl == 1 && fr == 1 && bl == 1 && br == 1;
-  }
+  bool stopPathMotors() override;
 
  private:
   SmartMotorGroup frontLeftMotors;
@@ -92,14 +80,8 @@ class XDrive : public Drivetrain {
   /// @note Pose X/Y are inches; heading is clockwise degrees.
   void goToPose(const Pose& target) override;
 
-  /// @brief Reject X-drive paths through the common movement owner and stop hooks.
-  /// @param path Ordered AON-inch poses, retained for source compatibility only.
-  /// @details X-drive does not opt into the validated forward differential
-  /// kinematics. An admitted request stops all four groups and records
-  /// UNSUPPORTED_CONFIGURATION, or CONTROL_FAILURE on stop failure. It performs
-  /// neither path translation nor a final-heading turn. followPath() returns
-  /// the explicit result; getPathStatus() exposes this void wrapper's outcome.
-  /// @note Overlapping rejected requests never stop the already active owner.
+  /// @brief Reject unsupported Pure Pursuit kinematics and attempt all-group stops.
+  /// @note No translation or final-heading alignment; use followPath for the result.
   void follow(const std::vector<Pose>& path) override;
 };
 

@@ -13,41 +13,23 @@ namespace aon {
 
 /**
  * @brief Experimental forward-center differential-drive polyline controller.
- * @details Positions, lookahead and track width use inches; headings use clockwise
- * degrees in the AON frame (+X forward at zero heading, +Y right). Commands are
- * equivalent motor RPM. Positive left-minus-right command turns clockwise.
- * Ordered, contiguous projection and distance interpolation determine progress
- * and lookahead; intermediate waypoint headings do not steer translation.
- * A tight turn may reverse the inner wheel, but commanded center motion never
- * reverses. Targets behind the robot require stationary heading acquisition.
- *
- * setPath() prepares owned storage; update() performs no allocation, formatting
- * or I/O. This class does not read sensors, publish motor commands, enforce a
- * wall-clock timeout, cancel requests or align the final heading. The movement
- * layer owns those operations and must inspect returned status/commands.
- * @pre Serialize every access to an instance, including diagnostics/status reads
- * and legacy go()/turn(); no internal synchronization protects mutable state.
- * @note Profiles shape center/acquisition requests. Geometry, speed ceilings and
- * stopping can override smoothness; final wheel jerk/acceleration is not globally
- * constrained. Legacy go()/turn() retain separate single-target behavior.
- * @todo Issue 18: measure tracking, stopping, loaded V5 timing and preparation
- * memory margin on calibrated hardware before competition use; software evidence
- * does not establish repeated-run physical accuracy.
- * @todo Issue 8: adapt exporter frames and speed metadata to setPath() outside
- * this controller. Issue 33: complete separately reviewed legacy movement
- * integration and physical tuning of the movement-owned final-heading stage.
+ * XY, lookahead and track width are inches; heading is clockwise degrees
+ * (+X forward at zero, +Y right). Commands are motor RPM; left-minus-right
+ * turns clockwise. Ordered projection earns progress; waypoint headings do not
+ * steer translation. Tight turns may reverse the inner wheel, never the center.
+ * setPath() owns preparation/storage; update() is allocation-free and I/O-free.
+ * Movement owns sensors, publication, timeout/cancellation and final heading.
+ * @pre Callers serialize all instance access, including diagnostics and legacy calls.
+ * @note Profiles shape requests; geometric/wheel limits can override smoothness.
+ * Legacy go()/turn() keep their separate single-target semantics.
+ * @todo Validate tracking, stopping, scheduling, memory and tuning on calibrated
+ * hardware before competition use; software tests do not establish physical accuracy.
  */
 class PurePursuit {
  public:
-  /// @brief Largest accepted preceding path-update interval, in seconds.
-  /// @details The movement loop normally requests 10 ms. Longer holds exhibited
-  /// sampled-target overshoot in software experiments; 50 ms is the supported
-  /// experimental envelope, not a hard real-time or physical convergence guarantee.
-  /// @todo Measure loaded V5 scheduling and reaction to blocked command holds.
+  /// @brief Largest supported preceding path-update interval, seconds (legacy unchanged).
   static constexpr double maxPathInterval = 0.05; // seconds; legacy go/turn unchanged
-  /// @brief Shared controller/movement request lifecycle and failure vocabulary.
-  /// @details This controller emits preparation/control/translation results;
-  /// TIMEOUT and CANCELLED are movement-layer results, not update() transitions.
+  /// @brief Shared lifecycle; TIMEOUT/CANCELLED are emitted by movement, not update().
   enum class Status {
     IDLE, ///< No path has been prepared; follow() may prepare its first path.
     RUNNING, ///< Prepared request is active, including zero-command settlement.
@@ -59,9 +41,7 @@ class PurePursuit {
     CONTROL_FAILURE ///< Invalid configuration/input or unusable control geometry.
   };
 
-  /// @brief Latest geometry and floating command snapshot, not motor feedback.
-  /// @details Read only under the instance's caller-owned serialization contract.
-  /// motorCommands() can further reduce the published integer wheel pair.
+  /// @brief Geometry and floating requests, not motor feedback; caller serializes reads.
   struct Diagnostics {
     /// @brief Earned-progress reference and current steering target in field units.
     /// @details lookahead may be a gate, recovery point or tangent extension;
@@ -77,10 +57,8 @@ class PurePursuit {
   };
 
  private:
-  // Profiles are owned copies shared by legacy and path operations. setPath()
-  // clears velocity/acceleration; construction forces both final velocities to zero.
-  // Linear path distances are inches and linear profile output is motor RPM;
-  // path acquisition supplies half-track arc inches to the angular profile.
+  // Owned profiles: path distance is inches, output motor RPM; acquisition uses
+  // half-track arc inches. setPath() resets both velocity and acceleration.
   MotionProfile linearProfile;
   MotionProfile angularProfile;
 
@@ -105,22 +83,15 @@ class PurePursuit {
   Pose recoveryReference; ///< Fixed field-space recovery target; does not itself authorize progress.
   double recoveryTolerance = 0; ///< Internal recovery arrival radius in inches, separate from final tolerance.
   double settledSeconds = 0; ///< Continuous sampled endpoint dwell, reset by motion or departure.
-  /// @brief Experimental commanded lateral acceleration ceiling in inches/s^2.
-  /// @todo Measure traction/current and tune this assumption on the actual robot;
-  /// it provides neither physical safety margin nor a measured adhesion limit.
+  // Experimental commanded inches/s^2; requires physical traction/current tuning.
   static constexpr double maxLateralAcceleration = 30;
 
-  /// @brief Check finite XY inches and heading degrees without geometric bounds.
-  /// @param p Pose to inspect, including theta even when only XY steers.
-  /// @return True exactly when all three components are finite.
+  // Validate heading even where only XY steers.
   static bool finitePose(const Pose& p) {
     return std::isfinite(p.x) && std::isfinite(p.y) && std::isfinite(p.theta);
   }
 
-  /// @brief Latch a terminal reason and clear requested center/yaw diagnostics.
-  /// @param reason Failure status selected by the detecting control operation.
-  /// @return Zero left/right RPM requests; the caller must publish the stop.
-  /// @note Other geometry diagnostics remain available for failure inspection.
+  // Latch failure and clear requests, retaining geometry for inspection.
   std::pair<double, double> fail(Status reason) {
     pathStatus = reason;
     diagnostics.targetRPM = diagnostics.angularVelocity = 0;
@@ -130,12 +101,7 @@ class PurePursuit {
   double linearDeadband;  ///< Positive endpoint/progress tolerance in inches; robot tuning is caller-owned.
   double angularDeadband;  ///< Positive legacy-turn/acquisition tolerance in degrees.
 
-  /// @brief Validate the legacy single-target domain, including its 250 ms dt bound.
-  /// @param target Finite target XY inches and heading degrees.
-  /// @param current Finite observed pose in the same field frame.
-  /// @param dt Positive preceding interval in seconds, at most 0.25.
-  /// @return Whether poses, profiles, tolerances and drive conversion are usable.
-  /// @note Path update() has the stricter maxPathInterval scheduling envelope.
+  // Legacy input validation retains its separate 250 ms dt envelope.
   bool validControlInput(const Pose& target, const Pose& current, double dt) const {
     return finitePose(target) && finitePose(current) && std::isfinite(dt) &&
         dt > 0 && dt <= 0.25 && linearProfile.isValid() && angularProfile.isValid() &&
@@ -145,12 +111,7 @@ class PurePursuit {
         std::isfinite(math::linearSpeed(1)) && math::linearSpeed(1) > 0;
   }
 
-  /// @brief Proportionally limit a legacy wheel pair to linear/motor RPM ceilings.
-  /// @param left Requested left motor RPM; may be negative.
-  /// @param right Requested right motor RPM; may be negative.
-  /// @return Finite scaled pair, or zero with CONTROL_FAILURE on nonfinite input.
-  /// @pre validControlInput() has established valid positive profile limits.
-  /// @note This does not apply path-specific center, angular or lateral limits.
+  // Legacy wheel/motor ceiling; path-specific limits do not apply here.
   std::pair<double, double> boundedLegacy(double left, double right) {
     if (!std::isfinite(left) || !std::isfinite(right))
       return fail(Status::CONTROL_FAILURE);
@@ -160,14 +121,10 @@ class PurePursuit {
   }
 
  public:
-  /// @brief Copy profiles and configure path/legacy controller tolerances.
-  /// @param linearProfile Linear profile with motor-RPM limits and inch distance input.
-  /// @param angularProfile Turning profile; path acquisition uses wheel arc inches.
-  /// @param lookaheadOffset Path lookahead in inches (legacy name; not sample count).
-  /// @param linearDeadband Positive endpoint/progress tolerance in inches.
-  /// @param angularDeadband Positive legacy-turn/acquisition tolerance in degrees.
-  /// @details Both copied profiles are forced to zero final velocity. Configuration
-  /// validation occurs on control/preparation, not in this constructor.
+  /// @brief Copy profiles (zero final velocity); distances are inches, speeds motor RPM.
+  /// @param lookaheadOffset Path lookahead inches, despite the legacy parameter name.
+  /// @param linearDeadband Positive endpoint/progress tolerance, inches.
+  /// @param angularDeadband Positive legacy-turn/acquisition tolerance, degrees.
   PurePursuit(MotionProfile linearProfile, MotionProfile angularProfile,
               int lookaheadOffset, double linearDeadband, double angularDeadband)
       : linearProfile(linearProfile), angularProfile(angularProfile) {
@@ -178,15 +135,9 @@ class PurePursuit {
     this->angularDeadband = angularDeadband;
   }
 
-  /// @brief Produce legacy single-target translation/heading wheel requests.
-  /// @param target Target XY inches; theta is validated but does not guide go().
-  /// @param current Observed pose, using clockwise degrees in the AON frame.
-  /// @param dt Positive preceding interval in seconds, at most 0.25 (default 0.02).
-  /// @return Left/right motor RPM; zero inside linearDeadband or on failure.
-  /// @details Independently profiles distance and heading-error arc, then sums
-  /// wheel requests. This is separate from the prepared path lifecycle, contiguous
-  /// progress, settlement and path-specific safety ceilings. A zero result is
-  /// not a path SUCCESS transition. Failure can update the shared status.
+  /// @brief Legacy single-target translation/heading command, left/right motor RPM.
+  /// @param dt Positive preceding seconds, <=0.25; poses use inches/clockwise degrees.
+  /// @note Zero inside linearDeadband does not declare path SUCCESS.
   std::pair<double, double> go(Pose target, Pose current, double dt = 0.02) {
     // Basic Pure Pursuit-style controller (simplified for single target)
     if (!validControlInput(target,current,dt)) return fail(Status::CONTROL_FAILURE);
@@ -240,14 +191,9 @@ class PurePursuit {
     return boundedLegacy(left,right);
   }
 
-  /// @brief Produce legacy stationary turning requests toward target.theta.
-  /// @param target Target pose; heading is clockwise degrees, XY only validated.
-  /// @param current Observed pose in the same field frame.
-  /// @param dt Positive preceding interval in seconds, at most 0.25 (default 0.02).
-  /// @return Opposing left/right motor RPM, or zero in angularDeadband/on failure.
-  /// @details Uses shortest wrapped degree error directly as angular-profile
-  /// input, preserving legacy semantics. It does not own path final alignment
-  /// or declare translation settlement; movement owns that separate stage.
+  /// @brief Legacy stationary turn toward target.theta, left/right motor RPM.
+  /// @param dt Positive preceding seconds, <=0.25; heading error uses degrees.
+  /// @note Does not perform path final alignment or declare translation settlement.
   std::pair<double, double> turn(Pose target, Pose current, double dt = 0.02) {
     if (!validControlInput(target,current,dt)) return fail(Status::CONTROL_FAILURE);
     // TODO: determine if this is necessary
@@ -272,30 +218,16 @@ class PurePursuit {
     return boundedLegacy(angularVel,-angularVel);
   }
 
-  /// @brief Read direct-controller status without starting or advancing a request.
-  /// @return Current status; movement-layer timeout/cancellation is tracked externally.
+  /// @brief Read controller status; movement tracks its timeout/cancellation externally.
   Status status() const { return pathStatus; }
-  /// @brief Convert a finite, normalized forward wheel pair to the actual motor
-  /// representation. Independent truncation can increase center or turn RPM.
-  /// Reduce only positive wheel magnitude to preserve the requested center and
-  /// configured angular ceiling. Same-sign truncation changes the difference by
-  /// less than 1RPM; opposite signs change the sum by less than 1RPM. Thus each
-  /// center/angular constraint needs at most one decrement. The final lateral
-  /// bound also constrains the larger wheel: |a| = u^2*|l^2-r^2|/(2*width),
-  /// where u is inches/second per RPM. For a forward pair the larger signed
-  /// wheel is >= |other|. Reducing it toward |other| decreases center, turn and
-  /// lateral acceleration together, without reversing center or adding speed.
-  /// @param left Normalized left equivalent motor RPM, possibly negative.
-  /// @param right Normalized right equivalent motor RPM, possibly negative.
-  /// @param angularLimit Finite nonnegative differential turn ceiling in RPM;
-  /// abs(left-right)/2 must already respect it.
-  /// @return Integer left/right RPM preserving nonincreased requested center
-  /// speed and the angular/lateral ceilings; curvature can change at low speed.
-  /// @note Uses ideal differential kinematics, not measured wheel motion. Work
-  /// is fixed: at most one square root plus an integer-boundary rounding guard.
-  /// @pre DRIVE_WIDTH and linearSpeed(1) are finite and strictly positive.
-  /// @pre Wheel magnitudes are within motor int16 range, left+right >= 0,
-  /// and the finite input pair already respects the finite angularLimit >= 0.
+  /// @brief Convert normalized forward wheel RPM to integer transport without
+  /// increasing center speed or configured angular/lateral ceilings.
+  /// Truncation can raise sum/difference; each needs at most one decrement.
+  /// Lateral acceleration is u^2*abs(l^2-r^2)/(2*width), u=inches/s per RPM.
+  /// Reducing the larger signed wheel decreases all three limits together.
+  /// @pre Finite pair within int16 range, left+right>=0, respecting angularLimit>=0;
+  /// DRIVE_WIDTH and linearSpeed(1) finite/positive. Caller serializes access.
+  /// @note Fixed work (one sqrt plus rounding guard); low-speed curvature may change.
   static std::pair<int16_t,int16_t> motorCommands(double left, double right,
                                                double angularLimit) {
     int16_t l = static_cast<int16_t>(left), r = static_cast<int16_t>(right);
@@ -319,29 +251,20 @@ class PurePursuit {
     }
     return {l,r};
   }
-  /// @brief Inspect the latest snapshot under caller-owned serialization.
-  /// @return Borrowed internal diagnostics, invalid as a stable snapshot after mutation.
+  /// @brief Borrowed snapshot; caller serializes access and copies before mutation.
   const Diagnostics& getDiagnostics() const { return diagnostics; }
-  /// @brief Retrieve the prepared terminal heading for movement-layer alignment.
-  /// @return Last retained theta in clockwise degrees, or zero with no stored path.
-  /// @pre Check successful preparation before interpreting partially prepared data.
+  /// @brief Terminal clockwise degrees for movement alignment; check preparation first.
   double finalHeading() const { return points.empty() ? 0 : points.back().theta; }
 
-  /// @brief Copy, validate and reset an explicit ordered path request.
-  /// @param path One to 4096 finite poses, XY inches with abs(X/Y) <= 1e6;
-  /// intermediate theta is ignored by steering, final theta is retained unchanged.
-  /// @param caps Optional same-length center-speed ceilings in equivalent motor
-  /// RPM, positive except optional terminal zero; empty uses the linear maximum.
-  /// @param reversed Must be false; reverse requests are explicitly unsupported.
-  /// @return RUNNING on successful preparation, otherwise a latched failure.
-  /// @details Consecutive XY within 1e-9 inches collapse to the latest pose and
-  /// strictest cap. Singleton paths request endpoint settlement. Final cap is
-  /// forced to zero and a backward v^2=u^2+2*a*s envelope propagates restrictions,
-  /// using half the configured deceleration after conversion to inches/s^2.
-  /// Allocations occur here; rejected preparation may retain partial storage.
-  /// Explicitly call again for every new request, including after terminal status.
-  /// @pre No concurrent instance access; caller owns stopping before replacement.
-  /// @note This accepts generic caps without decoding any exporter metadata.
+  /// @brief Copy, validate and reset an ordered request; allocation occurs here only.
+  /// @param path 1..4096 finite poses, XY inches with abs(X/Y)<=1e6. Final theta retained.
+  /// @param caps Optional same-length motor-RPM ceilings, positive except terminal zero.
+  /// @param reversed Must be false; reverse requests are unsupported.
+  /// @return RUNNING on preparation, otherwise a latched failure (storage may be partial).
+  /// @details Consecutive XY within 1e-9 collapse to the latest pose/strictest cap.
+  /// Final cap is zero; half configured deceleration propagates a backward braking
+  /// envelope. A singleton requests settlement. Call explicitly for every restart.
+  /// @pre Caller serializes access and stops before replacing an active request.
   Status setPath(const std::vector<Pose>& path,
                  const std::vector<double>& caps = {}, bool reversed = false) {
     points.clear(); distances.clear(); speedCaps.clear();
@@ -398,65 +321,63 @@ class PurePursuit {
     return pathStatus;
   }
 
-  /// @brief Advance prepared translation using one pose sample, without allocation/I/O.
-  /// @param current Finite field pose: XY inches and clockwise heading degrees.
-  /// @param dt Positive measured preceding command/sample interval in seconds,
-  /// at most maxPathInterval; default 0.02 supports direct callers.
-  /// @return Floating left/right motor RPM; terminal/inactive states return zero.
-  /// @details Progress is monotonic and limited by ordered gate witnesses and
-  /// measured displacement allowance. Steering uses interpolated lookahead,
-  /// recovery and fold limits before clockwise differential wheel kinematics.
-  /// SUCCESS requires remaining arc and endpoint error <=linearDeadband and
-  /// continuous 150 ms sampled dwell at <=1 inch/s and <=5 degrees/s. First pose
-  /// establishes a baseline and earns no dwell. Final heading is not aligned.
-  /// @pre Call setPath() successfully first; serialize all instance access.
-  /// @note Caller owns pose freshness/accuracy, deadline/cancellation, integer
-  /// conversion via motorCommands(), command publication and terminal stop.
-  /// A finite freshly supplied pose does not prove sensor accuracy or liveness.
-  /// @todo Validate the 150 ms/1 inch/s/5 degrees/s settlement assumptions and
-  /// geometry/numerical thresholds against calibrated physical measurements.
-  std::pair<double, double> update(Pose current, double dt = 0.02) {
-    if (pathStatus != Status::RUNNING) return {0, 0};
-    if (!finitePose(current) || !std::isfinite(dt) || dt <= 0 || dt > maxPathInterval)
-      return fail(Status::CONTROL_FAILURE);
+ private:
+  struct MotionSample {
+    Pose previous;
+    double moved = 0;       // inches during the preceding dt
+    double angularSpeed = 0; // degrees/s
+    bool hasPrevious = false;
+  };
 
-    const double moved = hasPreviousPose ? current.distanceTo(previousPose) : 0;
-    const double angularSpeed = hasPreviousPose ?
+  struct ProgressUpdate {
+    bool limited = false;
+    bool missedGate = false;
+    Pose recoveryReference;
+    double recoveryTolerance = 0;
+  };
+
+  struct PathErrors {
+    double remaining; // earned arc inches still outstanding
+    double endpoint;  // Euclidean inches to the final point
+  };
+
+  // Records the new pose and measured speed; the first sample earns no dwell/gate.
+  bool observeMotion(const Pose& current, double dt, MotionSample& sample) {
+    sample.moved = hasPreviousPose ? current.distanceTo(previousPose) : 0;
+    sample.angularSpeed = hasPreviousPose ?
         std::abs(std::remainder(std::remainder(current.theta, 360.0) -
             std::remainder(previousPose.theta, 360.0), 360.0)) / dt : 0;
-    diagnostics.measuredSpeed = moved / dt;
-    const bool canSettle = hasPreviousPose;
-    const Pose lastPose = previousPose;
+    diagnostics.measuredSpeed = sample.moved / dt;
+    sample.hasPrevious = hasPreviousPose;
+    sample.previous = previousPose;
     previousPose = current; hasPreviousPose = true;
-    if (!std::isfinite(moved) || !std::isfinite(diagnostics.measuredSpeed) ||
-        !std::isfinite(angularSpeed)) return fail(Status::CONTROL_FAILURE);
+    if (!std::isfinite(sample.moved) || !std::isfinite(diagnostics.measuredSpeed) ||
+        !std::isfinite(sample.angularSpeed)) return false;
 
+    return true;
+  }
+
+  // Advances segment/progress and clears obsolete recovery after an earned gate.
+  ProgressUpdate advanceProgress(const Pose& current, const MotionSample& sample,
+                                 double recoveryResolution) {
     // Follow only contiguous segments, never a global nearest-point search.
     // The acquisition allowance is issued once. Corner cuts may consume up to
     // two path inches per measured inch, but no corner can replenish this bound.
-    progressAllowance = std::min(diagnostics.length,progressAllowance + 2*moved);
+    progressAllowance = std::min(diagnostics.length,progressAllowance + 2*sample.moved);
     const double progressLimit = progressAllowance;
-    const double minimumChord = std::max(1e-6,math::linearSpeed(1)*dt);
-    // Recovery's half-chord speed ceiling must still permit one integer RPM
-    // just outside its internal arrival ball, for any supported following hold.
-    // This resolution affects only recovery geometry, never final arrival.
-    const double recoveryResolution = 2*math::linearSpeed(1)*maxPathInterval;
     // Non-collinear branches require directed corner-bisector crossings, in
     // increasing order along this pose displacement. A pose already past an
     // unvisited gate cannot repeatedly authorize later branches. Exact reversals
     // use the incoming endpoint plane because their bisector has zero length.
     double lastCrossing = -1;
-    bool progressLimited = false;
-    bool missedGate = false;
-    Pose gateRecoveryReference;
-    double gateRecoveryTolerance = 0;
+    ProgressUpdate result;
     while (segment + 1 < points.size()) {
       const Pose& a = points[segment]; const Pose& b = points[segment+1];
       const double length = distances[segment+1] - distances[segment];
       double t = ((current.x-a.x)*(b.x-a.x)+(current.y-a.y)*(b.y-a.y)) /
                  (length*length);
       double projection = distances[segment] + std::clamp(t, 0.0, 1.0)*length;
-      progressLimited = projection > progressLimit+1e-9;
+      result.limited = projection > progressLimit+1e-9;
       diagnostics.progress = std::max(diagnostics.progress,
           std::min(projection, progressLimit));
       if (segment + 2 == points.size()) break;
@@ -470,14 +391,14 @@ class PurePursuit {
       } else {
         double nx = ux+vx, ny = uy+vy;
         if (nx*nx+ny*ny <= 1e-12) { nx=ux; ny=uy; }
-        const double before = (lastPose.x-b.x)*nx+(lastPose.y-b.y)*ny;
+        const double before = (sample.previous.x-b.x)*nx+(sample.previous.y-b.y)*ny;
         const double after = (current.x-b.x)*nx+(current.y-b.y)*ny;
-        const bool directed = canSettle && moved > 1e-9 && before <= 1e-9 &&
+        const bool directed = sample.hasPrevious && sample.moved > 1e-9 && before <= 1e-9 &&
             after >= -1e-9 && after-before > 1e-9;
         const double crossing = directed ? std::clamp(-before/(after-before),0.0,1.0) : 0;
         const bool ordered = directed && crossing > lastCrossing+1e-9;
         if (after > 1e-9 && !ordered) {
-          missedGate = true;
+          result.missedGate = true;
           if (!recoveringProgress) {
             // Retreat along the gate normal, not merely along the incoming edge:
             // near reversals that edge can run almost parallel to the gate.
@@ -499,14 +420,14 @@ class PurePursuit {
             const double retreat = std::max(2*recoveryResolution,
                 std::min(lookaheadDistance,incomingLength)*0.5);
             const double norm = std::hypot(nx,ny);
-            gateRecoveryReference = Pose(b.x-nx/norm*retreat,b.y-ny/norm*retreat);
+            result.recoveryReference = Pose(b.x-nx/norm*retreat,b.y-ny/norm*retreat);
             // This arrival ball lies strictly before the gate (radius <= retreat/2).
-            gateRecoveryTolerance = std::min(std::max(linearDeadband,recoveryResolution),retreat*0.5);
+            result.recoveryTolerance = std::min(std::max(linearDeadband,recoveryResolution),retreat*0.5);
           }
         }
         if (distances[segment+1] > progressLimit && after >= -1e-9)
-          progressLimited = true;
-        if (!canSettle || moved <= 1e-9 ||
+          result.limited = true;
+        if (!sample.hasPrevious || sample.moved <= 1e-9 ||
             distances[segment+1] > progressLimit ||
             distances[segment+1]-diagnostics.progress > lookaheadDistance) break;
         if (!ordered) break;
@@ -518,6 +439,11 @@ class PurePursuit {
       }
       ++segment;
     }
+    return result;
+  }
+
+  // Refreshes the earned reference and cross-track distance.
+  PathErrors measurePathErrors(const Pose& current) {
     diagnostics.reference = points.front();
     if (points.size() > 1) {
       double t = (diagnostics.progress-distances[segment]) /
@@ -527,26 +453,28 @@ class PurePursuit {
     diagnostics.crossTrack = current.distanceTo(diagnostics.reference);
     const double remaining = diagnostics.length - diagnostics.progress;
     const double endError = current.distanceTo(points.back());
-    if (!std::isfinite(endError) || !std::isfinite(diagnostics.crossTrack) ||
-        !std::isfinite(diagnostics.measuredSpeed) || !std::isfinite(angularSpeed))
-      return fail(Status::CONTROL_FAILURE);
-    if (remaining <= linearDeadband && endError <= linearDeadband) {
+    return {remaining,endError};
+  }
+
+  // Returns true when the endpoint holds the command at zero (possibly SUCCESS).
+  bool settleTranslation(const PathErrors& errors, const MotionSample& sample, double dt) {
+    if (errors.remaining <= linearDeadband && errors.endpoint <= linearDeadband) {
       diagnostics.targetRPM = diagnostics.angularVelocity = 0;
-      const bool arrived = canSettle && diagnostics.measuredSpeed <= 1 && angularSpeed <= 5;
+      const bool arrived = sample.hasPrevious && diagnostics.measuredSpeed <= 1 && sample.angularSpeed <= 5;
       // The entering interval may start outside the arrival region. As in the
       // movement-owned heading stage, credit only consecutive qualified samples.
       settledSeconds = arrived && previouslyArrived ? settledSeconds + dt : 0;
       previouslyArrived = arrived;
       if (settledSeconds >= 0.15) pathStatus = Status::SUCCESS;
-      return {0, 0};
+      return true;
     }
     settledSeconds = 0; previouslyArrived = false;
-    // Supported active-path resolution: the half-chord recovery ceiling must
-    // permit at least one integer RPM until its arrival ball is reached. This
-    // sufficient experimental envelope is not a claim that smaller tolerances
-    // are physically impossible. Already sampled arrival above still settles.
-    if (linearDeadband < recoveryResolution)
-      return fail(Status::UNSUPPORTED_CONFIGURATION);
+    return false;
+  }
+
+  // Chooses the steering target and updates the fixed recovery latch.
+  void selectLookahead(const Pose& current, const ProgressUpdate& progress,
+                       double minimumChord, double recoveryResolution) {
     double targetDistance = std::min(diagnostics.length,
         diagnostics.progress + lookaheadDistance);
     // Bound the horizon at folds relative to both the active tangent and each
@@ -594,9 +522,9 @@ class PurePursuit {
     // the target until arrival: alternating between acquisition and lookahead
     // as a projection touches its allowance can otherwise strand the controller
     // rotating between two targets without earning any further displacement.
-    if ((progressLimited || missedGate) && !recoveringProgress) {
-      recoveryReference = missedGate ? gateRecoveryReference : diagnostics.reference;
-      recoveryTolerance = missedGate ? gateRecoveryTolerance :
+    if ((progress.limited || progress.missedGate) && !recoveringProgress) {
+      recoveryReference = progress.missedGate ? progress.recoveryReference : diagnostics.reference;
+      recoveryTolerance = progress.missedGate ? progress.recoveryTolerance :
           std::max(recoveryResolution,std::min(linearDeadband,lookaheadDistance*0.25));
       recoveringProgress = true;
     }
@@ -619,6 +547,11 @@ class PurePursuit {
         } else diagnostics.lookahead = diagnostics.reference;
       }
     }
+  }
+
+  // Profiles, caps and normalizes wheel RPM; updates acquisition and diagnostics.
+  std::pair<double, double> pathCommands(const Pose& current, const PathErrors& errors,
+                                        double dt) {
     const double dx = diagnostics.lookahead.x-current.x;
     const double dy = diagnostics.lookahead.y-current.y;
     const double heading = std::remainder(current.theta,360.0)*M_PI/180;
@@ -629,7 +562,7 @@ class PurePursuit {
     const double chordSquared = dx*dx+dy*dy;
     if (chordSquared <= 1e-12) return fail(Status::CONTROL_FAILURE);
     diagnostics.curvature = 2*lateral/chordSquared;
-    double rpm = linearProfile.update(std::max(remaining,endError), dt);
+    double rpm = linearProfile.update(std::max(errors.remaining,errors.endpoint), dt);
     const double unit = math::linearSpeed(1);
     double cap = linearProfile.getMaxVelocity();
     // A latched recovery target is an arrival task, not a forward horizon.
@@ -644,7 +577,7 @@ class PurePursuit {
       // Projected end progress does not imply arrival: retain braking distance
       // to the actual endpoint while recovering a lateral offset or overshoot.
       const double brakingDistance = segment+2 == points.size() ?
-          std::max(distances[segment+1]-diagnostics.progress,endError) :
+          std::max(distances[segment+1]-diagnostics.progress,errors.endpoint) :
           distances[segment+1]-diagnostics.progress;
       cap = std::min({cap,speedCaps[segment], std::sqrt(
           std::pow(speedCaps[segment+1]*unit,2) +
@@ -709,13 +642,42 @@ class PurePursuit {
     return {left,right};
   }
 
-  /// @brief Prepare only from IDLE, then advance the existing compatibility request.
-  /// @param path Path used only on the first IDLE call; later arguments do not
-  /// replace the active or terminal request. Use setPath() explicitly to restart.
-  /// @param current Observed field pose, XY inches and clockwise heading degrees.
-  /// @param dt Positive preceding interval in seconds, at most maxPathInterval.
-  /// @return update() left/right motor RPM, including zero for terminal status.
-  /// @pre Caller owns serialization and the same publication/lifecycle duties as update().
+ public:
+
+  /// @brief Advance prepared translation, without allocation or I/O; return wheel RPM.
+  /// @param current Finite field pose, XY inches and clockwise heading degrees.
+  /// @param dt Positive preceding sample interval, seconds, <=maxPathInterval.
+  /// @details SUCCESS needs remaining arc and endpoint error <=linearDeadband,
+  /// then 150 ms consecutive sampled dwell at <=1 inch/s and <=5 degrees/s.
+  /// First sample earns no dwell. Inactive/terminal requests return zero.
+  /// @pre Successful setPath(); caller serializes access and owns pose freshness,
+  /// timeout/cancellation, motorCommands() conversion, publication and terminal stop.
+  std::pair<double, double> update(Pose current, double dt = 0.02) {
+    if (pathStatus != Status::RUNNING) return {0, 0};
+    if (!finitePose(current) || !std::isfinite(dt) || dt <= 0 || dt > maxPathInterval)
+      return fail(Status::CONTROL_FAILURE);
+
+    MotionSample sample;
+    if (!observeMotion(current,dt,sample)) return fail(Status::CONTROL_FAILURE);
+    const double minimumChord = std::max(1e-6,math::linearSpeed(1)*dt);
+    // Recovery must permit one integer RPM outside its arrival ball at 50 ms.
+    const double recoveryResolution = 2*math::linearSpeed(1)*maxPathInterval;
+    const ProgressUpdate progress = advanceProgress(current,sample,recoveryResolution);
+    const PathErrors errors = measurePathErrors(current);
+    if (!std::isfinite(errors.endpoint) || !std::isfinite(diagnostics.crossTrack) ||
+        !std::isfinite(diagnostics.measuredSpeed) || !std::isfinite(sample.angularSpeed))
+      return fail(Status::CONTROL_FAILURE);
+    if (settleTranslation(errors,sample,dt)) return {0, 0};
+    // Sampled endpoint arrival takes precedence over active-path resolution.
+    if (linearDeadband < recoveryResolution)
+      return fail(Status::UNSUPPORTED_CONFIGURATION);
+    selectLookahead(current,progress,minimumChord,recoveryResolution);
+    return pathCommands(current,errors,dt);
+  }
+
+  /// @brief Prepare only from IDLE, then update the existing compatibility request.
+  /// Later path arguments do not replace it; use setPath() explicitly to restart.
+  /// @pre Same units, serialization and publication contract as update().
   std::pair<double, double> follow(const std::vector<Pose>& path, Pose current,
                                   double dt = 0.02) {
     if (pathStatus == Status::IDLE) setPath(path);

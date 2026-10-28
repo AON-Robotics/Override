@@ -2,6 +2,15 @@
 
 namespace aon {
 
+bool MecanumDrive::stopPathMotors() {
+  const auto fl = frontLeftMotors.move_velocity(0);
+  const auto fr = frontRightMotors.move_velocity(0);
+  const auto bl = backLeftMotors.move_velocity(0);
+  const auto br = backRightMotors.move_velocity(0);
+  return fl == 1 && fr == 1 && bl == 1 && br == 1;
+}
+
+
 // TODO: verify implementation with a physical model
 
 void MecanumDrive::sideways(const double &rpm, const int& delay) {
@@ -197,11 +206,6 @@ void MecanumDrive::goToPose(const Pose& target){
   this->stop();
 }
 
-/// @brief Delegate unsupported mecanum paths to the shared lifecycle and stop hooks.
-/// @param path Ordered AON-inch waypoints; retained for compatibility, not tracking.
-/// @details No duplicated differential loop or final-heading turn is executed.
-/// An admitted rejection attempts four zero commands and exposes the outcome
-/// through getPathStatus(); explicit-result callers should use followPath().
 void MecanumDrive::follow(const std::vector<Pose>& path) {
   Drivetrain::follow(path); // safely rejects unvalidated holonomic kinematics
 }

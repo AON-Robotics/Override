@@ -15,17 +15,8 @@ void initialize() {
   pros::Task intakeSorting([]{intake.sort();});
 }
 
-/**
- * @brief Revoke path admission and attempt a drivetrain stop on competition disable.
- * @details beginCompetitionMode invalidates the preceding callback epoch and
- * waits without holding application locks. Persistent owners finish stopping
- * and path cleanup even if PROS deletes this callback on another transition.
- * A later enable permits a fresh request; it cannot revive the old generation.
- * Blocking motor I/O still prevents a hard stop-latency guarantee.
- * @note This path gate does not prohibit raw driver/legacy motor commands.
- * @todo Issue 18 physical validation: verify actual PROS callback scheduling,
- * disable/re-enable interleavings and stopping latency with the configured robot.
- */
+/// @brief Revoke the previous callback epoch and stop through durable owners.
+/// Waiting holds no application locks; blocked motor I/O can delay stopping.
 void disabled() {
   drivetrain.beginCompetitionMode();
   drivetrain.setPathEnabled(false);
@@ -36,17 +27,7 @@ void competition_initialize() {
   drivetrain.setPathEnabled(false);
 }
 
-/**
- * @brief Admit fresh path requests before executing the selected autonomous entry.
- * @details First acknowledges old execution/publication cleanup, then reopens
- * the path lifecycle after disabled(); cancellation
- * generations still prevent an old request from publishing new commands. The
- * selected routine must check each movement result before advancing to actions.
- * This callback does not enable optional telemetry or tune heading correction.
- * @todo Hardware setup: confirm actual globals.hpp port assignments and pose
- * sources before robot trials. The current zero/'z' mechanism placeholders do
- * not configure working devices, and disabled tracking ports change localization.
- */
+/// @brief Await old execution cleanup before admitting fresh autonomous requests.
 void autonomous() {
   drivetrain.beginCompetitionMode();
   drivetrain.setPathEnabled(true);
@@ -60,14 +41,8 @@ void autonomous() {
 // Program slot 1 with Pizza Icon is for opcontrol
 // Program slot 2 with Planet Icon is for autonomous routine
 // Program slot 3 with Alien Icon is for tests or miscellaneous components
-/**
- * @brief Enter operator control with fresh-request path admission available.
- * @details The mode barrier completes old path cleanup before driver publication.
- * Admission allows deliberate development path requests during this
- * mode; it does not grant concurrent ownership to paths and joystick commands.
- * The caller must serialize them. A previous cancelled request stays cancelled
- * even though new requests are now permitted. Normal driver setup follows.
- */
+/// @brief Await old execution cleanup before driver publication.
+/// Callers must serialize driver and path ownership.
 void opcontrol() {
   drivetrain.beginCompetitionMode();
   drivetrain.setPathEnabled(true);

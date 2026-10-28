@@ -82,19 +82,8 @@ class PID {
   double GetKD() { return kD; }
   /// Retrieves the constant time period.
   double GetKT() { return kT; }
-  /**
-   * @brief Replace the timestep used by the next PID calculation.
-   * @param seconds Measured elapsed time in seconds, not milliseconds.
-   * @pre The caller must supply a finite, strictly positive interval. This
-   * setter stores the value directly and performs no validation or clamping.
-   * @details Output() multiplies the trapezoidal error integral by this interval
-   * and divides the error difference by it for the derivative. Changing kT does
-   * not reset accumulated integral or previous error, so a movement controller
-   * can use measured intervals without restarting its feedback history.
-   * Drivetrain::followPath validates its stage interval before calling this.
-   * @note This object is not internally synchronized; its movement owner must
-   * serialize SetKT(), Output() and Reset(). No sensor read or motor write occurs.
-   */
+  /// @brief Set the next PID timestep in seconds without resetting feedback history.
+  /// @pre Caller supplies a finite positive interval and serializes controller access.
   void SetKT(double seconds) { kT = seconds; }
   /// Retrieves and accumulates the integral when the error reaches a value.
   double GetStartIntegral() { return start_integral; }

@@ -5,22 +5,11 @@
 
 namespace aon {
 
-/**
- * @brief Durable owners for callback requests and application motor locks.
- * @details PROS deletes competition callback tasks without unwinding C++ scopes.
- * Submitters therefore transfer only trivial data into service-owned mailboxes,
- * then wait without owning a mutex. Only these two permanent tasks enter the
- * original synchronous executor or concrete motor transport. The executor owns
- * its vectors/configuration/capture; it never retains a callback stack pointer.
- *
- * A mailbox token combines phase, callback ownership and a 28-bit callback epoch.
- * A new framework callback proves the preceding callback was deleted/returned;
- * it permits reclaiming abandoned callback slots, but never an executing slot.
- * Other tasks must survive their requests and acknowledge their own slots.
- * Fewer than 2^28 callback transitions may occur during one outstanding request.
- * Startup allocates fixed transfer storage (4096 poses/caps) and two PROS stacks.
- * @todo Measure target heap/stack margin, manual handoff and loaded I/O latency.
- */
+// PROS deletes competition callbacks without C++ unwinding. Only these durable
+// tasks own execution storage or enter application locks. The blocking executor
+// needs a separate publisher to acknowledge stops/configuration/pose requests.
+// Mailbox tokens carry phase, callback ownership and a 28-bit callback epoch;
+// fewer than 2^28 transitions may occur during one outstanding request.
 class Drivetrain::PersistentMotionService final : public Drivetrain::MotionService {
   using Status = PurePursuit::Status;
   static_assert(std::atomic<uint32_t>::is_always_lock_free &&
@@ -280,5 +269,278 @@ bool Drivetrain::initializeMotionService() {
   if (!started) { pathEnabled.store(false); pathStatus.store(PurePursuit::Status::CONTROL_FAILURE); }
   return started;
 }
+
+bool Drivetrain::dispatchMotion(MotionOperation operation, double a, double b, double c) {
+  if (motionService && !motionService->ownsTransport()) {
+    motionService->command(operation,a,b,c);
+    return true;
+  }
+  return motionServiceRequired && !motionService;
+}
+
+void Drivetrain::beginCompetitionMode() { if (motionService) motionService->beginMode(); }
+
+PurePursuit::Status Drivetrain::publishPath(uint32_t generation, double left, double right) {
+  std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+  if (!pathEnabled.load() || pathCancelGeneration.load() != generation)
+    return PurePursuit::Status::CANCELLED;
+  if (pathMotorFailure || !commandPath(left,right)) {
+    pathMotorFailure = true;
+    return PurePursuit::Status::CONTROL_FAILURE;
+  }
+  return PurePursuit::Status::RUNNING;
+}
+
+void Drivetrain::stop() {
+  // Revoke admission before waiting so the publishing task cannot repeatedly
+  // reacquire the mutex with further commands while a stop is pending.
+  pathCancelGeneration.fetch_add(1);
+  if (dispatchMotion(MotionOperation::STOP)) return;
+  std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+  if (!stopPathMotors()) pathMotorFailure = true;
+}
+
+void Drivetrain::cancelPath() {
+  pathCancelGeneration.fetch_add(1);
+  if (dispatchMotion(MotionOperation::CANCEL)) return;
+  std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+}
+
+void Drivetrain::setPathEnabled(bool enabled) {
+  if (!enabled) {
+    pathEnabled.store(false);
+    pathCancelGeneration.fetch_add(1);
+  }
+  if (dispatchMotion(MotionOperation::ENABLE,enabled ? 1 : 0)) return;
+  std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+  // Revoke again at the serialized boundary: an overlapping enable may have
+  // admitted a request carrying the first revocation's generation while this
+  // disable waited. That request must stay cancelled after a later enable.
+  // The pre-lock revocation still interrupts earlier requests immediately.
+  if (!enabled) pathCancelGeneration.fetch_add(1);
+  pathEnabled.store(enabled);
+  if (!enabled && !stopPathMotors()) pathMotorFailure = true;
+}
+
+Drivetrain::PathResult Drivetrain::followPath(const std::vector<Pose>& path, uint32_t timeoutMs,
+    const std::vector<double>& caps, bool reversed,
+    const HeadingCorrection* headingCorrection, PathTrace* trace) {
+  if (motionService && !motionService->ownsExecution())
+    return motionService->follow(path,timeoutMs,caps,reversed,headingCorrection,trace);
+  return executePath(path,timeoutMs,caps,reversed,headingCorrection,trace,pathCancelGeneration.load());
+}
+
+Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, uint32_t timeoutMs,
+    const std::vector<double>& caps, bool reversed,
+    const HeadingCorrection* headingCorrection, PathTrace* trace, uint32_t generation) {
+  using Status = PurePursuit::Status;
+  PathResult result;
+  if (motionServiceRequired && !motionService) {
+    result.status = Status::CONTROL_FAILURE;
+    return result;
+  }
+  if (pathActive.exchange(true)) {
+    result.status = Status::CONTROL_FAILURE;
+    return result;
+  }
+  // Reentrant requests fail above without waiting for the command mutex.
+  struct ReleaseOnExit {
+    Drivetrain* drive;
+    ~ReleaseOnExit() { drive->pathActive.store(false); }
+  } releaseOnExit{this};
+  if (trace) trace->reset(); // rejected overlapping requests never touch capture
+  bool admitted = false;
+  {
+    std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+    admitted = pathEnabled.load();
+    if (admitted && pathCancelGeneration.load() == generation) pathMotorFailure = false;
+    pathStatus.store(Status::RUNNING);
+  }
+  const uint32_t started = pros::millis();
+  uint32_t activeBudgetStarted = started;
+  uint32_t activeBudgetMs = timeoutMs;
+  auto finish = [&](Status status) {
+    std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+    if (pathCancelGeneration.load() != generation && status != Status::CONTROL_FAILURE)
+      status = Status::CANCELLED;
+    // Publish terminal status only after both zero attempts have completed.
+    // A failed terminal write must not be reported as settled success.
+    const bool stopped = stopPathMotors();
+    if (!stopped) pathMotorFailure = true;
+    if (pathCancelGeneration.load() != generation && status != Status::CONTROL_FAILURE)
+      status = Status::CANCELLED;
+    if (pathMotorFailure) status = Status::CONTROL_FAILURE;
+    const uint32_t finished = pros::millis();
+    // Cooperative I/O may overrun a budget. Once writes return, a known
+    // expired deadline must not become SUCCESS; stop errors/cancellation win.
+    if (status == Status::SUCCESS &&
+        uint32_t(finished-activeBudgetStarted) >= activeBudgetMs)
+      status = Status::TIMEOUT;
+    if (status != Status::SUCCESS) result.headingCorrected = false;
+    result.status = status;
+    if (result.translationStatus == Status::IDLE) result.translationStatus = status;
+    result.elapsedMs = uint32_t(finished-started);
+    pathStatus.store(status);
+    if (trace) {
+      trace->status = status;
+      trace->translationStatus = result.translationStatus;
+      trace->terminalStopSucceeded = stopped;
+    }
+    return result;
+  };
+  if (!admitted) return finish(Status::CANCELLED);
+  if (trace && trace->capacity && !trace->samples) return finish(Status::CONTROL_FAILURE);
+  if (!supportsPurePursuit() || reversed)
+    return finish(Status::UNSUPPORTED_CONFIGURATION);
+  if (!yProfile || !thetaProfile) return finish(Status::CONTROL_FAILURE);
+  // Copy configuration before motion: the caller must not mutate it during
+  // this call. Use finite anti-windup bounds, including when Ki is zero.
+  HeadingCorrection correction{PID(0,0,0,0.01,0,0),0,0,0,0};
+  if (headingCorrection) {
+    correction = *headingCorrection;
+    PID& pid = correction.controller;
+    if (!std::isfinite(pid.GetKP()) || !std::isfinite(pid.GetKI()) ||
+        !std::isfinite(pid.GetKD()) || pid.GetKP() < 0 || pid.GetKI() < 0 ||
+        pid.GetKD() < 0 || pid.GetKP()+pid.GetKI()+pid.GetKD() <= 0 ||
+        !std::isfinite(pid.GetStartIntegral()) || pid.GetStartIntegral() < 0 ||
+        !std::isfinite(pid.GetAntiWindup()) || pid.GetAntiWindup() < 0 ||
+        !std::isfinite(correction.maxRPM) || correction.maxRPM < 1 ||
+        correction.maxRPM > std::min({double(MAX_RPM),yProfile->getMaxVelocity(),
+                                     thetaProfile->getMaxVelocity()}) ||
+        !std::isfinite(correction.toleranceDeg) || correction.toleranceDeg <= 0 ||
+        correction.toleranceDeg >= 180 || correction.settleMs == 0 ||
+        correction.timeoutMs <= correction.settleMs)
+      return finish(Status::CONTROL_FAILURE);
+    pid.Reset();
+  }
+  PurePursuit controller(*yProfile, *thetaProfile, 5, 2.5, 2.5);
+  const Status prepared = controller.setPath(path,caps);
+  if (prepared != Status::RUNNING) return finish(prepared);
+  result.finalHeading = controller.finalHeading();
+  const auto record = [&](PathStage stage, const Pose& pose, uint32_t timestamp,
+                          uint32_t interval, uint32_t compute, uint32_t publication,
+                          double left, double right, Status status, bool published) {
+    if (!trace) return;
+    PathSample sample;
+    sample.timestampUs = timestamp; sample.intervalUs = interval;
+    sample.computeUs = compute; sample.publicationUs = publication;
+    sample.stage = stage; sample.pose = pose; sample.diagnostics = result.diagnostics;
+    sample.requestedLeftRPM = left; sample.requestedRightRPM = right;
+    const auto pair = PurePursuit::motorCommands(left,right,thetaProfile->getMaxVelocity());
+    sample.leftRPM = pair.first; sample.rightRPM = pair.second;
+    sample.status = status; sample.published = published;
+    trace->record(sample);
+  };
+  uint32_t lastTime = uint32_t(pros::micros());
+  bool first = true;
+  while (true) {
+    if (pathCancelGeneration.load() != generation) return finish(Status::CANCELLED);
+    if (uint32_t(pros::millis()-started) >= timeoutMs) return finish(Status::TIMEOUT);
+    if (!hasFreshPose()) return finish(Status::CONTROL_FAILURE);
+    const Pose current = odometry->getPose();
+    const uint32_t now = uint32_t(pros::micros());
+    const uint32_t elapsedUs = first ? 0 : uint32_t(now-lastTime);
+    const double dt = first ? 0.01 : elapsedUs/1e6;
+    first = false; lastTime = now;
+    if (trace) trace->maxIntervalUs = std::max(trace->maxIntervalUs,elapsedUs);
+    const uint32_t computeStart = uint32_t(pros::micros());
+    const auto output = controller.update(current,dt);
+    const uint32_t computeUs = uint32_t(uint32_t(pros::micros())-computeStart);
+    result.maxUpdateUs = std::max(result.maxUpdateUs,computeUs);
+    result.diagnostics = controller.getDiagnostics();
+    // Recheck asynchronous cancellation and deadline before publishing commands
+    // or success. Zero commands alone are never evidence of completion.
+    if (pathCancelGeneration.load() != generation) return finish(Status::CANCELLED);
+    if (uint32_t(pros::millis()-started) >= timeoutMs) return finish(Status::TIMEOUT);
+    if (controller.status() != Status::RUNNING) {
+      record(PathStage::TRANSLATION,current,now,elapsedUs,computeUs,0,
+             output.first,output.second,controller.status(),false);
+      result.translationStatus = controller.status();
+      if (controller.status() != Status::SUCCESS || !headingCorrection)
+        return finish(controller.status());
+      break;
+    }
+    const uint32_t publicationStart = trace ? uint32_t(pros::micros()) : 0;
+    const Status published = publishPath(generation,output.first,output.second);
+    record(PathStage::TRANSLATION,current,now,elapsedUs,computeUs,
+           trace ? uint32_t(uint32_t(pros::micros())-publicationStart) : 0,
+           output.first,output.second,published,published == Status::RUNNING);
+    if (published != Status::RUNNING) return finish(published);
+    pros::delay(10);
+  }
+  // Translation is verified settled. Stop before handing off to the single
+  // heading owner, but retain ownership and generation across the handoff.
+  Status published = publishPath(generation,0,0);
+  if (published != Status::RUNNING) return finish(published);
+  // The zero handoff still belongs to translation. Blocking publication must
+  // not authorize heading correction after that stage's budget has expired.
+  if (uint32_t(pros::millis()-started) >= timeoutMs) return finish(Status::TIMEOUT);
+  const uint32_t correctionStarted = pros::millis();
+  activeBudgetStarted = correctionStarted;
+  activeBudgetMs = correction.timeoutMs;
+  double settledSeconds = 0;
+  bool previouslyArrived = false;
+  Pose previousCorrectionPose;
+  lastTime = uint32_t(pros::micros());
+  first = true;
+  while (true) {
+    if (pathCancelGeneration.load() != generation) return finish(Status::CANCELLED);
+    if (uint32_t(pros::millis()-correctionStarted) >= correction.timeoutMs)
+      return finish(Status::TIMEOUT);
+    if (!hasFreshPose()) return finish(Status::CONTROL_FAILURE);
+    const Pose current = odometry->getPose();
+    const uint32_t now = uint32_t(pros::micros());
+    const bool measuredInterval = !first;
+    const uint32_t elapsedUs = first ? 0 : uint32_t(now-lastTime);
+    const double dt = first ? 0.01 : elapsedUs/1e6;
+    first = false; lastTime = now;
+    if (trace) trace->maxIntervalUs = std::max(trace->maxIntervalUs,elapsedUs);
+    if (!std::isfinite(current.x) || !std::isfinite(current.y) ||
+        !std::isfinite(current.theta) || dt <= 0 || dt > PurePursuit::maxPathInterval ||
+        current.distanceTo(path.back()) > 2.5)
+      return finish(Status::CONTROL_FAILURE);
+    result.headingErrorDeg = std::remainder(std::remainder(result.finalHeading,360.0)-
+        std::remainder(current.theta,360.0),360.0);
+    const double normalizedHeading = std::remainder(current.theta,360.0);
+    const double angularSpeed = measuredInterval ? std::abs(std::remainder(
+        normalizedHeading-std::remainder(previousCorrectionPose.theta,360.0),360.0))/dt : 0;
+    const double translationalSpeed = measuredInterval ?
+        current.distanceTo(previousCorrectionPose)/dt : 0; // inches/second
+    previousCorrectionPose = current;
+    if (!std::isfinite(translationalSpeed)) return finish(Status::CONTROL_FAILURE);
+    // Final handoff must retain translation's <=1in/s and <=5deg/s motion
+    // settlement, not merely stay inside the position/heading tolerances.
+    // The first sample establishes a baseline and supplies no dwell evidence.
+    const bool arrived = measuredInterval &&
+        std::abs(result.headingErrorDeg) <= correction.toleranceDeg &&
+        translationalSpeed <= 1 && angularSpeed <= 5;
+    // Only intervals whose endpoints were both in tolerance count as dwell.
+    if (arrived && previouslyArrived) settledSeconds += elapsedUs/1e6;
+    else settledSeconds = 0;
+    previouslyArrived = arrived;
+    const uint32_t computeStart = trace ? uint32_t(pros::micros()) : 0;
+    correction.controller.SetKT(dt);
+    double rpm = arrived ? 0 : correction.controller.Output(result.headingErrorDeg,0);
+    if (!std::isfinite(rpm)) return finish(Status::CONTROL_FAILURE);
+    rpm = std::clamp(rpm,-correction.maxRPM,correction.maxRPM);
+    const uint32_t computeUs = trace ? uint32_t(uint32_t(pros::micros())-computeStart) : 0;
+    if (pathCancelGeneration.load() != generation) return finish(Status::CANCELLED);
+    if (uint32_t(pros::millis()-correctionStarted) >= correction.timeoutMs)
+      return finish(Status::TIMEOUT);
+    const uint32_t publicationStart = trace ? uint32_t(pros::micros()) : 0;
+    published = publishPath(generation,rpm,-rpm);
+    record(PathStage::HEADING,current,now,elapsedUs,computeUs,
+           trace ? uint32_t(uint32_t(pros::micros())-publicationStart) : 0,
+           rpm,-rpm,published,published == Status::RUNNING);
+    if (published != Status::RUNNING) return finish(published);
+    if (arrived && settledSeconds >= correction.settleMs/1000.0) {
+      result.headingCorrected = true;
+      return finish(Status::SUCCESS);
+    }
+    pros::delay(10);
+  }
+}
+
+void Drivetrain::follow(const std::vector<Pose>& path) { (void)followPath(path); }
 
 } // namespace aon

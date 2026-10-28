@@ -2,6 +2,14 @@
 
 namespace aon {
 
+bool HDrive::stopPathMotors() {
+  const auto l = leftMotors.move_velocity(0);
+  const auto r = rightMotors.move_velocity(0);
+  const auto m = midMotors.move_velocity(0);
+  return l == 1 && r == 1 && m == 1;
+}
+
+
 void HDrive::sideways(const double &rpm, const int& delay) {
   if (dispatchMotion(MotionOperation::SIDEWAYS,rpm)) {
     if (delay!=0) { pros::delay(delay); this->stop(); }
@@ -56,10 +64,6 @@ double HDrive::getRPM(){
   return (left + right) / 2;
 }
 
-/// @brief Reuse generation revocation and the all-three-group stop hook.
-/// @details The base lifecycle coordinates with in-flight path publication and
-/// dispatches stopPathMotors() virtually, so the strafe group is not omitted.
-/// Physical rest is not established by merely attempting these zero requests.
 void HDrive::stop(){
   Drivetrain::stop();
 }
@@ -158,11 +162,6 @@ void HDrive::goToPose(const Pose& target){
   this->stop();
 }
 
-/// @brief Delegate unsupported H-drive paths to the single shared rejection owner.
-/// @param path Ordered AON-inch waypoints; no holonomic path tracking is attempted.
-/// @details The base executor applies overlap/admission precedence and attempts
-/// all-group stopping for an admitted rejection. It does not perform heading
-/// alignment. Keeping one owner avoids divergent controller/cleanup copies.
 void HDrive::follow(const std::vector<Pose>& path) {
   Drivetrain::follow(path); // safely rejects unvalidated holonomic kinematics
 }
