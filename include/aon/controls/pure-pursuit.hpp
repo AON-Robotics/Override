@@ -96,6 +96,7 @@ class PurePursuit {
   Diagnostics diagnostics; ///< Reset on preparation; refreshed by active updates.
   Pose previousPose; ///< Last accepted update pose; usable only when hasPreviousPose is true.
   bool hasPreviousPose = false; ///< First sample cannot witness a gate or earn settlement.
+  bool previouslyArrived = false; ///< Both observations must qualify before an interval earns dwell.
   /// @brief Absolute progress ceiling: one initial lookahead plus twice pose travel.
   /// @details Clamped to path length; neither corners nor recovery replenish it.
   double progressAllowance = 0;
@@ -345,7 +346,7 @@ class PurePursuit {
                  const std::vector<double>& caps = {}, bool reversed = false) {
     points.clear(); distances.clear(); speedCaps.clear();
     diagnostics = Diagnostics{};
-    segment = 0; settledSeconds = 0; hasPreviousPose = false;
+    segment = 0; settledSeconds = 0; hasPreviousPose = false; previouslyArrived = false;
     progressAllowance = lookaheadDistance;
     recoveringProgress = false;
     acquiringHeading = false;
@@ -531,12 +532,15 @@ class PurePursuit {
       return fail(Status::CONTROL_FAILURE);
     if (remaining <= linearDeadband && endError <= linearDeadband) {
       diagnostics.targetRPM = diagnostics.angularVelocity = 0;
-      settledSeconds = canSettle && diagnostics.measuredSpeed <= 1 && angularSpeed <= 5 ?
-          settledSeconds + dt : 0;
+      const bool arrived = canSettle && diagnostics.measuredSpeed <= 1 && angularSpeed <= 5;
+      // The entering interval may start outside the arrival region. As in the
+      // movement-owned heading stage, credit only consecutive qualified samples.
+      settledSeconds = arrived && previouslyArrived ? settledSeconds + dt : 0;
+      previouslyArrived = arrived;
       if (settledSeconds >= 0.15) pathStatus = Status::SUCCESS;
       return {0, 0};
     }
-    settledSeconds = 0;
+    settledSeconds = 0; previouslyArrived = false;
     // Supported active-path resolution: the half-chord recovery ceiling must
     // permit at least one integer RPM until its arrival ball is reached. This
     // sufficient experimental envelope is not a claim that smaller tolerances

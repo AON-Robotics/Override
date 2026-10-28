@@ -16,8 +16,8 @@ read only after synchronous `followPath` returns. Samples distinguish requested
 and converted RPM from physical measurements. Its complete contract is in the
 [competition README](../competition/README.md).
 
-As of 2026-10-24, motion software verification is complete within the documented
-forward DifferentialDrive scope; hardware measurements and loaded target timing
-remain outstanding. Host tests, simulation tools and audit records are local-only
+Hardware measurements and loaded target timing remain outstanding; consult the
+canonical execution contract for current limitations. Host tests, simulation
+tools and audit records are local-only
 development material. Root `/tools/` exclusions do not exclude this production
 `include/aon/tools/` directory or `src/aon/tools/`.

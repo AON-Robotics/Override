@@ -3,6 +3,10 @@
 namespace aon {
 
 void XDrive::sideways(const double &rpm, const int& delay) {
+  if (dispatchMotion(MotionOperation::SIDEWAYS,rpm)) {
+    if (delay!=0) { pros::delay(delay); this->stop(); }
+    return;
+  }
   this->frontLeftMotors.move_velocity(rpm);
   this->frontRightMotors.move_velocity(-rpm);
   this->backLeftMotors.move_velocity(-rpm);
@@ -13,6 +17,7 @@ void XDrive::sideways(const double &rpm, const int& delay) {
 }
 
 void XDrive::tank(const double &left, const double &right){
+  if (dispatchMotion(MotionOperation::TANK,left,right)) return;
   this->frontLeftMotors.move_velocity(left);
   this->backLeftMotors.move_velocity(left);
   this->frontRightMotors.move_velocity(right);
@@ -20,6 +25,7 @@ void XDrive::tank(const double &left, const double &right){
 }
 
 void XDrive::holonomic(const double &forward, const double &sideways, const double &turn){
+  if (dispatchMotion(MotionOperation::HOLONOMIC,forward,sideways,turn)) return;
   Vector direction = Vector().SetPosition(sideways, forward);
   Vector command = translateToMotorCommand(direction);
   double topRightDiag = command.GetX();
@@ -53,6 +59,7 @@ Vector XDrive::translateToMotorCommand(Vector direction){
 }
 
 void XDrive::setBrakeMode(pros::MotorBrake brakeMode){
+  if (dispatchMotion(MotionOperation::BRAKE,static_cast<int>(brakeMode))) return;
   frontLeftMotors.set_brake_mode(brakeMode);
   frontRightMotors.set_brake_mode(brakeMode);
   backLeftMotors.set_brake_mode(brakeMode);
@@ -60,6 +67,7 @@ void XDrive::setBrakeMode(pros::MotorBrake brakeMode){
 }
 
 void XDrive::setGearset(pros::MotorGears gearset){
+  if (dispatchMotion(MotionOperation::GEAR,static_cast<int>(gearset))) return;
   frontLeftMotors.set_gearing(gearset);
   frontRightMotors.set_gearing(gearset);
   backLeftMotors.set_gearing(gearset);
@@ -67,6 +75,7 @@ void XDrive::setGearset(pros::MotorGears gearset){
 }
 
 void XDrive::setEncoderUnits(pros::MotorEncoderUnits units){
+  if (dispatchMotion(MotionOperation::ENCODER,static_cast<int>(units))) return;
   frontLeftMotors.set_encoder_units(units);
   frontLeftMotors.tare_position();
   frontRightMotors.set_encoder_units(units);
@@ -78,6 +87,7 @@ void XDrive::setEncoderUnits(pros::MotorEncoderUnits units){
 }
 
 void XDrive::setSlewRate(double slew){
+  if (dispatchMotion(MotionOperation::SLEW,slew)) return;
   frontLeftMotors.SetAcceleration(slew);
   frontRightMotors.SetAcceleration(slew);
   backLeftMotors.SetAcceleration(slew);

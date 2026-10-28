@@ -19,6 +19,54 @@ namespace aon {
 class Drivetrain {
   public:
 
+  struct PathResult;
+  struct HeadingCorrection;
+  struct PathTrace;
+
+  protected:
+  /// @brief POD operations transferred to the persistent publication owner.
+  enum class MotionOperation { TANK, SIDEWAYS, HOLONOMIC, BRAKE, GEAR, ENCODER,
+                               SLEW, STOP, CANCEL, ENABLE, POSE, RESET_POSE,
+                               SET_X, SET_Y, SET_HEADING };
+  /// @brief Application-lifetime service; implementation lives with drivetrain transport.
+  /// @details Callbacks may be deleted by PROS. They must never own the execution
+  /// scope, application mutexes, or storage borrowed by a surviving worker.
+  struct MotionService {
+    virtual ~MotionService() = default;
+    virtual bool ownsTransport() const = 0;
+    virtual bool ownsExecution() const = 0;
+    virtual void command(MotionOperation, double, double, double) = 0;
+    virtual Pose readPose() = 0;
+    virtual PathResult follow(const std::vector<Pose>&, uint32_t,
+        const std::vector<double>&, bool, const HeadingCorrection*, PathTrace*) = 0;
+    virtual void beginMode() = 0;
+  };
+  class PersistentMotionService;
+  std::unique_ptr<MotionService> motionService;
+  bool motionServiceRequired = false; ///< Startup failure must never fall back to callback-owned motion.
+  bool motionServiceStarted = false;
+
+  /// @brief Dispatch before acquiring any application motor/publication mutex.
+  bool dispatchMotion(MotionOperation operation, double a = 0, double b = 0, double c = 0) {
+    if (motionService && !motionService->ownsTransport()) {
+      motionService->command(operation,a,b,c);
+      return true;
+    }
+    return motionServiceRequired && !motionService;
+  }
+
+  public:
+  /// @brief Start application-lifetime execution/publication owners before competition callbacks.
+  /// @return False on task/storage startup failure; subsequent motion stays fail-closed.
+  /// @pre Call once from initialize(), before concurrent motion; keep the drivetrain
+  /// and its motor groups alive until application shutdown. Do not remove service tasks.
+  bool initializeMotionService();
+  /// @brief Revoke the previous callback epoch, stop, and await old path cleanup.
+  /// @details Call first on every competition callback entry. Waiting owns no
+  /// application lock; PROS may delete this waiting callback on another transition.
+  /// The next callback supersedes abandoned requests, never reviving an old path.
+  void beginCompetitionMode() { if (motionService) motionService->beginMode(); }
+
   /// @brief This struct holds the factors by which inputs will be scaled when driving during `turbo` and `!turbo` states
   struct SpeedFactors {
     double forwardNoTurbo = 0.5;
@@ -162,15 +210,22 @@ class Drivetrain {
   /// @brief Starts the underlying odometry thread
   void initialize() { this->odometry->initialize(); }
 
-  Pose getPose() { return this->odometry->getPose(); }
-  double getX() { return this->odometry->getX(); }
-  double getY() { return this->odometry->getY(); }
-  double getTheta() { return this->odometry->getDegrees(); }
+  Pose getPose() {
+    if (motionService && !motionService->ownsTransport()) return motionService->readPose();
+    if (motionServiceRequired && !motionService) return Pose(NAN,NAN,NAN);
+    return this->odometry->getPose();
+  }
+  double getX() { return getPose().x; }
+  double getY() { return getPose().y; }
+  double getTheta() { return getPose().theta; }
 
-  void setPose(Pose p) { odometry->resetCurrent(p.x, p.y, p.theta); }
-  void setX(double x) { odometry->SetPosition(x, getY()); }
-  void setY(double y) { odometry->SetPosition(getX(), y); }
-  void setTheta(double theta) { odometry->setDegrees(theta); }
+  void setPose(Pose p) {
+    if (!dispatchMotion(MotionOperation::RESET_POSE,p.x,p.y,p.theta))
+      odometry->resetCurrent(p.x,p.y,p.theta);
+  }
+  void setX(double x) { if (!dispatchMotion(MotionOperation::SET_X,x)) odometry->SetPosition(x,getY()); }
+  void setY(double y) { if (!dispatchMotion(MotionOperation::SET_Y,y)) odometry->SetPosition(getX(),y); }
+  void setTheta(double theta) { if (!dispatchMotion(MotionOperation::SET_HEADING,theta)) odometry->setDegrees(theta); }
 
   /// @brief Query the provider's pose freshness gate without dereferencing null.
   /// @return False with no odometry or when its existing freshness policy rejects.
@@ -192,7 +247,7 @@ class Drivetrain {
   double getOtosTheta() { return odometry ? odometry->getOtosDegrees() : PROS_ERR_F; }
 
   void resetPose(double x = 0.0, double y = 0.0, double theta = 0.0) {
-    this->odometry->resetCurrent(x, y, theta);
+    setPose(Pose(x,y,theta));
   }
 
 
@@ -359,6 +414,7 @@ class Drivetrain {
     // Revoke admission before waiting so the publishing task cannot repeatedly
     // reacquire the mutex with further commands while a stop is pending.
     pathCancelGeneration.fetch_add(1);
+    if (dispatchMotion(MotionOperation::STOP)) return;
     std::lock_guard<pros::Mutex> lock(pathCommandMutex);
     if (!stopPathMotors()) pathMotorFailure = true;
   }
@@ -373,6 +429,7 @@ class Drivetrain {
   /// @note getPathStatus() may remain RUNNING until terminal cleanup completes.
   void cancelPath() {
     pathCancelGeneration.fetch_add(1);
+    if (dispatchMotion(MotionOperation::CANCEL)) return;
     std::lock_guard<pros::Mutex> lock(pathCommandMutex);
   }
 
@@ -387,6 +444,7 @@ class Drivetrain {
       pathEnabled.store(false);
       pathCancelGeneration.fetch_add(1);
     }
+    if (dispatchMotion(MotionOperation::ENABLE,enabled ? 1 : 0)) return;
     std::lock_guard<pros::Mutex> lock(pathCommandMutex);
     // Revoke again at the serialized boundary: an overlapping enable may have
     // admitted a request carrying the first revocation's generation while this
@@ -1094,9 +1152,11 @@ class Drivetrain {
   /// Translation success is retained separately if heading or terminal cleanup fails.
   /// @pre Serialize other motion writers. Keep this drivetrain, odometry, profiles,
   /// input vectors, configuration and capture alive for the entire call.
-  /// @warning Cancellation is task-safe; raw driver/legacy APIs are not gated.
-  /// Do not destroy the object or forcibly remove its executing task: RAII owner
-  /// release and terminal zero attempts require normal cooperative return.
+  /// @warning Initialize the motion service before using competition callbacks.
+  /// It owns copied requests/results and capture staging across callback deletion.
+  /// Without it, this direct executor requires an application-lifetime caller and
+  /// normal cooperative return. Never remove the service tasks or destroy an active
+  /// drivetrain. Raw/legacy APIs still require separate motion-owner serialization.
   /// Software settlement/transport success is not measured physical accuracy.
   /// @todo Validate actual V5 timing, motor-stop behavior and competition lifecycle
   /// transitions physically. The Issue 8 export adapter remains separate work;
@@ -1106,8 +1166,23 @@ class Drivetrain {
                         const HeadingCorrection* headingCorrection = nullptr,
                         PathTrace* trace = nullptr) {
     using Status = PurePursuit::Status;
+    if (motionService && !motionService->ownsExecution())
+      return motionService->follow(path,timeoutMs,caps,reversed,headingCorrection,trace);
+    return executePath(path,timeoutMs,caps,reversed,headingCorrection,trace,pathCancelGeneration.load());
+  }
+
+ protected:
+  /// @brief Execute with the epoch captured at admission, including queued admission.
+  PathResult executePath(const std::vector<Pose>& path,uint32_t timeoutMs,
+                        const std::vector<double>& caps,bool reversed,
+                        const HeadingCorrection* headingCorrection,PathTrace* trace,
+                        uint32_t generation) {
+    using Status = PurePursuit::Status;
     PathResult result;
-    const uint32_t generation = pathCancelGeneration.load();
+    if (motionServiceRequired && !motionService) {
+      result.status = Status::CONTROL_FAILURE;
+      return result;
+    }
     if (pathActive.exchange(true)) {
       result.status = Status::CONTROL_FAILURE;
       return result;
@@ -1330,6 +1405,7 @@ class Drivetrain {
     }
   }
 
+ public:
   /// @brief Synchronous compatibility wrapper using followPath() defaults.
   /// @param path Waypoints in inches and clockwise degrees; followPath rules apply.
   /// @details Discards the explicit result and performs translation only. Inspect

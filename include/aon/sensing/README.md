@@ -16,7 +16,6 @@ not proof of physical motion and may require timeout. Legacy drivetrain pose
 getters/setters and initialization still require configured odometry. See the
 [motion execution contract](../competition/README.md) for failure handling.
 
-As of 2026-10-24, host motion tests and both robot configuration builds pass.
 Sensor calibration, sensor truth, loaded target scheduling and physical tracking
 remain hardware-validation work. Buffered path samples contain observed poses
 and requested commands, not independent ground-truth position or measured RPM.

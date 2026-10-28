@@ -9,22 +9,26 @@ namespace aon {
 /// does not cancel the path or enforce competition admission. Higher-level code
 /// must choose one motion owner; public tank() is not called from locked hooks.
 void DifferentialDrive::tank(const double &left, const double &right){
+  if (dispatchMotion(MotionOperation::TANK,left,right)) return;
   std::lock_guard<pros::Mutex> lock(pathCommandMutex);
   this->leftMotors.move_velocity(left);
   this->rightMotors.move_velocity(right);
 }
 
 void DifferentialDrive::setBrakeMode(pros::MotorBrake brakeMode){
+  if (dispatchMotion(MotionOperation::BRAKE,static_cast<int>(brakeMode))) return;
   leftMotors.set_brake_mode(brakeMode);
   rightMotors.set_brake_mode(brakeMode);
 }
 
 void DifferentialDrive::setGearset(pros::MotorGears gearset){
+  if (dispatchMotion(MotionOperation::GEAR,static_cast<int>(gearset))) return;
   leftMotors.set_gearing(gearset);
   rightMotors.set_gearing(gearset);
 }
 
 void DifferentialDrive::setEncoderUnits(pros::MotorEncoderUnits units){
+  if (dispatchMotion(MotionOperation::ENCODER,static_cast<int>(units))) return;
   leftMotors.set_encoder_units(units);
   leftMotors.tare_position();
   rightMotors.set_encoder_units(units);
@@ -33,6 +37,7 @@ void DifferentialDrive::setEncoderUnits(pros::MotorEncoderUnits units){
 }
 
 void DifferentialDrive::setSlewRate(double slew){
+  if (dispatchMotion(MotionOperation::SLEW,slew)) return;
   leftMotors.SetAcceleration(slew);
   rightMotors.SetAcceleration(slew);
 }

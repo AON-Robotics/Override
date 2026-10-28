@@ -9,18 +9,20 @@ odometry and motion profiles are in [globals.hpp](../globals.hpp).
 
 ## Experimental motion execution: Issues 18 and 33
 
-### Software status as of 2026-10-24
+### Scope and validation limits
 
-The audited native forward DifferentialDrive path-execution scope is software
-complete with documented limitations and ready for supervised hardware validation.
-Local verification passed 52 host suites normally and under AddressSanitizer,
-15 Python checks, focused static analysis, and forced PROS builds for both robot
-configurations. Static analysis and compilation retain documented warnings.
-Tests and audit evidence remain local; a public clone alone cannot reproduce
-the private verification suite. These results establish neither physical tracking
-accuracy nor loaded V5 timing, memory margin, motor stopping or field-callback
-delivery. Issue 18 remains open pending physical validation. Issue 8's JerryIO
-adapter and broader Issue 33 legacy-movement integration remain separate work.
+This is experimental forward DifferentialDrive reference code. The application
+starts persistent path-execution and motor-publication owners before competition
+callbacks. Native requests and shipped driver transport do not depend on a
+deleted callback unwinding C++ scopes. Real PROS scheduling, target memory and
+stopping latency still require supervised validation before deployment.
+
+Tests and audit evidence remain local; a public clone alone cannot reproduce the
+private suite. Verification checkpoints belong in the PR and local records, not
+in duplicated readiness declarations. Host tests establish neither physical
+tracking accuracy nor loaded V5 timing, memory margin or stopping performance.
+Issue 18 remains open. Issue 8's JerryIO adapter and broader Issue 33 legacy
+integration remain separate work.
 
 AI-assisted reference changes require student explanation, adaptation, validation
 and attribution before competition use. Host tests and compilation establish no
@@ -80,7 +82,9 @@ as a sensor fault; unreachable endpoints rely on timeout, with no automatic retr
 
 Translation SUCCESS requires both remaining arc length and endpoint error within
 2.5 inches, measured pose speed <=1 inch/s and heading rate <=5 degrees/s for
-150ms. Zero commands alone never imply success. A singleton requests arrival
+150ms. Dwell counts only intervals between consecutive qualifying observations;
+the interval entering tolerance and the initial pose earn no dwell. Zero commands
+alone never imply success. A singleton requests arrival
 and settlement at that point. `translationStatus` records the translation result;
 `status` records the whole request, including optional heading alignment and stop
 errors. Failures must stop the autonomous sequence; the example path callers now
@@ -89,6 +93,25 @@ the same path execution, a 15-second translation timeout and no automatic headin
 turn. Use the explicit API for results and optional heading correction. Legacy
 holonomic goToPose implementations and unrelated PID/profile motion APIs retain
 their old contracts and require caller serialization and separate safety review.
+
+### API compatibility and migration
+
+These interfaces remain callable, but source compatibility does not preserve all
+previous behavior. Existing in-repository path examples use explicit result checks.
+External routines must be reviewed before integration.
+
+| API | Current behavior | Migration requirement |
+| --- | --- | --- |
+| Differential `goToPose(pose)` | Translation only, fixed 15000ms budget; discards result | Use `followPath` and inspect `PathResult`. If final orientation matters, supply explicitly reviewed `HeadingCorrection`; no arbitrary default gains are provided. |
+| Drivetrain `follow(path)` | Discards result; final alignment is opt-in through `followPath` | Inspect the explicit result before subsequent autonomous actions. |
+| Holonomic `follow` / `followPath` | Reject unsupported kinematics and attempt every group's stop | Do not depend on the former differential fallback as validated holonomic following. Independent holonomic `goToPose` is unchanged. |
+| `stop()` | Revokes active path generation and attempts immediate zero commands | A cancelled request must return before starting another motion owner. Admission itself is unchanged. |
+| Differential `tank()` / SmartMotorGroup | Manual pairs are serialized; zero velocity bypasses slew; path publication bypasses duplicate slew | Serialize manual/path ownership. Locking alone does not make a deletable competition task safe. |
+| PurePursuit `follow(path, pose, dt)` | Prepares only from IDLE; later path arguments do not replace a request | Use `setPath` explicitly for each new path and after terminal status. |
+
+Removing an unconditional final turn after failed translation is intentional.
+Successful final alignment also requires explicit opt-in; this is a compatibility
+decision, not a claim that legacy orientation-dependent routines behave unchanged.
 
 The movement layer owns one opt-in final-heading stage. PurePursuit geometry
 never owns it. Pass a `Drivetrain::HeadingCorrection` pointer only with explicitly
@@ -139,10 +162,9 @@ heading PID, motor writes, locks and delay. Host timing is not V5 timing.
 Path translation updates and optional final-heading correction require positive
 measured intervals <=50ms (`PurePursuit::maxPathInterval`); an observed overrun
 returns CONTROL_FAILURE through normal stop/error/cancellation handling. This
-explicitly replaces the former 250ms path acceptance. Long holds demonstrated
-recovery-target overshoot and timestep-dependent corner targeting; fixed/mixed
-5-50ms host cases passed, whereas fixed100ms cases failed. This is a tested
-scheduling envelope, not general polyline convergence or a real-time guarantee.
+explicitly replaces the former 250ms path acceptance. Longer command holds are
+outside the supported recovery and corner-target scheduling envelope. This is
+not general polyline convergence or a real-time guarantee.
 An overrun is detected at the next observation; motion during a blocked hold is
 not bounded by that detection. Legacy single-target `go`/`turn` keep their prior
 250ms input domain and separate, unvalidated scheduling assumptions.
@@ -156,7 +178,46 @@ attempts. Lock order is drivetrain command mutex then one motor-group state
 mutex. No pose read, control computation or delay holds the command mutex. The
 finite number of writes is bounded; scheduler and device wall time are not.
 
-The actual `disabled()` callback calls `setPathEnabled(false)`, which persistently
+### Competition callback lifetime
+
+`initialize()` starts `initializeMotionService()` before configuring motion. Each
+framework callback first calls `beginCompetitionMode()`: it revokes the preceding
+callback epoch, waits for the stop barrier and old path cleanup, then permits the
+new mode's explicit admission decision. These waits hold no application mutex.
+PROS may delete a waiting callback; permanent execution/publication tasks retain
+their scopes and release their locks normally. Do not delete those service tasks,
+destroy their drivetrain or call the mode-entry method from a surviving GUI task.
+
+Path submission uses fixed service-owned storage for at most 4096 poses/caps.
+The executor owns its prepared vectors, heading configuration, result and optional
+capture staging. It never retains callback pointers. A live caller receives the
+result and copies completed samples to its original buffer after acknowledgement;
+a deleted caller's buffer is never written by the worker. Copy/queue time consumes
+the translation budget. Overlapping path requests still reject without stopping
+the current owner. Cancellation retains the generation captured at submission.
+This does not unwind caller-owned C++ objects when PROS deletes their task.
+Prepare allocation-owning input containers outside deletable scopes when their
+cleanup must survive mode changes; service ownership covers its own request data.
+
+Manual wheel commands, configuration, stopping and pose snapshots pass through
+eight bounded command slots. Only persistent owners take the existing drivetrain,
+motor-group or forwarded pose-snapshot locks. Mode epochs reclaim abandoned
+callback slots, never executing slots; other submitters must survive and consume
+their requests. Epoch identity assumes fewer than 2^28 callback transitions during
+one outstanding request. A fresh epoch's revocation precedes its command replies.
+Startup failure rejects motion without falling back to callback-owned transport.
+Two default PROS task stacks, fixed transfer storage and optional capture staging
+add memory and scheduling cost; measure loaded target margins and driver latency.
+
+This protects native path execution, differential `goToPose`, forwarded pose
+accessors and shipped manual publication. It is not a full legacy-motion audit:
+older PID/profile/holonomic movement loops still access odometry directly, and
+their callback deletion/cancellation behavior needs separate review. Unrelated
+mechanism tasks and existing GUI/driver ownership rules are unchanged. A manually
+constructed drivetrain without service startup still requires a caller that
+survives its complete direct request; it is not safe in deletable callbacks.
+
+The actual `disabled()` callback then calls `setPathEnabled(false)`, which persistently
 rejects new path requests and revokes active translation/heading before waiting
 for the publication barrier and attempting zeros. Autonomous and operator-control
 entry explicitly re-enable path admission. Disable revokes the generation again
@@ -292,12 +353,6 @@ motion as UNSUPPORTED_CONFIGURATION or time out; they must not be raised.
 The cap is a center-speed bound, not a promise that either individual wheel is
 below that cap in a turn. The normalized conversion's rounding error must never
 be used to loosen the source ceiling.
-
-The removed unused historical decoder remains available in Git history at
-`ecb7d14` and in local reference snapshots. Issue #8/PR31 may evaluate its explicit
-format declarations, bounded strict metadata validation, calibrated orthonormal
-frame, ghost-tail policy and double-precision cap conversion. This is reference
-material, not an instruction to replace PR31's exporter or duplicate its parser.
 
 Repository policy keeps tests, simulations, benchmarks and audit records local.
 They are not reproducible from the public production repository alone. Preserve

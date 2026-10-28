@@ -5,6 +5,10 @@ namespace aon {
 // TODO: verify implementation with a physical model
 
 void MecanumDrive::sideways(const double &rpm, const int& delay) {
+  if (dispatchMotion(MotionOperation::SIDEWAYS,rpm)) {
+    if (delay!=0) { pros::delay(delay); this->stop(); }
+    return;
+  }
   this->frontLeftMotors.move_velocity(rpm);
   this->frontRightMotors.move_velocity(-rpm);
   this->backRightMotors.move_velocity(rpm);
@@ -15,6 +19,7 @@ void MecanumDrive::sideways(const double &rpm, const int& delay) {
 }
 
 void MecanumDrive::tank(const double &left, const double &right){
+  if (dispatchMotion(MotionOperation::TANK,left,right)) return;
   this->frontLeftMotors.move_velocity(left);
   this->backLeftMotors.move_velocity(left);
   this->frontRightMotors.move_velocity(right);
@@ -22,6 +27,7 @@ void MecanumDrive::tank(const double &left, const double &right){
 }
 
 void MecanumDrive::holonomic(const double &forward, const double &sideways, const double &turn){
+  if (dispatchMotion(MotionOperation::HOLONOMIC,forward,sideways,turn)) return;
   double frontLeft = forward + sideways + turn;
   double frontRight = forward - sideways - turn;
   double backLeft = forward - sideways + turn;
@@ -43,6 +49,7 @@ void MecanumDrive::holonomic(const double &forward, const double &sideways, cons
 }
 
 void MecanumDrive::setBrakeMode(pros::MotorBrake brakeMode){
+  if (dispatchMotion(MotionOperation::BRAKE,static_cast<int>(brakeMode))) return;
   frontLeftMotors.set_brake_mode(brakeMode);
   frontRightMotors.set_brake_mode(brakeMode);
   backLeftMotors.set_brake_mode(brakeMode);
@@ -50,6 +57,7 @@ void MecanumDrive::setBrakeMode(pros::MotorBrake brakeMode){
 }
 
 void MecanumDrive::setGearset(pros::MotorGears gearset){
+  if (dispatchMotion(MotionOperation::GEAR,static_cast<int>(gearset))) return;
   frontLeftMotors.set_gearing(gearset);
   frontRightMotors.set_gearing(gearset);
   backLeftMotors.set_gearing(gearset);
@@ -57,6 +65,7 @@ void MecanumDrive::setGearset(pros::MotorGears gearset){
 }
 
 void MecanumDrive::setEncoderUnits(pros::MotorEncoderUnits units){
+  if (dispatchMotion(MotionOperation::ENCODER,static_cast<int>(units))) return;
   frontLeftMotors.set_encoder_units(units);
   frontLeftMotors.tare_position();
   frontRightMotors.set_encoder_units(units);
@@ -68,6 +77,7 @@ void MecanumDrive::setEncoderUnits(pros::MotorEncoderUnits units){
 }
 
 void MecanumDrive::setSlewRate(double slew){
+  if (dispatchMotion(MotionOperation::SLEW,slew)) return;
   frontLeftMotors.SetAcceleration(slew);
   frontRightMotors.SetAcceleration(slew);
   backLeftMotors.SetAcceleration(slew);
