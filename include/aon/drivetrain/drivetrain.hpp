@@ -8,6 +8,9 @@
 #include "../math/timer.hpp"
 #include "../controls/pure-pursuit.hpp"
 #include <cfloat>
+#include <atomic>
+#include <mutex>
+#include "pros/rtos.hpp"
 
 
 namespace aon {
@@ -15,6 +18,48 @@ namespace aon {
 
 class Drivetrain {
   public:
+
+  struct PathResult;
+  struct HeadingCorrection;
+  struct PathTrace;
+
+  protected:
+  /// @brief POD operations transferred to the persistent publication owner.
+  enum class MotionOperation { TANK, SIDEWAYS, HOLONOMIC, BRAKE, GEAR, ENCODER,
+                               SLEW, STOP, CANCEL, ENABLE, POSE, RESET_POSE,
+                               SET_X, SET_Y, SET_HEADING };
+  /// @brief Application-lifetime service; implementation lives with drivetrain transport.
+  /// @details Callbacks may be deleted by PROS. They must never own the execution
+  /// scope, application mutexes, or storage borrowed by a surviving worker.
+  struct MotionService {
+    virtual ~MotionService() = default;
+    virtual bool ownsTransport() const = 0;
+    virtual bool ownsExecution() const = 0;
+    virtual void command(MotionOperation, double, double, double) = 0;
+    virtual Pose readPose() = 0;
+    virtual PathResult follow(const std::vector<Pose>&, uint32_t,
+        const std::vector<double>&, bool, const HeadingCorrection*, PathTrace*) = 0;
+    virtual void beginMode() = 0;
+  };
+  class PersistentMotionService;
+  std::unique_ptr<MotionService> motionService;
+  bool motionServiceRequired = false; ///< Startup failure must never fall back to callback-owned motion.
+  bool motionServiceStarted = false;
+
+  /// @brief Dispatch before acquiring any application motor/publication mutex.
+  bool dispatchMotion(MotionOperation operation, double a = 0, double b = 0, double c = 0);
+
+  public:
+  /// @brief Start application-lifetime execution/publication owners before competition callbacks.
+  /// @return False on task/storage startup failure; subsequent motion stays fail-closed.
+  /// @pre Call once from initialize(), before concurrent motion; keep the drivetrain
+  /// and its motor groups alive until application shutdown. Do not remove service tasks.
+  bool initializeMotionService();
+  /// @brief Revoke the previous callback epoch, stop, and await old path cleanup.
+  /// @details Call first on every competition callback entry. Waiting owns no
+  /// application lock; PROS may delete this waiting callback on another transition.
+  /// The next callback supersedes abandoned requests, never reviving an old path.
+  void beginCompetitionMode();
 
   /// @brief This struct holds the factors by which inputs will be scaled when driving during `turbo` and `!turbo` states
   struct SpeedFactors {
@@ -54,13 +99,43 @@ class Drivetrain {
   std::unique_ptr<MotionProfile> xProfile;
   std::unique_ptr<MotionProfile> yProfile;
   std::unique_ptr<MotionProfile> thetaProfile;
+
+  std::atomic<uint32_t> pathCancelGeneration{0};
+  std::atomic<bool> pathEnabled{true}; // lifecycle admission; direct/manual API starts enabled
+  std::atomic<bool> pathActive{false};
+  std::atomic<PurePursuit::Status> pathStatus{PurePursuit::Status::IDLE};
+
+  // Lock order: drivetrain command mutex, then an individual motor-group mutex.
+  // Hold only for generation/state changes and finite all-group motor writes;
+  // never across pose reads, controller computation, delays or user callbacks.
+  // Kernel scheduling and motor I/O still prevent a hard real-time guarantee.
+  pros::Mutex pathCommandMutex;
+  bool pathMotorFailure = false; // protected by pathCommandMutex
+
+  // These virtual transport hooks run with pathCommandMutex held. Overrides
+  // must not reenter stop/cancel/publish or acquire this mutex through tank().
+  virtual bool stopPathMotors() { this->motors(0); return true; }
+
+  PurePursuit::Status publishPath(uint32_t generation, double left, double right);
+
+  // Only configurations with validated differential wheel kinematics opt in.
+  virtual bool supportsPurePursuit() const { return false; }
+
+  virtual bool commandPath(double left, double right) {
+    tank(left,right);
+    return true;
+  }
   
   public:
 
   Drivetrain(Pose pose, std::unique_ptr<Odometry> odom, SpeedFactors speedFactors, 
              std::unique_ptr<MotionProfile> xProfile, std::unique_ptr<MotionProfile> yProfile, std::unique_ptr<MotionProfile> thetaProfile): 
              odometry(std::move(odom)), speedFactors(speedFactors),
-             xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) { setPose(pose); }
+             xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) {
+    // Missing odometry must reach followPath's freshness rejection and stop
+    // attempts without dereferencing a sensor during construction.
+    if (odometry) setPose(pose);
+  }
 
   enum DriveMode {
     TANK,
@@ -76,15 +151,22 @@ class Drivetrain {
   /// @brief Starts the underlying odometry thread
   void initialize() { this->odometry->initialize(); }
 
-  Pose getPose() { return this->odometry->getPose(); }
-  double getX() { return this->odometry->getX(); }
-  double getY() { return this->odometry->getY(); }
-  double getTheta() { return this->odometry->getDegrees(); }
+  Pose getPose() {
+    if (motionService && !motionService->ownsTransport()) return motionService->readPose();
+    if (motionServiceRequired && !motionService) return Pose(NAN,NAN,NAN);
+    return this->odometry->getPose();
+  }
+  double getX() { return getPose().x; }
+  double getY() { return getPose().y; }
+  double getTheta() { return getPose().theta; }
 
-  void setPose(Pose p) { odometry->resetCurrent(p.x, p.y, p.theta); }
-  void setX(double x) { odometry->SetPosition(x, getY()); }
-  void setY(double y) { odometry->SetPosition(getX(), y); }
-  void setTheta(double theta) { odometry->setDegrees(theta); }
+  void setPose(Pose p) {
+    if (!dispatchMotion(MotionOperation::RESET_POSE,p.x,p.y,p.theta))
+      odometry->resetCurrent(p.x,p.y,p.theta);
+  }
+  void setX(double x) { if (!dispatchMotion(MotionOperation::SET_X,x)) odometry->SetPosition(x,getY()); }
+  void setY(double y) { if (!dispatchMotion(MotionOperation::SET_Y,y)) odometry->SetPosition(getX(),y); }
+  void setTheta(double theta) { if (!dispatchMotion(MotionOperation::SET_HEADING,theta)) odometry->setDegrees(theta); }
 
   bool hasFreshPose() { return odometry && odometry->hasFreshPose(); }
   bool hasFreshOtos() { return odometry && odometry->hasFreshOtos(); }
@@ -95,7 +177,7 @@ class Drivetrain {
   double getOtosTheta() { return odometry ? odometry->getOtosDegrees() : PROS_ERR_F; }
 
   void resetPose(double x = 0.0, double y = 0.0, double theta = 0.0) {
-    this->odometry->resetCurrent(x, y, theta);
+    setPose(Pose(x,y,theta));
   }
 
 
@@ -252,7 +334,21 @@ class Drivetrain {
   }
 
   /// @brief Stops all motors
-  virtual void stop() { this->motors(0); }
+  virtual void stop();
+
+  /// @brief Request path cancellation from another task. The follow loop stops
+  /// cooperatively after the current command publication. No later command from
+  /// that request may publish once cancellation returns. Use stop() to also send
+  /// immediate zeros; cancellation itself does not write the motors.
+  void cancelPath();
+
+  /// @brief Persistently allow/reject followPath requests at the competition boundary.
+  /// Disabling revokes the active translation/heading generation before waiting,
+  /// then attempts zeros under the publication barrier. Enabling permits a new
+  /// explicit request; it never revives a cancelled request. Raw driver commands
+  /// and legacy motion APIs remain caller-owned and are not gated by this flag.
+  void setPathEnabled(bool enabled);
+  PurePursuit::Status getPathStatus() const { return pathStatus.load(); }
 
   /// @brief Configures the general settings for the motors
   /// @param brakeMode The braking paradigm we will use, usually `holding` for
@@ -778,46 +874,104 @@ class Drivetrain {
   /// @note Pose X/Y are inches; heading is clockwise degrees.
   virtual void goToPose(const Pose &pose) = 0;
 
-  /// @brief Follows a path using a pure pursuit controller
-  /// @param path The path to follow
-  /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
-  virtual void follow(const std::vector<Pose>& path) {
-    if (path.empty() || !hasFreshPose()) { stop(); return; }
-    PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
+  struct PathResult {
+    PurePursuit::Status status = PurePursuit::Status::IDLE;
+    PurePursuit::Status translationStatus = PurePursuit::Status::IDLE;
+    bool headingCorrected = false;
+    double headingErrorDeg = 0;
+    double finalHeading = 0; // requested clockwise degrees; usable on SUCCESS
+    PurePursuit::Diagnostics diagnostics;
+    uint32_t elapsedMs = 0;
+    uint32_t maxUpdateUs = 0; // controller compute only, excludes I/O/delay
+  };
 
-    std::pair<double, double> output = {-1, -1};
+  enum class PathStage { TRANSLATION, HEADING };
 
-    double dt = 0.02;
-    double now = pros::micros() / 1E6;
-    double lastTime = now;
+  /// Optional experimental measurement record. Timestamp is the pose observation
+  /// time, not the sensor's acquisition timestamp. RPM fields are converted
+  /// requests, never measured motor speeds. published means both transport APIs
+  /// returned success, not that the robot achieved the requested velocity.
+  struct PathSample {
+    uint32_t timestampUs = 0;
+    uint32_t intervalUs = 0; // preceding observed interval; first stage sample = 0
+    uint32_t computeUs = 0; // translation: controller update; heading: PID only
+    uint32_t publicationUs = 0; // mutex wait and command transport, excludes stop
+    PathStage stage = PathStage::TRANSLATION;
+    Pose pose;
+    PurePursuit::Diagnostics diagnostics; // heading stage retains translation geometry
+    double requestedLeftRPM = 0, requestedRightRPM = 0;
+    int16_t leftRPM = 0, rightRPM = 0;
+    PurePursuit::Status status = PurePursuit::Status::IDLE;
+    bool published = false;
+  };
 
-    // Generous timeout
-    const uint32_t timeoutMs = (math::length(path)) * 1E3;
-    Timer timer;
-    timer.start(timeoutMs);
+  /// Caller owns storage for the whole synchronous request. Read only after
+  /// followPath returns; this is deliberately not a concurrent ring buffer.
+  /// Full/zero-capacity storage drops samples without changing motor behavior.
+  /// Allocate outside the control task; capacity*sizeof(PathSample) is the exact
+  /// sample storage cost. No allocation, formatting or device reads in capture.
+  struct PathTrace {
+    PathSample* samples = nullptr;
+    size_t capacity = 0;
+    size_t size = 0;
+    uint32_t dropped = 0, maxIntervalUs = 0;
+    PurePursuit::Status status = PurePursuit::Status::IDLE;
+    PurePursuit::Status translationStatus = PurePursuit::Status::IDLE;
+    bool terminalStopSucceeded = false;
 
-    while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted()) {
-      if (!hasFreshPose()) { stop(); return; }
-      now = pros::micros() / 1E6;
-      dt = now - lastTime;
-      output = controller.follow(path, this->odometry->getPose(), dt);
-      lastTime = now;
-      this->tank(output.first, output.second);
-
-      pros::lcd::print(0, "Current: Pose(%.2f, %.2f, %.2f)", odometry->getX(), odometry->getY(), odometry->getDegrees());
-      pros::lcd::print(1, "Target: Pose(%.2f, %.2f, %.2f)", path.back().x, path.back().y, path.back().theta);
-      pros::lcd::print(2, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
-      pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
-
-      if (output.first == 0 && output.second == 0) { break; }
-
-      pros::delay(10);
+    void reset() {
+      size = 0; dropped = 0; maxIntervalUs = 0;
+      status = translationStatus = PurePursuit::Status::IDLE;
+      terminalStopSucceeded = false;
     }
+    void record(const PathSample& sample) {
+      if (samples && size < capacity) samples[size++] = sample;
+      else if (dropped != UINT32_MAX) ++dropped;
+    }
+  };
 
-    if (hasFreshPose()) this->turnToHeading(path.back().theta);
+  /// Issue 33's opt-in movement stage. Gains produce motor RPM from degrees;
+  /// no robot tuning is implied. PID timestep is replaced by measured seconds.
+  /// Supply finite gains, finite integral activation/bound, positive maxRPM and
+  /// tolerance, nonzero settlement and timeout. A null config disables alignment.
+  struct HeadingCorrection {
+    PID controller;
+    double maxRPM;
+    double toleranceDeg;
+    uint32_t settleMs;
+    uint32_t timeoutMs;
+  };
 
-    this->stop();
-  }
+  /// @brief Follow a forward differential path; positions are inches, headings clockwise degrees.
+  /// @param timeoutMs Cooperative translation budget including preparation and terminal stop.
+  /// @param caps Optional per-waypoint center RPM ceilings, matching path size.
+  /// @param reversed Unsupported; rejects and attempts all-group stopping.
+  /// @param headingCorrection Explicit opt-in alignment with a separate stage budget; null skips it.
+  /// @param trace Optional bounded capture; inspect after return, not concurrently.
+  /// @return Controller outcome after terminal stops. Transport failure overrides cancellation;
+  /// cancellation overrides other outcomes. Expired cleanup cannot report SUCCESS.
+  /// Overlap rejects without disturbing the active owner or its capture/status.
+  /// @details Translation uses 5-inch lookahead, 2.5-inch arrival tolerance and
+  /// 150ms dwell at <=1in/s and <=5deg/s. Updates accept measured intervals <=50ms.
+  /// @pre Initialize the durable motion service before competition callbacks;
+  /// otherwise the caller must survive execution. Inputs/capture remain alive through return.
+  /// Raw/legacy motion writers require separate caller serialization.
+  PathResult followPath(const std::vector<Pose>& path, uint32_t timeoutMs = 15000,
+                        const std::vector<double>& caps = {}, bool reversed = false,
+                        const HeadingCorrection* headingCorrection = nullptr,
+                        PathTrace* trace = nullptr);
+
+ protected:
+  /// @brief Execute with the epoch captured at admission, including queued admission.
+  PathResult executePath(const std::vector<Pose>& path, uint32_t timeoutMs,
+                         const std::vector<double>& caps, bool reversed,
+                         const HeadingCorrection* headingCorrection, PathTrace* trace,
+                         uint32_t generation);
+
+ public:
+  /// @brief Compatibility wrapper; inspect getPathStatus or use followPath for
+  /// the explicit result and requested heading. Does not align final heading.
+  virtual void follow(const std::vector<Pose>& path);
 
   /// @brief Scales a joystick input to drivetrain motor intensity according to a percentage
   /// @param input The joystick input to be scaled

@@ -5,6 +5,9 @@
 namespace aon {
 
 class MecanumDrive : public Drivetrain {
+ protected:
+  bool stopPathMotors() override;
+
  private:
   SmartMotorGroup frontLeftMotors;
   SmartMotorGroup frontRightMotors;
@@ -70,9 +73,8 @@ class MecanumDrive : public Drivetrain {
   /// @note Pose X/Y are inches; heading is clockwise degrees.
   void goToPose(const Pose& target) override;
 
-  /// @brief Follows a path using a pure pursuit controller
-  /// @param path The path to follow
-  /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
+  /// @brief Reject unsupported Pure Pursuit kinematics and attempt all-group stops.
+  /// @note No translation or final-heading alignment; use followPath for the result.
   void follow(const std::vector<Pose>& path) override;
 };
 

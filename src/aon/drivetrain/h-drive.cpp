@@ -2,7 +2,19 @@
 
 namespace aon {
 
+bool HDrive::stopPathMotors() {
+  const auto l = leftMotors.move_velocity(0);
+  const auto r = rightMotors.move_velocity(0);
+  const auto m = midMotors.move_velocity(0);
+  return l == 1 && r == 1 && m == 1;
+}
+
+
 void HDrive::sideways(const double &rpm, const int& delay) {
+  if (dispatchMotion(MotionOperation::SIDEWAYS,rpm)) {
+    if (delay!=0) { pros::delay(delay); this->stop(); }
+    return;
+  }
   this->midMotors.move_velocity(rpm);
   if (delay == 0) return;
   pros::delay(delay);
@@ -10,23 +22,27 @@ void HDrive::sideways(const double &rpm, const int& delay) {
 }
 
 void HDrive::tank(const double &left, const double &right){
+  if (dispatchMotion(MotionOperation::TANK,left,right)) return;
   this->leftMotors.move_velocity(left);
   this->rightMotors.move_velocity(right);
 }
 
 void HDrive::setBrakeMode(pros::MotorBrake brakeMode){
+  if (dispatchMotion(MotionOperation::BRAKE,static_cast<int>(brakeMode))) return;
   leftMotors.set_brake_mode(brakeMode);
   rightMotors.set_brake_mode(brakeMode);
   midMotors.set_brake_mode(brakeMode);
 }
 
 void HDrive::setGearset(pros::MotorGears gearset){
+  if (dispatchMotion(MotionOperation::GEAR,static_cast<int>(gearset))) return;
   leftMotors.set_gearing(gearset);
   rightMotors.set_gearing(gearset);
   midMotors.set_gearing(gearset);
 }
 
 void HDrive::setEncoderUnits(pros::MotorEncoderUnits units){
+  if (dispatchMotion(MotionOperation::ENCODER,static_cast<int>(units))) return;
   leftMotors.set_encoder_units(units);
   leftMotors.tare_position();
   rightMotors.set_encoder_units(units);
@@ -36,6 +52,7 @@ void HDrive::setEncoderUnits(pros::MotorEncoderUnits units){
 }
 
 void HDrive::setSlewRate(double slew){
+  if (dispatchMotion(MotionOperation::SLEW,slew)) return;
   leftMotors.SetAcceleration(slew);
   rightMotors.SetAcceleration(slew);
   midMotors.SetAcceleration(slew);
@@ -48,8 +65,7 @@ double HDrive::getRPM(){
 }
 
 void HDrive::stop(){
-  this->motors(0);
-  this->sideways(0);
+  Drivetrain::stop();
 }
 
 // Using PID
@@ -147,41 +163,7 @@ void HDrive::goToPose(const Pose& target){
 }
 
 void HDrive::follow(const std::vector<Pose>& path) {
-  if (path.empty() || !hasFreshPose()) { stop(); return; }
-  PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
-
-  std::pair<double, double> output = {-1, -1};
-
-  double dt = 0.02;
-  double now = pros::micros() / 1E6;
-  double lastTime = now;
-
-  // Generous timeout
-  const uint32_t timeoutMs = (math::length(path)) * 1E3;
-  Timer timer;
-  timer.start(timeoutMs);
-
-  while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted()) {
-    if (!hasFreshPose()) { stop(); return; }
-    now = pros::micros() / 1E6;
-    dt = now - lastTime;
-    output = controller.follow(path, this->odometry->getPose(), dt);
-    lastTime = now;
-    this->tank(output.first, output.second);
-
-    pros::lcd::print(0, "Current: Pose(%.2f, %.2f, %.2f)", odometry->getX(), odometry->getY(), odometry->getDegrees());
-    pros::lcd::print(1, "Target: Pose(%.2f, %.2f, %.2f)", path.back().x, path.back().y, path.back().theta);
-    pros::lcd::print(2, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
-    pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
-
-    if (output.first == 0 && output.second == 0) { break; }
-
-    pros::delay(10);
-  }
-
-  if (hasFreshPose()) this->turnToHeading(path.back().theta);
-
-  this->stop();
+  Drivetrain::follow(path); // safely rejects unvalidated holonomic kinematics
 }
 
 }  // namespace aon

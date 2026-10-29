@@ -2,22 +2,45 @@
 
 namespace aon {
 
+bool DifferentialDrive::commandPath(double left, double right) {
+  // Pure Pursuit has already profiled and bounded these commands. A second,
+  // independent wheel slew limiter can override speed caps and curvature.
+  // Conversion must preserve coupled center/turn bounds, not just each wheel.
+  const auto command = PurePursuit::motorCommands(left,right,thetaProfile->getMaxVelocity());
+  const auto l = leftMotors.moveVelocityDirect(command.first);
+  const auto r = rightMotors.moveVelocityDirect(command.second);
+  return l == 1 && r == 1;
+}
+
+bool DifferentialDrive::stopPathMotors() {
+  // Always attempt both zeros, even when one transport reports failure.
+  const auto l = leftMotors.move_velocity(0);
+  const auto r = rightMotors.move_velocity(0);
+  return l == 1 && r == 1;
+}
+
+
 void DifferentialDrive::tank(const double &left, const double &right){
+  if (dispatchMotion(MotionOperation::TANK,left,right)) return;
+  std::lock_guard<pros::Mutex> lock(pathCommandMutex);
   this->leftMotors.move_velocity(left);
   this->rightMotors.move_velocity(right);
 }
 
 void DifferentialDrive::setBrakeMode(pros::MotorBrake brakeMode){
+  if (dispatchMotion(MotionOperation::BRAKE,static_cast<int>(brakeMode))) return;
   leftMotors.set_brake_mode(brakeMode);
   rightMotors.set_brake_mode(brakeMode);
 }
 
 void DifferentialDrive::setGearset(pros::MotorGears gearset){
+  if (dispatchMotion(MotionOperation::GEAR,static_cast<int>(gearset))) return;
   leftMotors.set_gearing(gearset);
   rightMotors.set_gearing(gearset);
 }
 
 void DifferentialDrive::setEncoderUnits(pros::MotorEncoderUnits units){
+  if (dispatchMotion(MotionOperation::ENCODER,static_cast<int>(units))) return;
   leftMotors.set_encoder_units(units);
   leftMotors.tare_position();
   rightMotors.set_encoder_units(units);
@@ -26,6 +49,7 @@ void DifferentialDrive::setEncoderUnits(pros::MotorEncoderUnits units){
 }
 
 void DifferentialDrive::setSlewRate(double slew){
+  if (dispatchMotion(MotionOperation::SLEW,slew)) return;
   leftMotors.SetAcceleration(slew);
   rightMotors.SetAcceleration(slew);
 }
@@ -37,40 +61,11 @@ double DifferentialDrive::getRPM(){
 }
 
 void DifferentialDrive::goToPose(const Pose& pose) {
-  if (!odometry->hasFreshPose()) { stop(); return; }
-  PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
-
-  std::pair<double, double> output = {-1, -1};
-
-  double dt = 0.02;
-  double now = pros::micros() / 1E6;
-  double lastTime = now;
-
-  // Generous timeout
-  const uint32_t timeoutMs = (this->odometry->getPose().distanceTo(pose)) * 1E3;
-  Timer timer;
-  timer.start(timeoutMs);
-  while (odometry->getPose().distanceTo(pose) > 2.0 && !timer.isCompleted()){
-    if (!odometry->hasFreshPose()) { stop(); return; }
-    now = pros::micros() / 1E6;
-    dt = now - lastTime;
-    output = controller.go(pose, this->odometry->getPose(), dt);
-    lastTime = now;
-    this->tank(output.first, output.second);
-
-    pros::lcd::print(0, "Current: Pose(%.2f, %.2f, %.2f)", odometry->getX(), odometry->getY(), odometry->getDegrees());
-    pros::lcd::print(1, "Target: Pose(%.2f, %.2f, %.2f)", pose.x, pose.y, pose.theta);
-    pros::lcd::print(2, "Distance: %.2f", odometry->getPose().distanceTo(pose));
-    pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "Distance: %.2f", odometry->getPose().distanceTo(pose));
-
-    if (output.first == 0 && output.second == 0) { break; }
-
-    pros::delay(10);
-  }
-
-  if (odometry->hasFreshPose()) this->turnToHeading(pose.theta);
-
-  this->stop();
+  // Compatibility wrapper: use the same validated translation/settlement and
+  // cancellation contract as paths. Explicit followPath callers receive errors.
+  // Final heading is opt-in at the movement layer, never an unconditional turn
+  // after this void API's timeout. No distance-to-uint32 timeout conversion.
+  (void)followPath({getPose(), pose});
 }
 
 }  // namespace aon

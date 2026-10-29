@@ -591,7 +591,10 @@
         "version": "9.2.0"
       }
     },
-    "upload_options": {},
+    "upload_options": {
+      "icon": "planet",
+      "slot": 2
+    },
     "use_early_access": false
   }
 }

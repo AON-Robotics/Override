@@ -351,16 +351,24 @@ void colorSorting(){
   intake.activateScan();
 }
 
+/// @brief Run two-point translations in inches; stop the sequence on failure.
+/// Target headings remain metadata; final alignment requires explicit configuration.
 void purePursuitPoint(){
-  drivetrain.goToPose(Pose(TILE_WIDTH, -TILE_WIDTH / 2, 0));
-  drivetrain.goToPose(Pose(TILE_WIDTH * 2, TILE_WIDTH / 2, 90));
-  drivetrain.goToPose(Pose(0, TILE_WIDTH / 2, 180));
-  drivetrain.goToPose(Pose(0, -TILE_WIDTH / 2, 270));
-  drivetrain.goToPose(Pose(TILE_WIDTH, TILE_WIDTH / 2, 0));
-  drivetrain.goToPose(Pose(TILE_WIDTH * 2, -TILE_WIDTH / 2, 90));
-  drivetrain.goToPose(Pose(0, 0, 0));
+  const std::vector<Pose> targets = {
+    Pose(TILE_WIDTH, -TILE_WIDTH / 2, 0),
+    Pose(TILE_WIDTH * 2, TILE_WIDTH / 2, 90),
+    Pose(0, TILE_WIDTH / 2, 180), Pose(0, -TILE_WIDTH / 2, 270),
+    Pose(TILE_WIDTH, TILE_WIDTH / 2, 0),
+    Pose(TILE_WIDTH * 2, -TILE_WIDTH / 2, 90), Pose(0, 0, 0)
+  };
+  for (const Pose& target : targets) {
+    // A failed translation must not authorize the next autonomous action.
+    if (drivetrain.followPath({drivetrain.getPose(), target}).status !=
+        PurePursuit::Status::SUCCESS) return;
+  }
 }
 
+/// @brief Follow one sparse development path; return on failure.
 void purePursuitSimpleFollow(){
   std::vector<Pose> path = {
     Pose(TILE_WIDTH, 0, 0),
@@ -372,9 +380,10 @@ void purePursuitSimpleFollow(){
     Pose(0, 0, 0),
    
   };
-  drivetrain.follow(path);
+  if (drivetrain.followPath(path).status != PurePursuit::Status::SUCCESS) return;
 }
 
+/// @brief Follow a sampled S-shaped development path without final-heading alignment.
 void purePursuitPath(){
   std::vector<Pose> path = {
     Pose(0, 0, 0),
@@ -421,7 +430,7 @@ void purePursuitPath(){
     Pose(37, 10.5, 0),
     Pose(38, 12.0, 270) // test with 180 as well
   };
-  drivetrain.follow(path);
+  if (drivetrain.followPath(path).status != PurePursuit::Status::SUCCESS) return;
 }
 
 #if USING_BIG_ROBOT
@@ -430,14 +439,19 @@ void purePursuitPath(){
 
 #else
 
+/// @brief Run the legacy-named small DifferentialDrive example with failure gates.
+/// Target headings remain metadata; configured, fresh odometry is required.
 void xDriveRoutine(){
-  drivetrain.goToPose(Pose(-TILE_WIDTH, 0, 0));
-  drivetrain.goToPose(Pose(0, 12, 0));
-  drivetrain.goToPose(Pose(-12, 12, 0));
-  drivetrain.goToPose(Pose(0, 0, 90));
-  drivetrain.goToPose(Pose(-12, 18, 0));
-  drivetrain.goToPose(Pose(-TILE_WIDTH, TILE_WIDTH, 90));
-  drivetrain.goToPose(Pose(0, 0, 0));
+  const std::vector<Pose> targets = {
+    Pose(-TILE_WIDTH, 0, 0), Pose(0, 12, 0), Pose(-12, 12, 0),
+    Pose(0, 0, 90), Pose(-12, 18, 0), Pose(-TILE_WIDTH, TILE_WIDTH, 90),
+    Pose(0, 0, 0)
+  };
+  for (const Pose& target : targets) {
+    // A failed translation must not authorize the next autonomous action.
+    if (drivetrain.followPath({drivetrain.getPose(), target}).status !=
+        PurePursuit::Status::SUCCESS) return;
+  }
 }
 
 #endif

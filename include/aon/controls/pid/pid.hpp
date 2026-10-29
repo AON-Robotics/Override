@@ -24,7 +24,7 @@ class PID {
   /// Gains
   double kP, kI, kD, kT;
   /// Stores the value in Output method which is the sum of the pid constants.
-  double result;
+  double result = 0; // Fresh heading configurations may be copied before Output()/Reset().
   /// Starts accumulating the integral when the error reaches a certain value.
   double start_integral;
   /// Keeps the integral from passing an error range.
@@ -82,6 +82,9 @@ class PID {
   double GetKD() { return kD; }
   /// Retrieves the constant time period.
   double GetKT() { return kT; }
+  /// @brief Set the next PID timestep in seconds without resetting feedback history.
+  /// @pre Caller supplies a finite positive interval and serializes controller access.
+  void SetKT(double seconds) { kT = seconds; }
   /// Retrieves and accumulates the integral when the error reaches a value.
   double GetStartIntegral() { return start_integral; }
   /// Retrieves the calculated range where the integral must stay within.

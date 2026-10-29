@@ -30,7 +30,8 @@ class MotionProfile {
   };
 
  private:
-  double MAX_VELOCITY, MAX_ACCELERATION, MAX_DECELERATION, JERK;
+  /// Limits in RPM, RPM/s and RPM/s^2; defaults are deterministically invalid.
+  double MAX_VELOCITY = 0, MAX_ACCELERATION = 0, MAX_DECELERATION = 0, JERK = 0;
   double currVelocity = 0;
   double currAccel = 0;
   double targetFinalVelocity = 0;
@@ -45,13 +46,27 @@ class MotionProfile {
     this->JERK = std::abs(JERK);  // RPM/(s^2)
   }
 
+  /// @brief Construct a zero-limit profile; isValid() is false until configured.
   MotionProfile(){}
 
   /// @brief Returns the current stage of the motion profile
   /// @return The stage of the motion profile
   Stage getStage() const { return this->stage; }
 
-  // TODO: Desmos this function below
+  /// @brief Configured motor-equivalent ceiling in RPM; check isValid() before use.
+  double getMaxVelocity() const { return MAX_VELOCITY; }
+  /// @brief Configured braking magnitude in RPM/s, before the inherited 0.5 factor.
+  double getMaxDeceleration() const { return MAX_DECELERATION; }
+
+  /// @brief Require all four configured limits to be finite and strictly positive.
+  bool isValid() const {
+    return std::isfinite(MAX_VELOCITY) && MAX_VELOCITY > 0 &&
+           std::isfinite(MAX_ACCELERATION) && MAX_ACCELERATION > 0 &&
+           std::isfinite(MAX_DECELERATION) && MAX_DECELERATION > 0 &&
+           std::isfinite(JERK) && JERK > 0;
+  }
+
+  // TODO(Issue 18): measure braking/overshoot; path safety limits can override smoothness.
 
   /// @brief Calculates the target velocity to send to the motors for smooth and precise movements using an S-curve profile.
   /// @param remainingDist The remaining distance to the target in \b inches.
