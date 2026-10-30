@@ -197,6 +197,7 @@ void XDrive::goToPose(const Pose& target){
   this->stop();
 }
 
+/*
 void XDrive::follow(const std::vector<Pose>& path) {
   if (path.empty() || !hasFreshPose()) { stop(); return; }
   PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
@@ -232,6 +233,6 @@ void XDrive::follow(const std::vector<Pose>& path) {
   if (hasFreshPose()) this->turnToHeading(path.back().theta);
 
   this->stop();
-}
+} */
 
 }  // namespace aon
