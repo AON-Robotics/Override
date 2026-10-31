@@ -17,10 +17,14 @@ class HeadingFusion {
     hasOtos_ = false;
     hasImu_ = false;
     usingImu_ = false;
+    rejectedImu_ = false;
   }
 
   double update(double otosHeading, double imuRotation, bool imuValid,
                 double elapsedSeconds = 0.02) {
+    rejectedImu_ = false;
+    imuValid = imuValid && std::isfinite(imuRotation);
+    if (!std::isfinite(otosHeading)) return heading_;
     if (!hasOtos_) {
       previousOtos_ = otosHeading;
       hasOtos_ = true;
@@ -38,6 +42,7 @@ class HeadingFusion {
       heading_ += otosDelta;
       hasImu_ = false;
     } else if (!hasImu_) {
+      heading_ += otosDelta;
       // Align a newly calibrated or returning IMU without jumping the pose.
       originImu_ = imuRotation - (heading_ - fieldHeading_);
       previousImu_ = imuRotation;
@@ -46,6 +51,7 @@ class HeadingFusion {
       const double imuDelta = imuRotation - previousImu_;
       previousImu_ = imuRotation;
       if (std::fabs(imuDelta) > 90.0) {
+        rejectedImu_ = true;
         // Treat an IMU reset or implausible single-packet jump as invalid.
         heading_ += otosDelta;
         originImu_ = imuRotation - (heading_ - fieldHeading_);
@@ -62,6 +68,7 @@ class HeadingFusion {
   }
 
   bool usingImu() const { return usingImu_; }
+  bool rejectedImu() const { return rejectedImu_; }
 
  private:
   double imuSmoothingSeconds_;
@@ -73,6 +80,7 @@ class HeadingFusion {
   bool hasOtos_ = false;
   bool hasImu_ = false;
   bool usingImu_ = false;
+  bool rejectedImu_ = false;
 };
 
 }  // namespace aon

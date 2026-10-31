@@ -80,6 +80,12 @@ class Drivetrain {
   double getX() { return this->odometry->getX(); }
   double getY() { return this->odometry->getY(); }
   double getTheta() { return this->odometry->getDegrees(); }
+  /// Clockwise heading in [0, 360); getTheta retains continuous degrees.
+  double getHeading() { return this->odometry->getHeading(); }
+  /// Estimated translational path length in inches since the last pose reset.
+  double getTraveledDistance() { return this->odometry->getTraveledDistance(); }
+  /// Health of the sensors feeding this drivetrain's active odometry instance.
+  OdometryHealth getOdometryHealth() { return this->odometry->getHealth(); }
 
   void setPose(Pose p) { odometry->resetCurrent(p.x, p.y, p.theta); }
   void setX(double x) { odometry->SetPosition(x, getY()); }
@@ -750,7 +756,7 @@ class Drivetrain {
   /// @param settle If true, robot will stop after movement, if false, it will proceed at a constant speed
   void turnToHeading(const double &heading, bool settle = true) {
     if (!hasFreshPose()) { stop(); return; }
-    const double delta = std::remainder(heading - odometry->getDegrees(), 360.0);
+    const double delta = std::remainder(heading - odometry->getHeading(), 360.0);
     turn(delta, settle);
   }
   

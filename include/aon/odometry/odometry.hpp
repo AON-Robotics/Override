@@ -14,6 +14,7 @@
 #include "../tools/vector.hpp"
 #include "../math/pose.hpp"
 #include "heading-fusion.hpp"
+#include "pose-estimator.hpp"
 
 
 namespace aon {
@@ -46,6 +47,22 @@ namespace aon {
         double deltaRadians;
         double deltaDegrees;
 
+    };
+
+    enum class SensorHealth {
+        Unavailable, Baselining, Healthy, Invalid, Implausible, Stale
+    };
+
+    struct OdometryHealth {
+        SensorHealth left = SensorHealth::Unavailable;
+        SensorHealth right = SensorHealth::Unavailable;
+        SensorHealth back = SensorHealth::Unavailable;
+        SensorHealth motors = SensorHealth::Unavailable;
+        SensorHealth leftMotors = SensorHealth::Unavailable;
+        SensorHealth rightMotors = SensorHealth::Unavailable;
+        SensorHealth imu = SensorHealth::Unavailable;
+        SensorHealth otos = SensorHealth::Unavailable;
+        SensorHealth gps = SensorHealth::Unavailable;
     };
 
     class Odometry {
@@ -84,8 +101,15 @@ namespace aon {
         pros::MotorGroup* driveLeft = nullptr;
         pros::MotorGroup* driveRight = nullptr;
         int poseSource = 0;
+        double traveledDistance = 0.0;
+        OdometryHealth health;
+        std::uint32_t lastUpdateMs = 0;
+        bool hasUpdate = false;
 
-        void acceptPose(const Pose& raw);
+        void resetCurrentLocked(double x, double y, double theta);
+        bool readGps(Pose& result);
+
+        bool acceptPose(const Pose& raw);
 
     public: 
         Odometry(short left, short right, short back, short gps, short gyro);
@@ -97,7 +121,15 @@ namespace aon {
         Vector getPosition();
         void SetPosition(double x, double y);
 
+        /// Continuous degrees, retained for relative/multi-turn callers.
         double getDegrees();
+        /// Clockwise heading normalized to [0, 360).
+        double getHeading();
+        /// Translational path length in inches, excluding corrections and turns.
+        /// Resets on resetCurrent/resetInitial and pose setters (also GPS startup).
+        double getTraveledDistance();
+        /// Snapshot of input health; stale means the update/packet deadline expired.
+        OdometryHealth getHealth();
         void setDegrees(double degrees);
 
         double getRadians();
@@ -108,7 +140,13 @@ namespace aon {
         void initialize();
         void update();
         void resetCurrent(double x, double y, double theta);
+        /// Valid GPS position in field inches; NaN coordinates when untrusted.
         Vector gpsPosition();
+        /// One validated GPS startup attempt. Failure leaves the current pose intact.
+        bool initializeFromGps();
+        /// Consume one O,x,y,heading line (inches/clockwise degrees) from the Pi.
+        /// Invalid input is rejected without refreshing packet freshness.
+        bool ingestOtosLine(const char* line);
         Pose getPose();
         /// True while any position source is updating.
         bool hasFreshPose();
@@ -124,8 +162,9 @@ namespace aon {
         //Debugging/Testing
         void debug();
 
+    private:
         pros::Rotation encoderRight;
-        pros::Rotation encoderLeft;//was in private 
+        pros::Rotation encoderLeft;
         pros::Rotation encoderBack;
         pros::Gps gps;
 
