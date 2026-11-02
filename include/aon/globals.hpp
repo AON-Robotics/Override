@@ -211,6 +211,7 @@ void testEndpoint(int speed = 100){
 void autonSafety(){
   while(true){
     while(mainController.get_digital(DIGITAL_X)){
+      Drivetrain::requestCancel();
       STOP();
     }
     pros::delay(50);

@@ -81,6 +81,7 @@ class Drivetrain {
   static bool isCancelled() { return cancelRequested.load() || pros::competition::is_disabled(); }
 
   // Arrival tolerances (inches)
+  // This value is to be passed to pure persuit
   static constexpr double FOLLOW_ARRIVAL_TOLERANCE_INCHES = 0.5;
   // Placeholder value
   static constexpr double GO_TO_POSE_ARRIVAL_TOLERANCE_INCHES = 0.5;
@@ -832,7 +833,7 @@ class Drivetrain {
     while (true) {
       const double remX = target.x - this->getX();
       const double remY = target.y - this->getY();
-      const double remTheta = shortestAngleError(target.theta, this->getTheta());  // wrapped; old code was not
+      const double remTheta = shortestAngleError(target.theta, this->getTheta());
 
       pros::lcd::print(0, "(x, y, theta): (%.2f, %.2f, %.2f)", this->getX(), this->getY(), this->getTheta());
 
@@ -866,15 +867,14 @@ class Drivetrain {
     virtual MovementStatus follow(const std::vector<Pose>& path) {
     if (path.empty()) return MovementStatus::STALLED;   // nothing to follow: never "success"
 
-    PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5,
-                                         FOLLOW_ARRIVAL_TOLERANCE_INCHES, 2.5);
+    PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, FOLLOW_ARRIVAL_TOLERANCE_INCHES, 2.5);
     const Pose goal = path.back();
 
     double dt = 0.02;
     double now = pros::micros() / 1E6;
     double lastTime = now;
 
-    const uint32_t timeoutMs = (math::length(path)) * 1E3;   // unchanged
+    const uint32_t timeoutMs = (math::length(path)) * 1E3;
     Timer timer;
     timer.start(timeoutMs);
 
@@ -906,7 +906,7 @@ class Drivetrain {
     }
 
     this->stop();
-    return status;   // no trailing turnToHeading(): the caller owns the final heading
+    return status;
   }
 
   /// @brief Scales a joystick input to drivetrain motor intensity according to a percentage
