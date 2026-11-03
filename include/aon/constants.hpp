@@ -11,7 +11,7 @@
 
 // NOT using big robot = Using small robot
 #define USING_BIG_ROBOT false
-#define TESTING_AUTONOMOUS false
+#define TESTING_AUTONOMOUS true
 
 // Smooth uneven V5 IMU readings without using OTOS drift for heading.
 // A larger value smooths more but delays the heading during turns.

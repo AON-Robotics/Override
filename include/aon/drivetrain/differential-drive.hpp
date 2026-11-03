@@ -52,7 +52,7 @@ class DifferentialDrive : public Drivetrain {
   /// @brief Goes to the target point
   /// @param pose The target pose
   /// @note Pose X/Y are inches; heading is clockwise degrees.
-  void goToPose(const Pose &pose) override; // TODO: add optional `settle` boolean
+  void goToPose(const Pose &pose) {return this->goToPose(pose); } // TODO: add optional `settle` boolean
 
 };
 
