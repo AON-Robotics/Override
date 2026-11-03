@@ -31,6 +31,10 @@
  *   - The stopping distance includes the jerk ramps.
  *   - The profile never stalls before the target (`MIN_VELOCITY`).
  *   - Deceleration is bounded with the right sign.
+ *   - Bad inputs are handled inside the profile (so every drivetrain is protected):
+ *     a non-finite distance (sensor/motor read error) stops the robot, and a bad
+ *     or stalled `dt` can no longer break the profile or make the velocity jump.
+ *   - `RESPONSE_DELAY` defaults to 0.1 s, measured on the X-Drive robot.
  */
 
 #pragma once
@@ -66,9 +70,10 @@ class MotionProfileInches {
   double currAccel = 0;            // in/s^2
   double targetFinalVelocity = 0;  // in/s
   /// @brief Time between commanding a velocity and the robot reaching it, in \b seconds.
-  /// @details Replaces the old 0.5 correction. 0.05 s is an estimate from the simulation;
-  /// measure it on the robot (time for the measured velocity to reach 63% of a step command).
-  double RESPONSE_DELAY = 0.05;
+  /// @details Replaces the old 0.5 correction. 0.1 s was measured on the X-Drive robot (the motors
+  /// trail the command by ~1-2 loops; with 0.05 s every move overshot by 0.2-0.4"). Use
+  /// `setResponseDelay()` if another robot responds faster or slower.
+  double RESPONSE_DELAY = 0.1;
   /// @brief Slowest velocity used before the target is reached, in \b in/s, so the robot never stalls short.
   double MIN_VELOCITY = 1.0;
   /// @brief Fraction of `MAX_DECELERATION` used to plan the braking curve (0 to 1).
@@ -77,6 +82,12 @@ class MotionProfileInches {
   double BRAKING_MARGIN = 0.8;
   double prevTargetVelocity = -1;  // in/s, target of the previous call (-1 = first call)
   Stage stage = SETTLED;
+
+  /// @brief `dt` used when the caller passes 0, a negative value or NaN, in \b seconds
+  static constexpr double DEFAULT_DT = 0.02;
+  /// @brief Largest `dt` used in one call, in \b seconds. A stalled loop is treated as this
+  /// long so the velocity cannot jump (the jerk limit is J * dt per call).
+  static constexpr double MAX_DT = 0.1;
 
   /// @brief Distance needed to go from velocity `v` to `finalVelocity` with jerk-limited braking, in \b inches.
   /// @details Deceleration ramps 0 -> -A -> 0 at jerk J. The velocity curve is symmetric, so the
@@ -126,9 +137,23 @@ class MotionProfileInches {
 
   /// @brief Calculates the target velocity to send to the motors for smooth and precise movements using an S-curve profile.
   /// @param remainingDist The remaining distance to the target in \b inches.
-  /// @param dt The time elapsed since the last function call in \b seconds.
-  /// @return The updated velocity in \b RPM.
-  double update(const double& remainingDist, const double& dt = 0.02) {
+  /// @param dtIn The time elapsed since the last function call in \b seconds (bad values are replaced, see `MAX_DT`).
+  /// @return The updated velocity in \b RPM. Returns 0 (stop) if `remainingDist` is not a finite number.
+  double update(const double& remainingDist, const double& dtIn = DEFAULT_DT) {
+    // Safety: a non-finite distance means the sensor or a motor could not be read (PROS returns
+    // inf on errors). Stop instead of driving on a number that means nothing.
+    if (!std::isfinite(remainingDist)) {
+      this->currAccel = 0;
+      this->currVelocity = 0;
+      this->prevTargetVelocity = -1;
+      this->stage = SETTLED;
+      return 0;
+    }
+
+    // Safety: a zero/negative/NaN dt would divide by zero and leave the profile stuck on NaN,
+    // and a very long one (stalled loop) would let the velocity jump in one call.
+    const double dt = (std::isfinite(dtIn) && dtIn > 0) ? std::min(dtIn, MAX_DT) : DEFAULT_DT;
+
     // Stop the profile when the target is reached (uses the real distance, not the delayed one).
     if (remainingDist <= 0) {
       this->currAccel = 0;
@@ -216,8 +241,10 @@ class MotionProfileInches {
   }
 
   /// @brief Sets the time the robot takes to respond to a new velocity
-  /// @param seconds Measured response delay in \b seconds (0.05 by default)
-  void setResponseDelay(const double& seconds = 0.05) { this->RESPONSE_DELAY = std::max(seconds, 0.0); }
+  /// @param seconds Measured response delay in \b seconds (0.1 by default)
+  void setResponseDelay(const double& seconds = 0.1) {
+    this->RESPONSE_DELAY = std::isfinite(seconds) ? std::max(seconds, 0.0) : 0.1;
+  }
 
   /// @brief Sets the fraction of the deceleration used to plan braking
   /// @param margin Between 0 (exclusive) and 1; 0.8 by default
