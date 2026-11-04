@@ -868,6 +868,7 @@ class Drivetrain {
   /// @note The final heading is NOT turned to: call `correctHeading(pose.theta, cfg, status)` afterwards.
   virtual MovementStatus goToPose(const Pose& pose) = 0;
 
+  public:
   /// @brief Follows a path using a pure pursuit controller
   /// @param path The path to follow
   /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
