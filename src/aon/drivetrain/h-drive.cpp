@@ -93,59 +93,11 @@ void HDrive::stop(){
 // }
 
 // Using Motion Profile
-void HDrive::goToPose(const Pose& target){
-  if (!hasFreshPose()) { stop(); return; }
-  const double delay = 20; // ms
-  Timer timer;
-  timer.start(std::max<uint32_t>(3000, static_cast<uint32_t>(getPose().distanceTo(target) * 1000)));
-
-  double remainingX = abs(target.x - this->getX());
-  double remainingY = abs(target.y - this->getY());
-  double remainingTheta = abs(target.theta - this->getTheta());
-
-  const double drive_width = 10.5;
-  const double drive_length = 8.25;
-  const double ROBOT_RADIUS = hypot(drive_width, drive_length) / 2;
-  const double circumference = M_TWOPI * ROBOT_RADIUS;
-
-  // TODO: add timeouts for safety
-  while((remainingX > 0.05 || remainingY > 0.05 || remainingTheta > 0.05) &&
-        !timer.isCompleted()){
-    if (!hasFreshPose()) { stop(); return; }
-
-    pros::lcd::print(0, "(x, y, theta): (%.2f, %.2f, %.2f)", this->getX(), this->getY(), this->getTheta());
-    remainingX = target.x - this->getX();
-    remainingY = target.y - this->getY();
-    remainingTheta = target.theta - this->getTheta();
-
-    double xSign = (remainingX > 0) - (remainingX < 0);
-    double ySign = (remainingY > 0) - (remainingY < 0);
-    double thetaSign = (remainingTheta > 0) - (remainingTheta < 0);
-
-    remainingX = abs(remainingX);
-    remainingY = abs(remainingY);
-    remainingTheta = abs(remainingTheta);
-
-    double x = this->xProfile->update(remainingX) * xSign;
-    double y = this->yProfile->update(remainingY) * ySign;
-    double theta = this->thetaProfile->update(circumference * (remainingTheta / 360.0)) * thetaSign;
-
-    Vector direction = Vector().SetPosition(x, y);
-    direction.SetDegrees(direction.GetDegrees() + this->getTheta());// - initialPose.theta);
-
-    this->holonomic(direction.GetY(), direction.GetX(), theta);
-
-    pros::delay(delay);
-
-    // this->setX(this->getX() + math::linearSpeed(x) * delay / 1000); //# in case of odom failure
-    // this->setY(this->getY() + math::linearSpeed(y) * delay / 1000); //# in case of odom failure
-    // this->setTheta(this->getTheta() + math::rotationalSpeed(theta) * delay / 1000); //# in case of odom failure
-  }
-
-  pros::lcd::clear();
-  this->stop();
+MovementStatus HDrive::goToPose(const Pose& target) {
+  return this->goToPoseProfiled(target);
 }
 
+/*
 void HDrive::follow(const std::vector<Pose>& path) {
   if (path.empty() || !hasFreshPose()) { stop(); return; }
   PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
@@ -183,5 +135,6 @@ void HDrive::follow(const std::vector<Pose>& path) {
 
   this->stop();
 }
+*/
 
 }  // namespace aon

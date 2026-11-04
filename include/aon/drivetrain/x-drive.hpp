@@ -75,7 +75,7 @@ class XDrive : public Drivetrain {
   /// @brief Goes to the target point
   /// @param target The intended destination using the gps coordinate system (x, y) both need to be in the range (-1.8, 1.8)
   /// @note Pose X/Y are inches; heading is clockwise degrees.
-  void goToPose(const Pose& target) { return this->goToPose(target); }
+  MovementStatus goToPose(const Pose& target) override;
 
   /// @brief Follows a path using a pure pursuit controller
   /// @param path The path to follow

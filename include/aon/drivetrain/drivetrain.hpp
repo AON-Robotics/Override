@@ -62,7 +62,8 @@ class Drivetrain {
              std::unique_ptr<MotionProfile> xProfile, std::unique_ptr<MotionProfile> yProfile, std::unique_ptr<MotionProfile> thetaProfile): 
              odometry(std::move(odom)), speedFactors(speedFactors),
              xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) { setPose(pose); }
-
+  public:
+  
   enum DriveMode {
     TANK,
     ARCADE,
@@ -815,7 +816,7 @@ class Drivetrain {
   protected:
   /// Shared motion-profile goToPose for holonomic drives (X, H, Mecanum).
   /// Ends on POSITION only; heading is steered during the move but is the caller's job to verify.
-  MovementStatus goToPose(const Pose& target) {
+  MovementStatus goToPoseProfiled(const Pose& target) {
     const double delay = 20;  // ms
     // Copied verbatim from the old per-class code. NOTE: these differ from DRIVE_WIDTH/DRIVE_LENGTH in constants.hpp.
     const double drive_width = 10.5;
@@ -860,6 +861,12 @@ class Drivetrain {
     this->stop();
     return status;
   }
+  
+
+  /// @brief Goes to the target pose. Each drivetrain implements this.
+  /// @return SUCCESS only if the robot arrived within tolerance; otherwise TIMEOUT, CANCELLED, STALLED or POSE_LOST.
+  /// @note The final heading is NOT turned to: call `correctHeading(pose.theta, cfg, status)` afterwards.
+  virtual MovementStatus goToPose(const Pose& pose) = 0;
 
   /// @brief Follows a path using a pure pursuit controller
   /// @param path The path to follow
@@ -874,7 +881,7 @@ class Drivetrain {
     double now = pros::micros() / 1E6;
     double lastTime = now;
 
-    const uint32_t timeoutMs = (math::length(path)) * 1E3;
+    const uint32_t timeoutMs = (odometry->getPose().distanceTo(path.front()) + math::length(path)) * 1E3;
     Timer timer;
     timer.start(timeoutMs);
 
