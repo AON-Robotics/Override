@@ -107,26 +107,31 @@ aon::XDrive drivetrain = aon::XDrive(
 
 aon::operator_control::Driver driver = aon::operator_control::DRIVER2;
 
-// aon::XDrive drivetrain = aon::XDrive({-13}, {11}, {-12}, {14});
 aon::Pose startingPose = aon::Pose(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y, INITIAL_ODOMETRY_THETA);
 aon::Odometry odometry = aon::Odometry(0, 0, 0, 0, 16);
 
-aon::Drivetrain::SpeedFactors speedFactors = aon::Drivetrain::SpeedFactors(0.6, 0.0, 0.6, 1.0, 0.0, 0.667);
+aon::Drivetrain::SpeedFactors speedFactors = aon::Drivetrain::SpeedFactors(0.6, 0.6, 0.6, 1.0, 1.0, 0.667);
 
+aon::MotionProfile xProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL, MAX_DECEL, MAX_ACCEL);
 aon::MotionProfile yProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL, MAX_DECEL, MAX_ACCEL);
 aon::MotionProfile thetaProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL * 3, MAX_DECEL * 0.8, MAX_ACCEL * 3);
 
-aon::DifferentialDrive drivetrain = aon::DifferentialDrive(
-                                    {11, -12, 13, -14},
-                                    {1, -2, 3, -4},
-                                    startingPose,
-                                    std::make_unique<aon::Odometry>(odometry),
-                                    speedFactors,
-                                    std::make_unique<aon::MotionProfile>(yProfile),
-                                    std::make_unique<aon::MotionProfile>(thetaProfile));
+// Each corner accepts multiple motor ports. A negative port reverses that motor.
+// Match these corner assignments and reversal signs to the robot's wiring.
+aon::XDrive drivetrain = aon::XDrive(
+                          {9, -17},  // Front left: two motors
+                          {-2},        // Front right: port 10 is now used by the intake
+                          {16, -18},  // Back left: two motors
+                          {-12, 7},    // Back right: two motors
+                          startingPose,
+                          std::make_unique<aon::Odometry>(odometry),
+                          speedFactors,
+                          std::make_unique<aon::MotionProfile>(xProfile),
+                          std::make_unique<aon::MotionProfile>(yProfile),
+                          std::make_unique<aon::MotionProfile>(thetaProfile));
 
 
-aon::Intake intake = aon::Intake({0}, {0}, {0}, {0}, 'z', 'z', 'z', 0, 0);
+aon::Intake intake = aon::Intake({1, 10}, {0}, {0}, {0}, 'z', 'z', 'z', 0, 0);
 
 aon::Piston arrow('z', aon::Piston::RETRACTED);
 aon::Piston brooks('z', aon::Piston::RETRACTED);

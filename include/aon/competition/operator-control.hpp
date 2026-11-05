@@ -25,16 +25,24 @@ namespace aon::operator_control {
 #if USING_BIG_ROBOT
 bool sortActive = false;
 bool sortEnabled = true;
-#else
-size_t lastR1PressTime = 0;
-size_t lastR2PressTime = 0;
-const int DOUBLE_TAP_TIME = 250;
-bool mergeCorridorAndElevator = true;
 #endif
 
 
 /// Default Operator Control configuration
 inline void DriveDefault() { }
+
+#if !USING_BIG_ROBOT
+/// R1 runs the intake forward; R2 reverses it; release both to stop.
+inline void RunIntake() {
+  if (mainController.get_digital(DIGITAL_R1)) {
+    intake.corridor(INTAKE_VELOCITY);
+  } else if (mainController.get_digital(DIGITAL_R2)) {
+    intake.corridor(-INTAKE_VELOCITY);
+  } else {
+    intake.corridor(0);
+  }
+}
+#endif
 
 /// Driver1's Operator Control configuration
 inline void DriveDRIVER1() { 
@@ -44,66 +52,10 @@ inline void DriveDRIVER1() {
   double leftY = scaler -> scale(mainController.get_analog(ANALOG_LEFT_Y));
   double rightX = scaler -> scale(mainController.get_analog(ANALOG_RIGHT_X));
   double rightY = scaler -> scale(mainController.get_analog(ANALOG_RIGHT_Y));
-  drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::SPLIT_ARCADE);
+  drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::HOLONOMIC);
 
-  if(mainController.get_digital_new_press(DIGITAL_R2)) {
-    size_t currentTime = pros::millis();
+  RunIntake();
 
-    if(currentTime - lastR2PressTime < DOUBLE_TAP_TIME){
-      toggle(mergeCorridorAndElevator);
-    }
-
-    lastR2PressTime = currentTime;
-  }
-
-  // Storing
-  if(mainController.get_digital(DIGITAL_R2)) {
-    if (mergeCorridorAndElevator){
-      intake.store();
-    } else {
-      intake.corridor();
-    }
-  }
-  // Reject
-  else if(mainController.get_digital(DIGITAL_L2)) {
-    intake.reject();
-  }
-  // Score Low
-  else if(mainController.get_digital(DIGITAL_L1)) {
-    intake.score(Intake::BOTTOM);
-  }
-
-  // Lever
-  if(mainController.get_digital_new_press(DIGITAL_R1)) {
-    size_t currentTime = pros::millis();
-
-    if(currentTime - lastR1PressTime < DOUBLE_TAP_TIME){
-      intake.resetLever();
-    } else {
-      intake.extendLever();
-    }
-
-    lastR1PressTime = currentTime;
-  } else if (intake.leverFinished()) {
-    intake.resetLever();
-  }
-
-  // Optional single tap
-  // Lever
-  // const bool pressedR1 = mainController.get_digital_new_press(DIGITAL_R1);
-  // if(pressedR1 && intake.leverController->getTarget() == 0 && intake.leverController->getError() < 10){
-  //   intake.leverController->setTarget(140);
-  // } else if ((pressedR1 && intake.leverController->getTarget() == 140 && !intake.leverController->isSettled())
-  //             || (intake.leverController->getTarget() == 140 && intake.leverController->getError() < 10)){
-  //   intake.leverController->setTarget(0);
-  // } 
-
-  if(!(mainController.get_digital(DIGITAL_R2) || mainController.get_digital(DIGITAL_L2) || mainController.get_digital(DIGITAL_L1))){
-    intake.corridor(0);
-    intake.elevator(0);
-    intake.judge(0);
-  }
-  
   // Change Height
   if(mainController.get_digital_new_press(DIGITAL_B)) {
     intake.toggleScorerHeight();
