@@ -503,6 +503,8 @@ void bigBotCurves(){
 }
 
 void bigBotContinuity(){
+
+  /*
   // TODO: check color sorting integration
   drivetrain.strafe(28.5); // Align with match loader.
   intake.dropCart(); // Prepare loader mechanism.
@@ -523,6 +525,9 @@ void bigBotContinuity(){
   drivetrain.move(44.5); // Go back to long goal
   drivetrain.turn(-45); // Align with long goal
   drivetrain.strafe(9); // Push against it to block descoring
+  */
+
+  drivetrain.move(18);
 }
 
 void bigBotStayThere(){
