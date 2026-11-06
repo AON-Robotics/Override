@@ -504,7 +504,6 @@ class Drivetrain {
     while (traveledDist < dist && !timer.isCompleted()) {
       if (!hasFreshPose()) { stop(); return; }
       traveledDist = (odometry->getPosition() - startPos).GetMagnitude();
-      // traveledDist += getSpeed(this->getRPM()) * dt; //# in case of odom failure
 
       double remainingDist = dist - traveledDist;
       now = pros::micros() / 1E6;
@@ -564,7 +563,6 @@ class Drivetrain {
       
       // Debugging output
       pros::lcd::print(1, "Traveled: %.2f / %.2f", traveledAngle, angle);
-      // pros::c::controller_print(pros::controller_id_e_t::E_CONTROLLER_MASTER, 0, 0, "Trav %.2f / %.2f", traveledAngle, angle);
 
       currVelocity = this->thetaProfile->update(circumference * (remainingAngle / 360.0), dt);
       this->rotate(sign * currVelocity);

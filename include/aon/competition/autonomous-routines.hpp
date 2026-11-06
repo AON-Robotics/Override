@@ -176,17 +176,8 @@ void gpsOctagon() {
 /// @brief  Speed calculation test using the distance sensor
 /// @param RPM The velocity for the motors
 void distanceSensorSpeed(double RPM = MAX_RPM){
-  MovingAverage mav(50);
   while(true) {
     drivetrain.motors(RPM);
-    // double measured = math::metersToInches(distanceSensor.get_object_velocity());
-    // double calculated = getSpeed(RPM);
-    // double error = abs(math::getErrorPercentage(calculated, measured));
-    // double avg = mav.update(error);
-    // pros::lcd::print(1, "RPM: %.2f", RPM);
-    // pros::lcd::print(2, "Calculated Velocity: %.2f", calculated);
-    // pros::lcd::print(3, "Measured Velocity: %.2f", measured);
-    // pros::lcd::print(4, "Error %: %.2f%", avg);
     pros::delay(10);
   }
 }
