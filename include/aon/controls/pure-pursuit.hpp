@@ -66,8 +66,8 @@ class PurePursuit {
   /// @brief Prepared consecutive-distinct XY samples; final theta is retained.
   std::vector<Pose> points;
   /// @brief Parallel cumulative inches and backward-braked center-RPM ceilings.
-  /// @details Prepared lengths match points; distances starts at zero and strictly
-  /// increases after duplicate collapse. The final speed ceiling is always zero.
+  /// @details Prepared lengths match points. Distances start at zero and may tie
+  /// when a tiny edge rounds away. The final speed ceiling is always zero.
   std::vector<double> distances, speedCaps;
   size_t segment = 0; ///< Active contiguous edge index; singleton requests retain zero.
   Status pathStatus = Status::IDLE; ///< Current direct-controller lifecycle state.
