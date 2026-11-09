@@ -57,6 +57,12 @@ class Drivetrain::PersistentMotionService final : public Drivetrain::MotionServi
     return (epoch()<<4) | (pros::c::task_get_current()==callbackTask.load() ? callbackBit : 0);
   }
   bool stale(uint32_t token) const { return (token>>4)!=epoch(); }
+  // A surviving caller must receive its publication barrier even if a mode
+  // transition supersedes its epoch. Never replay old callback or motion writes.
+  static bool durableRevocation(uint32_t token, MotionOperation operation, double value) {
+    return !(token&callbackBit) && (operation==MotionOperation::STOP ||
+        operation==MotionOperation::CANCEL || (operation==MotionOperation::ENABLE && value==0));
+  }
   void reclaim(std::atomic<uint32_t>& token) {
     uint32_t value = token.load();
     if ((value&callbackBit) && stale(value) && (value&phaseMask)!=EXECUTING)
@@ -82,7 +88,7 @@ class Drivetrain::PersistentMotionService final : public Drivetrain::MotionServi
         // its revocation barrier before acknowledging any command of that epoch,
         // otherwise a next-pass revocation could undo its acknowledged ENABLE.
         observeEpoch();
-        if (!stale(token)) {
+        if (!stale(token) || durableRevocation(token,command.operation,command.a)) {
           switch(command.operation) {
             case MotionOperation::TANK: drive.tank(command.a,command.b); break;
             case MotionOperation::SIDEWAYS: drive.sideways(command.a); break;
@@ -178,7 +184,7 @@ class Drivetrain::PersistentMotionService final : public Drivetrain::MotionServi
     const uint32_t identity=stamp();
     Command* selected=nullptr;
     while (!selected) {
-      if ((identity>>4)!=epoch()) return Pose(NAN,NAN,NAN);
+      if (stale(identity) && !durableRevocation(identity,operation,a)) return Pose(NAN,NAN,NAN);
       for (auto& command : commands) {
         uint32_t free=FREE;
         if (command.token.compare_exchange_strong(free,identity|WRITING)) {
