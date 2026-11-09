@@ -276,34 +276,31 @@ class PurePursuit {
     pathStatus = Status::RUNNING;
     linearProfile.setVelocity(0); linearProfile.setAccel(0);
     angularProfile.setVelocity(0); angularProfile.setAccel(0);
-    if (reversed) { fail(Status::UNSUPPORTED_CONFIGURATION); return pathStatus; }
+    if (reversed) return pathStatus = Status::UNSUPPORTED_CONFIGURATION;
     if (!linearProfile.isValid() || !angularProfile.isValid() ||
         !std::isfinite(lookaheadDistance) || lookaheadDistance <= 0 ||
         !std::isfinite(linearDeadband) || linearDeadband <= 0 ||
         !std::isfinite(angularDeadband) || angularDeadband <= 0 ||
         !std::isfinite(math::linearSpeed(1)) || math::linearSpeed(1) <= 0 ||
-        !std::isfinite(DRIVE_WIDTH) || DRIVE_WIDTH <= 0) {
-      fail(Status::CONTROL_FAILURE); return pathStatus;
-    }
+        !std::isfinite(DRIVE_WIDTH) || DRIVE_WIDTH <= 0)
+      return pathStatus = Status::CONTROL_FAILURE;
     // Bound setup memory and arithmetic on V5; field coordinates are far smaller.
     if (path.empty() || path.size() > 4096 ||
-        (!caps.empty() && caps.size() != path.size())) {
-      fail(Status::INVALID_PATH); return pathStatus;
-    }
+        (!caps.empty() && caps.size() != path.size()))
+      return pathStatus = Status::INVALID_PATH;
     for (size_t i = 0; i < path.size(); ++i) {
       const Pose& p = path[i];
       double cap = caps.empty() ? linearProfile.getMaxVelocity() : caps[i];
       if (!finitePose(p) || std::abs(p.x) > 1e6 || std::abs(p.y) > 1e6 ||
-          !std::isfinite(cap) || cap < 0 || (cap == 0 && i + 1 < path.size())) {
-        fail(Status::INVALID_PATH); return pathStatus;
-      }
+          !std::isfinite(cap) || cap < 0 || (cap == 0 && i + 1 < path.size()))
+        return pathStatus = Status::INVALID_PATH;
       cap = std::min({cap, linearProfile.getMaxVelocity(), double(MAX_RPM)});
-      if (!points.empty() && points.back().distanceTo(p) <= 1e-9) {
+      const double distance = points.empty() ? 0 : points.back().distanceTo(p);
+      if (!points.empty() && distance <= 1e-9) {
         points.back() = p; // preserve final heading and stricter duplicate cap
         speedCaps.back() = std::min(speedCaps.back(), cap);
       } else {
-        distances.push_back(points.empty() ? 0 :
-            distances.back() + points.back().distanceTo(p));
+        distances.push_back(distances.empty() ? 0 : distances.back() + distance);
         points.push_back(p); speedCaps.push_back(cap);
       }
     }
@@ -351,10 +348,8 @@ class PurePursuit {
     sample.hasPrevious = hasPreviousPose;
     sample.previous = previousPose;
     previousPose = current; hasPreviousPose = true;
-    if (!std::isfinite(sample.moved) || !std::isfinite(diagnostics.measuredSpeed) ||
-        !std::isfinite(sample.angularSpeed)) return false;
-
-    return true;
+    return std::isfinite(sample.moved) && std::isfinite(diagnostics.measuredSpeed) &&
+           std::isfinite(sample.angularSpeed);
   }
 
   // Advances segment/progress and clears obsolete recovery after an earned gate.
@@ -480,7 +475,7 @@ class PurePursuit {
     // Bound the horizon at folds relative to both the active tangent and each
     // preceding future tangent. Positive active-direction projections alone can
     // hide a reversal between two future edges. Retain ordinary corner cutting.
-    size_t nextGate = points.size();
+    size_t ahead = segment, nextGate = points.size();
     double gateNX = 0, gateNY = 0;
     if (segment+1 < points.size()) {
       const double length = distances[segment+1]-distances[segment];
@@ -499,12 +494,16 @@ class PurePursuit {
             gateNX = previousX; gateNY = previousY;
           }
         }
-        if (ux*vx+uy*vy < -1e-6 || dot < -1e-6) { targetDistance=distances[i]; break; }
+        if (ux*vx+uy*vy < -1e-6 || dot < -1e-6) {
+          targetDistance = distances[i];
+          // Tiny edges can share a rounded cumulative distance.
+          while (ahead > segment && distances[ahead] == targetDistance) --ahead;
+          break;
+        }
+        ahead = i; // Last vertex strictly before the selected horizon.
         previousX = vx; previousY = vy;
       }
     }
-    size_t ahead = segment;
-    while (ahead + 1 < points.size() && distances[ahead+1] < targetDistance) ++ahead;
     diagnostics.lookahead = points.back();
     if (ahead + 1 < points.size()) {
       const double t = (targetDistance-distances[ahead]) /
@@ -600,24 +599,22 @@ class PurePursuit {
     // can reduce coupled constraints further and change that ratio.
     double turnRPM = rpm*diagnostics.curvature*DRIVE_WIDTH/2;
     const double wheelLimit = std::min(double(MAX_RPM),linearProfile.getMaxVelocity());
-    const double trackingScale = std::max({1.0,std::abs(rpm+turnRPM)/wheelLimit,
-        std::abs(rpm-turnRPM)/wheelLimit,
-        std::abs(turnRPM)/angularProfile.getMaxVelocity()});
-    const double trackingLeft = (rpm+turnRPM)/trackingScale;
-    const double trackingRight = (rpm-turnRPM)/trackingScale;
-    if (!std::isfinite(trackingLeft) || !std::isfinite(trackingRight))
+    const double turnLimit = angularProfile.getMaxVelocity();
+    double left, right, scale;
+    const auto normalize = [&] {
+      left = rpm+turnRPM;
+      right = rpm-turnRPM;
+      scale = std::max({1.0,std::abs(left)/wheelLimit,std::abs(right)/wheelLimit,
+          std::abs(turnRPM)/turnLimit});
+      left /= scale; right /= scale;
+    };
+    normalize();
+    if (!std::isfinite(left) || !std::isfinite(right))
       return fail(Status::CONTROL_FAILURE);
-    const auto trackingCommand = motorCommands(trackingLeft,trackingRight,
-        angularProfile.getMaxVelocity());
-    // Forward-only tracking also needs acquisition when both final wheel
-    // commands would truncate to zero in SmartMotor's integer-RPM transport.
-    // Test after all wheel/turn limits, without raising either requested speed.
-    // Latch to the existing angular tolerance: releasing at the first nonzero
-    // wheel can chatter at the representability boundary near 90 degrees.
-    // A permissive tolerance must still leave the target in the forward cone
-    // (forward >= |lateral|), keeping cosine attenuation away from its zero.
-    // One +/-1 RPM turn step is the smallest transported heading increment.
-    // A smaller requested tolerance must not latch an unachievable heading.
+    const auto trackingCommand = motorCommands(left,right,turnLimit);
+    // Latch acquisition when integer transport would strand the robot near
+    // 90 degrees. Release inside the forward cone, at a tolerance of at least
+    // one transported +/-1 RPM turn step, to avoid quantization chatter.
     const double acquisitionTolerance = std::min(std::max(
         angularDeadband*M_PI/180,2*unit*dt/DRIVE_WIDTH),M_PI/4);
     if (std::abs(error) >= M_PI/2 ||
@@ -626,16 +623,13 @@ class PurePursuit {
       acquiringHeading = true;
     if (std::abs(error) <= acquisitionTolerance) acquiringHeading = false;
     if (acquiringHeading) {
-      if (std::min(wheelLimit,angularProfile.getMaxVelocity()) < 1)
+      if (std::min(wheelLimit,turnLimit) < 1)
         return fail(Status::UNSUPPORTED_CONFIGURATION);
       rpm = 0;
       turnRPM = std::copysign(angularProfile.update(
           std::abs(error)*DRIVE_WIDTH/2,dt), error);
+      normalize();
     } else { angularProfile.setVelocity(0); angularProfile.setAccel(0); }
-    double left = rpm+turnRPM, right = rpm-turnRPM;
-    const double scale = std::max({1.0,std::abs(left)/wheelLimit,std::abs(right)/wheelLimit,
-        std::abs(turnRPM)/angularProfile.getMaxVelocity()});
-    left /= scale; right /= scale;
     if (!std::isfinite(left) || !std::isfinite(right) || rpm < 0)
       return fail(Status::CONTROL_FAILURE);
     diagnostics.targetRPM = rpm/scale;
@@ -668,8 +662,7 @@ class PurePursuit {
     const double recoveryResolution = 2*math::linearSpeed(1)*maxPathInterval;
     const ProgressUpdate progress = advanceProgress(current,sample,recoveryResolution);
     const PathErrors errors = measurePathErrors(current);
-    if (!std::isfinite(errors.endpoint) || !std::isfinite(diagnostics.crossTrack) ||
-        !std::isfinite(diagnostics.measuredSpeed) || !std::isfinite(sample.angularSpeed))
+    if (!std::isfinite(errors.endpoint) || !std::isfinite(diagnostics.crossTrack))
       return fail(Status::CONTROL_FAILURE);
     if (settleTranslation(errors,sample,dt)) return {0, 0};
     // Sampled endpoint arrival takes precedence over active-path resolution.
