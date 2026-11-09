@@ -1,5 +1,5 @@
  /**
- * @file s-curve-profile-inches.hpp
+ * @file s-curve-profile.hpp
  * @author Kevin Javier Gomez Guzman @kevgom018
  * @brief S-Curve motion profiling class for smooth and precise robot movements
  * based on odometry, computed in \b inches instead of \b RPM.
@@ -140,8 +140,8 @@ class MotionProfile {
     // Stop the profile when the target is reached (uses the real distance, not the delayed one).
     if (remainingDist <= 0) {
       this->currAccel = 0;
-      this->currVelocity = this->targetFinalVelocity;
-      this->stage = (this->targetFinalVelocity == 0) ? SETTLED : CRUISING;
+      this->currVelocity = std::clamp(this->targetFinalVelocity, 0.0, this->MAX_VELOCITY);
+      this->stage = (this->currVelocity == 0) ? SETTLED : CRUISING;
       return toRPM(this->currVelocity);
     }
 
@@ -160,12 +160,16 @@ class MotionProfile {
 
     // 3. Desired acceleration = how fast the target itself is changing (feed-forward, so the velocity
     //    keeps up with a falling target while braking) + a correction for the remaining error.
-    //    Reducing a to 0 at jerk J changes the velocity by a^2 / (2J), so the correction that lands
-    //    exactly on the target is a = sqrt(2 * J * |error|).
+    //    Reducing a to 0 at jerk J changes the velocity by a^2 / (2J) in continuous time. Stepping every
+    //    dt (Euler) adds a * dt / 2 more, so the correction that lands exactly on the target solves
+    //    a^2 / (2J) + a * dt / 2 = |error|  ->  a = -J*dt/2 + sqrt((J*dt/2)^2 + 2 * J * |error|).
+    //    (The continuous a = sqrt(2 * J * |error|) overshot MAX_VELOCITY and got cut by the speed cap.)
     const double targetRate = (this->prevTargetVelocity < 0) ? 0 : (targetVelocity - this->prevTargetVelocity) / dt;
     this->prevTargetVelocity = targetVelocity;
     const double error = targetVelocity - this->currVelocity;
-    double desiredAccel = targetRate + std::copysign(std::sqrt(2 * this->JERK * std::abs(error)), error);
+    const double halfJerkStep = this->JERK * dt / 2;
+    const double correction = -halfJerkStep + std::sqrt(halfJerkStep * halfJerkStep + 2 * this->JERK * std::abs(error));
+    double desiredAccel = targetRate + std::copysign(correction, error);
     desiredAccel = std::clamp(desiredAccel, -this->MAX_DECELERATION, this->MAX_ACCELERATION);
     // Never ask for more than the acceleration that reaches the target within this call (avoids overshooting it).
     desiredAccel = std::clamp(desiredAccel, -std::abs(error) / dt, std::abs(error) / dt);
@@ -175,12 +179,18 @@ class MotionProfile {
     this->currAccel += std::clamp(desiredAccel - this->currAccel, -maxStep, maxStep);
 
     // Euler integration: v(t + dt) = v(t) + a * dt
+    const double prevVelocity = this->currVelocity;
     this->currVelocity += this->currAccel * dt;
     if (this->currVelocity <= 0) {  // Can't go backwards: stop accelerating too, so the next call starts from rest.
       this->currVelocity = 0;
       this->currAccel = std::max(this->currAccel, 0.0);
     }
-    this->currVelocity = std::min(this->currVelocity, this->MAX_VELOCITY);  // Redundancy for safety
+    if (this->currVelocity > this->MAX_VELOCITY) {
+      // Speed cap: keep the acceleration that was really applied, so the profile's acceleration
+      // matches the command it returns and the next call ramps from what the motors actually got.
+      this->currVelocity = this->MAX_VELOCITY;
+      this->currAccel = std::max((this->MAX_VELOCITY - prevVelocity) / dt, 0.0);
+    }
 
     if (this->currAccel > 1e-6) { this->stage = ACCELERATING; }
     else if (this->currAccel < -1e-6) { this->stage = DECELERATING; }
