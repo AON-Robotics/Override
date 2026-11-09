@@ -143,12 +143,6 @@ class PurePursuit {
 
     Pose target = path[lookaheadIndex];
 
-    double distToEnd = current.distanceTo(target);
-
-    // if (lookaheadIndex >= path.size() - 1 && distToEnd < linearDeadband) {
-    //   return turn(target, current, dt);
-    // }
-
     // Reuse single-point controller
     return go(target, current, dt);
   }
