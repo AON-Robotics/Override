@@ -603,8 +603,12 @@ class PurePursuit {
     const double trackingScale = std::max({1.0,std::abs(rpm+turnRPM)/wheelLimit,
         std::abs(rpm-turnRPM)/wheelLimit,
         std::abs(turnRPM)/angularProfile.getMaxVelocity()});
-    const auto trackingCommand = motorCommands((rpm+turnRPM)/trackingScale,
-        (rpm-turnRPM)/trackingScale,angularProfile.getMaxVelocity());
+    const double trackingLeft = (rpm+turnRPM)/trackingScale;
+    const double trackingRight = (rpm-turnRPM)/trackingScale;
+    if (!std::isfinite(trackingLeft) || !std::isfinite(trackingRight))
+      return fail(Status::CONTROL_FAILURE);
+    const auto trackingCommand = motorCommands(trackingLeft,trackingRight,
+        angularProfile.getMaxVelocity());
     // Forward-only tracking also needs acquisition when both final wheel
     // commands would truncate to zero in SmartMotor's integer-RPM transport.
     // Test after all wheel/turn limits, without raising either requested speed.

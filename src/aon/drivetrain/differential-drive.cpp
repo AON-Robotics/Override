@@ -61,11 +61,9 @@ double DifferentialDrive::getRPM(){
 }
 
 void DifferentialDrive::goToPose(const Pose& pose) {
-  // Compatibility wrapper: use the same validated translation/settlement and
-  // cancellation contract as paths. Explicit followPath callers receive errors.
-  // Final heading is opt-in at the movement layer, never an unconditional turn
-  // after this void API's timeout. No distance-to-uint32 timeout conversion.
-  (void)followPath({getPose(), pose});
+  // Let followPath report missing odometry and attempt its terminal stops.
+  const Pose start = odometry ? getPose() : Pose();
+  (void)followPath({start, pose});
 }
 
 }  // namespace aon
