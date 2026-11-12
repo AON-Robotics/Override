@@ -57,8 +57,8 @@ class DifferentialDrive : public Drivetrain {
   double getRPM() override;
 
   /// @brief Translation-only two-point followPath wrapper; discards the result.
-  /// @param pose Target in inches and clockwise degrees; heading alignment is opt-in
-  /// through followPath, not this wrapper. Configured odometry is required.
+  /// @param pose Target in inches and clockwise degrees.
+  /// @note Configured odometry is required.
   void goToPose(const Pose &pose) override; // TODO: add optional `settle` boolean
 
 };

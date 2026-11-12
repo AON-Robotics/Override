@@ -352,7 +352,7 @@ void colorSorting(){
 }
 
 /// @brief Run two-point translations in inches; stop the sequence on failure.
-/// Target headings remain metadata; final alignment requires explicit configuration.
+/// Target headings remain metadata for the movement layer.
 void purePursuitPoint(){
   const std::vector<Pose> targets = {
     Pose(TILE_WIDTH, -TILE_WIDTH / 2, 0),

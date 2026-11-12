@@ -20,7 +20,6 @@ class Drivetrain {
   public:
 
   struct PathResult;
-  struct HeadingCorrection;
   struct PathTrace;
 
   protected:
@@ -38,7 +37,7 @@ class Drivetrain {
     virtual void command(MotionOperation, double, double, double) = 0;
     virtual Pose readPose() = 0;
     virtual PathResult follow(const std::vector<Pose>&, uint32_t,
-        const std::vector<double>&, bool, const HeadingCorrection*, PathTrace*) = 0;
+        const std::vector<double>&, bool, PathTrace*) = 0;
     virtual void beginMode() = 0;
   };
   class PersistentMotionService;
@@ -877,15 +876,13 @@ class Drivetrain {
   struct PathResult {
     PurePursuit::Status status = PurePursuit::Status::IDLE;
     PurePursuit::Status translationStatus = PurePursuit::Status::IDLE;
-    bool headingCorrected = false;
-    double headingErrorDeg = 0;
     double finalHeading = 0; // requested clockwise degrees; usable on SUCCESS
     PurePursuit::Diagnostics diagnostics;
     uint32_t elapsedMs = 0;
     uint32_t maxUpdateUs = 0; // controller compute only, excludes I/O/delay
   };
 
-  enum class PathStage { TRANSLATION, HEADING };
+  enum class PathStage { TRANSLATION };
 
   /// Optional experimental measurement record. Timestamp is the pose observation
   /// time, not the sensor's acquisition timestamp. RPM fields are converted
@@ -894,11 +891,11 @@ class Drivetrain {
   struct PathSample {
     uint32_t timestampUs = 0;
     uint32_t intervalUs = 0; // preceding observed interval; first stage sample = 0
-    uint32_t computeUs = 0; // translation: controller update; heading: PID only
+    uint32_t computeUs = 0; // controller update
     uint32_t publicationUs = 0; // mutex wait and command transport, excludes stop
     PathStage stage = PathStage::TRANSLATION;
     Pose pose;
-    PurePursuit::Diagnostics diagnostics; // heading stage retains translation geometry
+    PurePursuit::Diagnostics diagnostics;
     double requestedLeftRPM = 0, requestedRightRPM = 0;
     int16_t leftRPM = 0, rightRPM = 0;
     PurePursuit::Status status = PurePursuit::Status::IDLE;
@@ -930,23 +927,10 @@ class Drivetrain {
     }
   };
 
-  /// Issue 33's opt-in movement stage. Gains produce motor RPM from degrees;
-  /// no robot tuning is implied. PID timestep is replaced by measured seconds.
-  /// Supply finite gains, finite integral activation/bound, positive maxRPM and
-  /// tolerance, nonzero settlement and timeout. A null config disables alignment.
-  struct HeadingCorrection {
-    PID controller;
-    double maxRPM;
-    double toleranceDeg;
-    uint32_t settleMs;
-    uint32_t timeoutMs;
-  };
-
   /// @brief Follow a forward differential path; positions are inches, headings clockwise degrees.
   /// @param timeoutMs Cooperative translation budget including preparation and terminal stop.
   /// @param caps Optional per-waypoint center RPM ceilings, matching path size.
   /// @param reversed Unsupported; rejects and attempts all-group stopping.
-  /// @param headingCorrection Explicit opt-in alignment with a separate stage budget; null skips it.
   /// @param trace Optional bounded capture; inspect after return, not concurrently.
   /// @return Controller outcome after terminal stops. Transport failure overrides cancellation;
   /// cancellation overrides other outcomes. Expired cleanup cannot report SUCCESS.
@@ -958,14 +942,13 @@ class Drivetrain {
   /// Raw/legacy motion writers require separate caller serialization.
   PathResult followPath(const std::vector<Pose>& path, uint32_t timeoutMs = 15000,
                         const std::vector<double>& caps = {}, bool reversed = false,
-                        const HeadingCorrection* headingCorrection = nullptr,
                         PathTrace* trace = nullptr);
 
  protected:
   /// @brief Execute with the epoch captured at admission, including queued admission.
   PathResult executePath(const std::vector<Pose>& path, uint32_t timeoutMs,
                          const std::vector<double>& caps, bool reversed,
-                         const HeadingCorrection* headingCorrection, PathTrace* trace,
+                         PathTrace* trace,
                          uint32_t generation);
 
  public:
