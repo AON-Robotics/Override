@@ -75,12 +75,12 @@ class XDrive : public Drivetrain {
   /// @brief Goes to the target point
   /// @param target The intended destination using the gps coordinate system (x, y) both need to be in the range (-1.8, 1.8)
   /// @note Pose X/Y are inches; heading is clockwise degrees.
-  void goToPose(const Pose& target) override;
+  MovementStatus goToPose(const Pose& target) override;
 
   /// @brief Follows a path using a pure pursuit controller
   /// @param path The path to follow
   /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
-  void follow(const std::vector<Pose>& path) override;
+  //void follow(const std::vector<Pose>& path) override;
 };
 
 }  // namespace aon

@@ -83,10 +83,10 @@ aon::MotionProfile yProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL, MAX_DECEL, 
 aon::MotionProfile thetaProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL * 3, MAX_DECEL * 0.8, MAX_ACCEL * 3);
 
 aon::XDrive drivetrain = aon::XDrive(
-                          {-5},   // Front left
-                          {10},  // Front right
-                          {-19},  // Back left
-                          {20},  // Back right
+                          {11},   // Front left
+                          {8},  // Front right
+                          {10},  // Back left
+                          {9},  // Back right
                           startingPose,
                           std::make_unique<aon::Odometry>(odometry),
                           speedFactors,
@@ -108,21 +108,25 @@ aon::XDrive drivetrain = aon::XDrive(
 aon::operator_control::Driver driver = aon::operator_control::DRIVER2;
 
 aon::Pose startingPose = aon::Pose(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y, INITIAL_ODOMETRY_THETA);
-aon::Odometry odometry = aon::Odometry(0, 0, 0, 0, 16);
+aon::Odometry odometry = aon::Odometry(-7, 15, 14, 0, 17);
 
 aon::Drivetrain::SpeedFactors speedFactors = aon::Drivetrain::SpeedFactors(0.6, 0.0, 0.6, 1.0, 0.0, 0.667);
 
 aon::MotionProfile yProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL, MAX_DECEL, MAX_ACCEL);
 aon::MotionProfile thetaProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL * 3, MAX_DECEL * 0.8, MAX_ACCEL * 3);
 
-aon::DifferentialDrive drivetrain = aon::DifferentialDrive(
-                                    {11, -12, 13, -14},
-                                    {1, -2, 3, -4},
-                                    startingPose,
-                                    std::make_unique<aon::Odometry>(odometry),
-                                    speedFactors,
-                                    std::make_unique<aon::MotionProfile>(yProfile),
-                                    std::make_unique<aon::MotionProfile>(thetaProfile));
+aon::XDrive drivetrain = aon::XDrive(
+  {5},
+  {10},
+  {19},
+  {20},
+  startingPose,
+                                      std::make_unique<aon::Odometry>(odometry),
+                                      speedFactors,
+                                      std::make_unique<aon::MotionProfile>(yProfile),
+                                      std::make_unique<aon::MotionProfile>(thetaProfile)
+
+);
 
 
 aon::Intake intake = aon::Intake({0}, {0}, {0}, {0}, 'z', 'z', 'z', 0, 0);
@@ -211,6 +215,7 @@ void testEndpoint(int speed = 100){
 void autonSafety(){
   while(true){
     while(mainController.get_digital(DIGITAL_X)){
+      Drivetrain::requestCancel();
       STOP();
     }
     pros::delay(50);
