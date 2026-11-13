@@ -435,12 +435,14 @@ Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, ui
   };
   while (true) {
     if (const Status status = requestStatus(); status != Status::RUNNING) return finish(status);
-    if (!hasFreshPose()) return finish(Status::CONTROL_FAILURE);
-    const Pose current = odometry->getPose();
+    Pose current;
+    uint32_t estimateMs;
+    if (!odometry || !odometry->getFreshPose(current, estimateMs))
+      return finish(Status::CONTROL_FAILURE);
     const uint32_t now = uint32_t(pros::micros());
     const auto [elapsedUs,dt] = sampleInterval(now);
     const uint32_t computeStart = uint32_t(pros::micros());
-    const auto output = controller.update(current,dt);
+    const auto output = controller.update(current, dt, estimateMs);
     const uint32_t computeUs = uint32_t(uint32_t(pros::micros())-computeStart);
     result.maxUpdateUs = std::max(result.maxUpdateUs,computeUs);
     result.diagnostics = controller.getDiagnostics();

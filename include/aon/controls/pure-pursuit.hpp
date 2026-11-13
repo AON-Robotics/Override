@@ -7,6 +7,7 @@
 #include <vector>
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include "./s-curve-profile.hpp"
 
 namespace aon {
@@ -73,6 +74,7 @@ class PurePursuit {
   Status pathStatus = Status::IDLE; ///< Current direct-controller lifecycle state.
   Diagnostics diagnostics; ///< Reset on preparation; refreshed by active updates.
   Pose previousPose; ///< Last accepted update pose; usable only when hasPreviousPose is true.
+  std::optional<uint32_t> previousEstimateMs;
   bool hasPreviousPose = false; ///< First sample cannot witness a gate or earn settlement.
   bool previouslyArrived = false; ///< Both observations must qualify before an interval earns dwell.
   /// @brief Absolute progress ceiling: one initial lookahead plus twice pose travel.
@@ -322,6 +324,7 @@ class PurePursuit {
  private:
   struct MotionSample {
     Pose previous;
+    double interval = 0;  // seconds between odometry estimates
     double moved = 0;       // inches during the preceding dt
     double angularSpeed = 0; // degrees/s
     bool hasPrevious = false;
@@ -340,7 +343,15 @@ class PurePursuit {
   };
 
   // Records the new pose and measured speed; the first sample earns no dwell/gate.
-  bool observeMotion(const Pose& current, double dt, MotionSample& sample) {
+  bool observeMotion(const Pose& current, double dt,
+                     std::optional<uint32_t> estimateMs, MotionSample& sample) {
+    if (estimateMs && hasPreviousPose && previousEstimateMs) {
+      const uint32_t elapsedMs = *estimateMs - *previousEstimateMs;
+      if (elapsedMs == 0) return true;
+      dt = elapsedMs / 1000.0;
+    }
+    previousEstimateMs = estimateMs;
+    sample.interval = dt;
     sample.moved = hasPreviousPose ? current.distanceTo(previousPose) : 0;
     sample.angularSpeed = hasPreviousPose ?
         std::abs(std::remainder(std::remainder(current.theta, 360.0) -
@@ -453,13 +464,16 @@ class PurePursuit {
   }
 
   // Returns true when the endpoint holds the command at zero (possibly SUCCESS).
-  bool settleTranslation(const PathErrors& errors, const MotionSample& sample, double dt) {
+  bool settleTranslation(const PathErrors& errors, const MotionSample& sample) {
     if (errors.remaining <= linearDeadband && errors.endpoint <= linearDeadband) {
       diagnostics.targetRPM = diagnostics.angularVelocity = 0;
-      const bool arrived = sample.hasPrevious && diagnostics.measuredSpeed <= 1 && sample.angularSpeed <= 5;
-      // The entering interval may start outside the arrival region. As in the
-      // movement-owned heading stage, credit only consecutive qualified samples.
-      settledSeconds = arrived && previouslyArrived ? settledSeconds + dt : 0;
+      if (sample.interval == 0) return true;
+      const bool arrived = sample.hasPrevious &&
+          sample.interval <= maxPathInterval &&
+          diagnostics.measuredSpeed <= 1 && sample.angularSpeed <= 5;
+      // Credit only intervals between consecutive qualified estimates.
+      settledSeconds = arrived && previouslyArrived ?
+          settledSeconds + sample.interval : 0;
       previouslyArrived = arrived;
       if (settledSeconds >= 0.15) pathStatus = Status::SUCCESS;
       return true;
@@ -645,19 +659,23 @@ class PurePursuit {
 
   /// @brief Advance prepared translation, without allocation or I/O; return wheel RPM.
   /// @param current Finite field pose, XY inches and clockwise heading degrees.
-  /// @param dt Positive preceding sample interval, seconds, <=maxPathInterval.
+  /// @param dt Positive preceding control interval, seconds, <=maxPathInterval.
+  /// @param estimateMs Odometry estimate time in milliseconds. Omit when each
+  /// call supplies a fresh pose sampled at the control interval.
   /// @details SUCCESS needs remaining arc and endpoint error <=linearDeadband,
   /// then 150 ms consecutive sampled dwell at <=1 inch/s and <=5 degrees/s.
   /// First sample earns no dwell. Inactive/terminal requests return zero.
   /// @pre Successful setPath(); caller serializes access and owns pose freshness,
   /// timeout/cancellation, motorCommands() conversion, publication and terminal stop.
-  std::pair<double, double> update(Pose current, double dt = 0.02) {
+  std::pair<double, double> update(Pose current, double dt = 0.02,
+                                   std::optional<uint32_t> estimateMs = {}) {
     if (pathStatus != Status::RUNNING) return {0, 0};
     if (!finitePose(current) || !std::isfinite(dt) || dt <= 0 || dt > maxPathInterval)
       return fail(Status::CONTROL_FAILURE);
 
     MotionSample sample;
-    if (!observeMotion(current,dt,sample)) return fail(Status::CONTROL_FAILURE);
+    if (!observeMotion(current, dt, estimateMs, sample))
+      return fail(Status::CONTROL_FAILURE);
     const double minimumChord = std::max(1e-6,math::linearSpeed(1)*dt);
     // Recovery must permit one integer RPM outside its arrival ball at 50 ms.
     const double recoveryResolution = 2*math::linearSpeed(1)*maxPathInterval;
@@ -665,7 +683,7 @@ class PurePursuit {
     const PathErrors errors = measurePathErrors(current);
     if (!std::isfinite(errors.endpoint) || !std::isfinite(diagnostics.crossTrack))
       return fail(Status::CONTROL_FAILURE);
-    if (settleTranslation(errors,sample,dt)) return {0, 0};
+    if (settleTranslation(errors,sample)) return {0, 0};
     // Sampled endpoint arrival takes precedence over active-path resolution.
     if (linearDeadband < recoveryResolution)
       return fail(Status::UNSUPPORTED_CONFIGURATION);
