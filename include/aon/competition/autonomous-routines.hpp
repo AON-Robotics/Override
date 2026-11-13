@@ -351,8 +351,7 @@ void colorSorting(){
   intake.activateScan();
 }
 
-/// @brief Run two-point translations in inches; stop the sequence on failure.
-/// Target headings remain metadata for the movement layer.
+/// @brief Visit test targets using the configured drivetrain.
 void purePursuitPoint(){
   const std::vector<Pose> targets = {
     Pose(TILE_WIDTH, -TILE_WIDTH / 2, 0),
@@ -362,9 +361,13 @@ void purePursuitPoint(){
     Pose(TILE_WIDTH * 2, -TILE_WIDTH / 2, 90), Pose(0, 0, 0)
   };
   for (const Pose& target : targets) {
+#if USING_BIG_ROBOT
+    drivetrain.goToPose(target);
+#else
     // A failed translation must not authorize the next autonomous action.
     if (drivetrain.followPath({drivetrain.getPose(), target}).status !=
         PurePursuit::Status::SUCCESS) return;
+#endif
   }
 }
 
