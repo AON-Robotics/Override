@@ -67,7 +67,7 @@ class PurePursuit {
   std::vector<Pose> points;
   /// @brief Parallel cumulative inches and backward-braked center-RPM ceilings.
   /// @details Prepared lengths match points. Distances start at zero and may tie
-  /// when a tiny edge rounds away. The final speed ceiling is always zero.
+  /// when a tiny edge rounds away. Multi-point paths end at zero RPM.
   std::vector<double> distances, speedCaps;
   size_t segment = 0; ///< Active contiguous edge index; singleton requests retain zero.
   Status pathStatus = Status::IDLE; ///< Current direct-controller lifecycle state.
@@ -262,8 +262,9 @@ class PurePursuit {
   /// @param reversed Must be false; reverse requests are unsupported.
   /// @return RUNNING on preparation, otherwise a latched failure (storage may be partial).
   /// @details Consecutive XY within 1e-9 collapse to the latest pose/strictest cap.
-  /// Final cap is zero; half configured deceleration propagates a backward braking
-  /// envelope. A singleton requests settlement. Call explicitly for every restart.
+  /// Multi-point paths end at zero RPM; half configured deceleration propagates
+  /// a backward braking envelope. A singleton retains its supplied cap.
+  /// Call explicitly for every restart.
   /// @pre Caller serializes access and stops before replacing an active request.
   Status setPath(const std::vector<Pose>& path,
                  const std::vector<double>& caps = {}, bool reversed = false) {
@@ -307,7 +308,7 @@ class PurePursuit {
     diagnostics.length = distances.back();
     // Backward braking envelope respects future exported restrictions. Conversion
     // is RPM -> in/s before applying v^2 = u^2 + 2*a*s.
-    speedCaps.back() = 0;
+    if (points.size() > 1) speedCaps.back() = 0;
     const double unit = math::linearSpeed(1);
     const double decel = math::linearSpeed(linearProfile.getMaxDeceleration() * 0.5);
     for (size_t i = points.size() - 1; i > 0; --i) {
@@ -563,7 +564,7 @@ class PurePursuit {
     diagnostics.curvature = 2*lateral/chordSquared;
     double rpm = linearProfile.update(std::max(errors.remaining,errors.endpoint), dt);
     const double unit = math::linearSpeed(1);
-    double cap = linearProfile.getMaxVelocity();
+    double cap = std::min(linearProfile.getMaxVelocity(),speedCaps[segment]);
     // A latched recovery target is an arrival task, not a forward horizon.
     // Remaining path length cannot brake for it. Reserve half its current
     // chord for the longest supported following command hold (50 ms); the
@@ -578,7 +579,7 @@ class PurePursuit {
       const double brakingDistance = segment+2 == points.size() ?
           std::max(distances[segment+1]-diagnostics.progress,errors.endpoint) :
           distances[segment+1]-diagnostics.progress;
-      cap = std::min({cap,speedCaps[segment], std::sqrt(
+      cap = std::min({cap, std::sqrt(
           std::pow(speedCaps[segment+1]*unit,2) +
           2*decel*brakingDistance)/unit});
     }
