@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdio>
 #include <algorithm>
 #include "../constants.hpp"
 #include "../globals.hpp"
@@ -371,7 +372,25 @@ void purePursuitPoint(){
   }
 }
 
-/// @brief Follow one sparse development path; return on failure.
+inline void printPathTestResult(const char* name, PurePursuit::Status status) {
+  using Status = PurePursuit::Status;
+  const char* label = "UNKNOWN";
+  switch (status) {
+    case Status::IDLE: label = "IDLE"; break;
+    case Status::RUNNING: label = "RUNNING"; break;
+    case Status::SUCCESS: label = "SUCCESS"; break;
+    case Status::TIMEOUT: label = "TIMEOUT"; break;
+    case Status::CANCELLED: label = "CANCELLED"; break;
+    case Status::INVALID_PATH: label = "INVALID_PATH"; break;
+    case Status::UNSUPPORTED_CONFIGURATION:
+      label = "UNSUPPORTED_CONFIGURATION";
+      break;
+    case Status::CONTROL_FAILURE: label = "CONTROL_FAILURE"; break;
+  }
+  std::printf("%s: %s\n", name, label);
+}
+
+/// @brief Follow one sparse development path and print its result.
 void purePursuitSimpleFollow(){
   std::vector<Pose> path = {
     Pose(TILE_WIDTH, 0, 0),
@@ -383,7 +402,7 @@ void purePursuitSimpleFollow(){
     Pose(0, 0, 0),
    
   };
-  if (drivetrain.followPath(path).status != PurePursuit::Status::SUCCESS) return;
+  printPathTestResult("purePursuitSimpleFollow", drivetrain.followPath(path).status);
 }
 
 /// @brief Follow a sampled S-shaped development path without final-heading alignment.
@@ -433,7 +452,7 @@ void purePursuitPath(){
     Pose(37, 10.5, 0),
     Pose(38, 12.0, 270) // test with 180 as well
   };
-  if (drivetrain.followPath(path).status != PurePursuit::Status::SUCCESS) return;
+  printPathTestResult("purePursuitPath", drivetrain.followPath(path).status);
 }
 
 #if USING_BIG_ROBOT
