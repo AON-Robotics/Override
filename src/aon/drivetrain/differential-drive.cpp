@@ -63,12 +63,12 @@ double DifferentialDrive::getRPM(){
 void DifferentialDrive::goToPose(const Pose& pose) {
   // Let followPath report missing odometry and attempt its terminal stops.
   const Pose start = odometry ? getPose() : Pose();
-  (void)followPath({start, pose});
+  (void)runPath({start, pose}, 15000, {}, false, nullptr, true);
 }
 
 Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, uint32_t timeoutMs,
     const std::vector<double>& caps, bool reversed,
-    PathTrace* trace, uint32_t generation) {
+    PathTrace* trace, uint32_t generation, bool alignHeading) {
   using Status = PurePursuit::Status;
   PathResult result;
   if (motionServiceRequired && !motionService) {
@@ -170,6 +170,11 @@ Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, ui
     if (trace) trace->maxIntervalUs = std::max(trace->maxIntervalUs,elapsedUs);
     return std::make_pair(elapsedUs,dt);
   };
+  bool turning = false;
+  MotionProfile turnProfile = *thetaProfile;
+  turnProfile.setVelocity(0);
+  turnProfile.setAccel(0);
+  turnProfile.setFinalVelocity(0);
   while (true) {
     if (const Status status = requestStatus(); status != Status::RUNNING) return finish(status);
     Pose current;
@@ -178,6 +183,23 @@ Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, ui
       return finish(Status::CONTROL_FAILURE);
     const uint32_t now = uint32_t(pros::micros());
     const auto [elapsedUs,dt] = sampleInterval(now);
+    if (turning) {
+      if (!std::isfinite(current.theta) || dt <= 0 ||
+          dt > PurePursuit::maxPathInterval)
+        return finish(Status::CONTROL_FAILURE);
+      const double error = std::remainder(
+          std::remainder(result.finalHeading, 360.0) -
+          std::remainder(current.theta, 360.0), 360.0);
+      if (std::abs(error) <= 2.5) return finish(Status::SUCCESS);
+      const double arc = std::abs(error) * DRIVE_WIDTH * M_PI / 360.0;
+      const double rpm = std::copysign(std::min(turnProfile.update(arc, dt),
+                                               double(MAX_RPM)), error);
+      if (!std::isfinite(rpm)) return finish(Status::CONTROL_FAILURE);
+      const Status published = publishPath(generation, rpm, -rpm);
+      if (published != Status::RUNNING) return finish(published);
+      pros::delay(10);
+      continue;
+    }
     const uint32_t computeStart = uint32_t(pros::micros());
     const auto output = controller.update(current, dt, estimateMs);
     const uint32_t computeUs = uint32_t(uint32_t(pros::micros())-computeStart);
@@ -190,7 +212,12 @@ Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, ui
       record(PathStage::TRANSLATION,current,now,elapsedUs,computeUs,0,
              output.first,output.second,status,false);
       result.translationStatus = status;
-      return finish(status);
+      if (!alignHeading || status != Status::SUCCESS) return finish(status);
+      const Status stopped = publishPath(generation, 0, 0);
+      if (stopped != Status::RUNNING) return finish(stopped);
+      turning = true;
+      pros::delay(10);
+      continue;
     }
     const Status published = publishAndRecord(PathStage::TRANSLATION,current,now,
         elapsedUs,computeUs,output.first,output.second);

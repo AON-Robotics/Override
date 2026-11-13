@@ -42,6 +42,7 @@ class Drivetrain::PersistentMotionService final : public Drivetrain::MotionServi
     size_t count = 0, capCount = 0, captureCapacity = 0;
     uint32_t timeoutMs = 0, submittedAt = 0, generation = 0;
     bool reversed = false, hasTrace = false, invalidTrace = false;
+    bool alignHeading = false;
     PathResult result;
     PathTrace capture;
     // These containers are accessed only by the persistent executor, or by a
@@ -139,7 +140,7 @@ class Drivetrain::PersistentMotionService final : public Drivetrain::MotionServi
           // to an old READY request. Mode handoff also waits for this scope.
           if (!stale(token)) {
             result=drive.executePath(path,budget,caps,request.reversed,
-                request.hasTrace ? &request.capture : nullptr,request.generation);
+                request.hasTrace ? &request.capture : nullptr,request.generation,request.alignHeading);
           }
         } catch (...) {
           drive.stop();
@@ -204,7 +205,7 @@ class Drivetrain::PersistentMotionService final : public Drivetrain::MotionServi
   Pose readPose() override { return transfer(MotionOperation::POSE,0,0,0); }
   PathResult follow(const std::vector<Pose>& path,uint32_t timeoutMs,
       const std::vector<double>& caps,bool reversed,
-      PathTrace* trace) override {
+      PathTrace* trace, bool alignHeading) override {
     PathResult rejected;
     rejected.status=Status::CONTROL_FAILURE;
     if (!ready.load()) return rejected;
@@ -223,6 +224,7 @@ class Drivetrain::PersistentMotionService final : public Drivetrain::MotionServi
     for (size_t i=0;i<request.count;++i) request.points[i]=path[i];
     for (size_t i=0;i<request.capCount;++i) request.caps[i]=caps[i];
     request.reversed=reversed;
+    request.alignHeading=alignHeading;
     request.hasTrace=trace!=nullptr;
     request.captureCapacity=trace ? trace->capacity : 0;
     request.invalidTrace=trace && trace->capacity && !trace->samples;
@@ -324,9 +326,17 @@ void Drivetrain::setPathEnabled(bool enabled) {
 Drivetrain::PathResult Drivetrain::followPath(const std::vector<Pose>& path, uint32_t timeoutMs,
     const std::vector<double>& caps, bool reversed,
     PathTrace* trace) {
+  return runPath(path, timeoutMs, caps, reversed, trace, false);
+}
+
+Drivetrain::PathResult Drivetrain::runPath(
+    const std::vector<Pose>& path, uint32_t timeoutMs,
+    const std::vector<double>& caps, bool reversed, PathTrace* trace,
+    bool alignHeading) {
   if (motionService && !motionService->ownsExecution())
-    return motionService->follow(path,timeoutMs,caps,reversed,trace);
-  return executePath(path,timeoutMs,caps,reversed,trace,pathCancelGeneration.load());
+    return motionService->follow(path, timeoutMs, caps, reversed, trace, alignHeading);
+  return executePath(path, timeoutMs, caps, reversed, trace,
+                     pathCancelGeneration.load(), alignHeading);
 }
 
 void Drivetrain::follow(const std::vector<Pose>& path) { (void)followPath(path); }

@@ -56,7 +56,7 @@ class DifferentialDrive : public Drivetrain {
   /// @return The RPM of the motors with respect to the front of the robot
   double getRPM() override;
 
-  /// @brief Translation-only two-point followPath wrapper; discards the result.
+  /// @brief Translates to the target, then aligns its heading after successful arrival.
   /// @param pose Target in inches and clockwise degrees.
   /// @note Configured odometry is required.
   void goToPose(const Pose &pose) override; // TODO: add optional `settle` boolean

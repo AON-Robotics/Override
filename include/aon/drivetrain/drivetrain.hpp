@@ -37,7 +37,7 @@ class Drivetrain {
     virtual void command(MotionOperation, double, double, double) = 0;
     virtual Pose readPose() = 0;
     virtual PathResult follow(const std::vector<Pose>&, uint32_t,
-        const std::vector<double>&, bool, PathTrace*) = 0;
+        const std::vector<double>&, bool, PathTrace*, bool) = 0;
     virtual void beginMode() = 0;
   };
   class PersistentMotionService;
@@ -946,10 +946,13 @@ class Drivetrain {
 
  protected:
   /// @brief Execute with the epoch captured at admission, including queued admission.
+  PathResult runPath(const std::vector<Pose>& path, uint32_t timeoutMs,
+                     const std::vector<double>& caps, bool reversed,
+                     PathTrace* trace, bool alignHeading);
   PathResult executePath(const std::vector<Pose>& path, uint32_t timeoutMs,
                          const std::vector<double>& caps, bool reversed,
                          PathTrace* trace,
-                         uint32_t generation);
+                         uint32_t generation, bool alignHeading);
 
  public:
   /// @brief Compatibility wrapper; inspect getPathStatus or use followPath for
