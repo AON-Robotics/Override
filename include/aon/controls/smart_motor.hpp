@@ -107,6 +107,8 @@ class SmartMotor : public pros::Motor {
 
 class SmartMotorGroup : public pros::MotorGroup {
  private:
+  // Configuration and direct writes can run on different tasks.
+  // Keep the slew state and its motor write under the same lock.
   pros::Mutex stateMutex;
   double current_voltage;
   double current_velocity;
