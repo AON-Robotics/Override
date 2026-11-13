@@ -277,8 +277,7 @@ class PurePursuit {
     recoveringProgress = false;
     acquiringHeading = false;
     pathStatus = Status::RUNNING;
-    linearProfile.setVelocity(0); linearProfile.setAccel(0);
-    angularProfile.setVelocity(0); angularProfile.setAccel(0);
+    resetProfiles();
     if (reversed) return pathStatus = Status::UNSUPPORTED_CONFIGURATION;
     if (!linearProfile.isValid() || !angularProfile.isValid() ||
         !std::isfinite(lookaheadDistance) || lookaheadDistance <= 0 ||
@@ -467,10 +466,19 @@ class PurePursuit {
     return {remaining,endError};
   }
 
-  // Returns true when the endpoint holds the command at zero (possibly SUCCESS).
+  void resetProfiles() {
+    linearProfile.setVelocity(0);
+    linearProfile.setAccel(0);
+    angularProfile.setVelocity(0);
+    angularProfile.setAccel(0);
+  }
+
+  // Returns true when the endpoint holds the command at zero.
   bool settleTranslation(const PathErrors& errors, const MotionSample& sample) {
     if (errors.remaining <= linearDeadband && errors.endpoint <= linearDeadband) {
       diagnostics.targetRPM = diagnostics.angularVelocity = 0;
+      resetProfiles();
+      acquiringHeading = false;
       if (sample.interval == 0) return true;
       const bool arrived = sample.hasPrevious &&
           sample.interval <= maxPathInterval &&
