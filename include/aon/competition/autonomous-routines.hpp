@@ -674,6 +674,13 @@ int SkillsRoutine3(){
 
 #else
 
+/// @brief Moves the X-drive forward 12 inches, turns 180 degrees, and moves forward 12 inches.
+void xDriveForwardTurn(){
+  drivetrain.move(12);
+  drivetrain.turn(180);
+  drivetrain.move(12);
+}
+
 void smallBotRoutine(){
   drivetrain.move(31); // Align with match loader
   drivetrain.turn(86);
@@ -859,7 +866,7 @@ void smallbotjorgeg(){
 // Wrappers for the GUI
 
 int RedRoutine1() {
-  blackBeard();
+  xDriveForwardTurn();
   return 1;
 }
 
@@ -874,7 +881,7 @@ int RedRoutine3(){
 }
 
 int BlueRoutine1(){
-  blackBeard();
+  xDriveForwardTurn();
   return 1;
 }
 

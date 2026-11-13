@@ -90,13 +90,21 @@ public:
   // 3rd option is for button label keep it to less than 4 characters
   // Auton routines for each alliance
   AutonOption redAutonOptions[autonOptionsCount] = {
+    #if USING_BIG_ROBOT
     {"Black Beard", aon::routines::RedRoutine1, "BB"},
+    #else
+    {"X-Drive Forward Turn", aon::routines::RedRoutine1, "XFT"},
+    #endif
     {"Jack Sparrow", aon::routines::RedRoutine2, "JS"},
     {"Red AUT3", aon::routines::RedRoutine3, "RA3"},
   };
   
   AutonOption blueAutonOptions[autonOptionsCount] = {
+    #if USING_BIG_ROBOT
     {"Black Beard", aon::routines::BlueRoutine1, "BB"},
+    #else
+    {"X-Drive Forward Turn", aon::routines::BlueRoutine1, "XFT"},
+    #endif
     {"Jack Sparrow", aon::routines::BlueRoutine2, "JS"},
     {"Blue AUT3", aon::routines::BlueRoutine3, "BA3"},
   };

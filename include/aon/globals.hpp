@@ -119,10 +119,10 @@ aon::MotionProfile thetaProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL * 3, MAX
 // Each corner accepts multiple motor ports. A negative port reverses that motor.
 // Match these corner assignments and reversal signs to the robot's wiring.
 aon::XDrive drivetrain = aon::XDrive(
-                          {9, -17},  // Front left: two motors
-                          {-2},        // Front right: port 10 is now used by the intake
-                          {16, -18},  // Back left: two motors
-                          {-12, 7},    // Back right: two motors
+                          {-8, 4},  // Front left: two motors
+                          {-9,6},        // Front right: port 10 is now used by the intake
+                          {-11, 12},  // Back left: two motors
+                          {-10, 7},    // Back right: two motors
                           startingPose,
                           std::make_unique<aon::Odometry>(odometry),
                           speedFactors,
