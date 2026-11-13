@@ -264,7 +264,7 @@ class PurePursuit {
   /// @param reversed Must be false; reverse requests are unsupported.
   /// @return RUNNING on preparation, otherwise a latched failure (storage may be partial).
   /// @details Consecutive XY within 1e-9 collapse to the latest pose/strictest cap.
-  /// Multi-point paths end at zero RPM; half configured deceleration propagates
+  /// Multi-point paths end at zero RPM; the configured braking margin shapes
   /// a backward braking envelope. A singleton retains its supplied cap.
   /// Call explicitly for every restart.
   /// @pre Caller serializes access and stops before replacing an active request.
@@ -311,7 +311,8 @@ class PurePursuit {
     // is RPM -> in/s before applying v^2 = u^2 + 2*a*s.
     if (points.size() > 1) speedCaps.back() = 0;
     const double unit = math::linearSpeed(1);
-    const double decel = math::linearSpeed(linearProfile.getMaxDeceleration() * 0.5);
+    const double decel = math::linearSpeed(linearProfile.getMaxDeceleration()) *
+                         linearProfile.getBrakingMargin();
     for (size_t i = points.size() - 1; i > 0; --i) {
       speedCaps[i-1] = std::min(speedCaps[i-1],
           std::sqrt(std::pow(speedCaps[i] * unit, 2) +
@@ -599,7 +600,8 @@ class PurePursuit {
     if (recoveringProgress)
       cap = std::min(cap,current.distanceTo(recoveryReference)/(2*maxPathInterval*unit));
     if (segment + 1 < points.size()) {
-      const double decel = math::linearSpeed(linearProfile.getMaxDeceleration()*0.5);
+      const double decel = math::linearSpeed(linearProfile.getMaxDeceleration()) *
+                         linearProfile.getBrakingMargin();
       // Projected end progress does not imply arrival: retain braking distance
       // to the actual endpoint while recovering a lateral offset or overshoot.
       const double brakingDistance = segment+2 == points.size() ?
@@ -663,7 +665,7 @@ class PurePursuit {
     diagnostics.angularVelocity = (left-right)*unit/DRIVE_WIDTH;
     // Feed normalized floating center speed back to avoid cap windup while
     // retaining sub-RPM profile accumulation. Integer transport may reduce it.
-    linearProfile.setVelocity(diagnostics.targetRPM);
+    linearProfile.setCommandedVelocity(diagnostics.targetRPM);
     return {left,right};
   }
 
