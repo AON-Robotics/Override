@@ -403,7 +403,11 @@ class PurePursuit {
         const bool directed = sample.hasPrevious && sample.moved > 1e-9 && before <= 1e-9 &&
             after >= -1e-9 && after-before > 1e-9;
         const double crossing = directed ? std::clamp(-before/(after-before),0.0,1.0) : 0;
-        const bool ordered = directed && crossing > lastCrossing+1e-9;
+        // The bisector extends indefinitely. Only accept crossings within
+        // the lookahead distance of the corner.
+        const bool ordered = directed && crossing > lastCrossing+1e-9 &&
+            (sample.previous + (current-sample.previous)*crossing)
+                .distanceTo(b) <= lookaheadDistance;
         if (after > 1e-9 && !ordered) {
           result.missedGate = true;
           if (!recoveringProgress) {
