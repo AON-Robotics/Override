@@ -14,8 +14,8 @@ bool DifferentialDrive::commandPath(double left, double right) {
 
 bool DifferentialDrive::stopPathMotors() {
   // Always attempt both zeros, even when one transport reports failure.
-  const auto l = leftMotors.move_velocity(0);
-  const auto r = rightMotors.move_velocity(0);
+  const auto l = leftMotors.moveVelocityDirect(0);
+  const auto r = rightMotors.moveVelocityDirect(0);
   return l == 1 && r == 1;
 }
 

@@ -154,18 +154,18 @@ class SmartMotorGroup : public pros::MotorGroup {
   /// All state and the transport write share one boundary with manual commands.
   std::int32_t moveVelocityDirect(std::int16_t velocity) {
     std::lock_guard<pros::Mutex> lock(stateMutex);
-    current_velocity = velocity;
-    now = previous_time = pros::micros();
-    return pros::MotorGroup::move_velocity(velocity);
+    const auto result = pros::MotorGroup::move_velocity(velocity);
+    if (result == 1) {
+      current_velocity = velocity;
+      now = previous_time = pros::micros();
+    }
+    return result;
   }
 
   /// @brief Move motor velocity according to slew rate calculations. Slew is in \b RPM/s
   /// @param ivelocity – The new motor velocity in \b rpm from -+-100, +-200, or +-600 depending on the motor's gearset
   /// @returns 1 if the operation was successful or PROS_ERR if the operation failed, setting errno.
   std::int32_t move_velocity(std::int16_t ivelocity) {
-    // A single stop request must not leave a ramped nonzero setpoint active
-    // after a path timeout, cancellation, or unsupported-configuration return.
-    if (ivelocity == 0) return moveVelocityDirect(0);
     std::lock_guard<pros::Mutex> lock(stateMutex);
     if (acceleration != 0) {
       now = pros::micros();

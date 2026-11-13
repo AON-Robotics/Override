@@ -3,9 +3,9 @@
 namespace aon {
 
 bool HDrive::stopPathMotors() {
-  const auto l = leftMotors.move_velocity(0);
-  const auto r = rightMotors.move_velocity(0);
-  const auto m = midMotors.move_velocity(0);
+  const auto l = leftMotors.moveVelocityDirect(0);
+  const auto r = rightMotors.moveVelocityDirect(0);
+  const auto m = midMotors.moveVelocityDirect(0);
   return l == 1 && r == 1 && m == 1;
 }
 

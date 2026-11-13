@@ -3,10 +3,10 @@
 namespace aon {
 
 bool MecanumDrive::stopPathMotors() {
-  const auto fl = frontLeftMotors.move_velocity(0);
-  const auto fr = frontRightMotors.move_velocity(0);
-  const auto bl = backLeftMotors.move_velocity(0);
-  const auto br = backRightMotors.move_velocity(0);
+  const auto fl = frontLeftMotors.moveVelocityDirect(0);
+  const auto fr = frontRightMotors.moveVelocityDirect(0);
+  const auto bl = backLeftMotors.moveVelocityDirect(0);
+  const auto br = backRightMotors.moveVelocityDirect(0);
   return fl == 1 && fr == 1 && bl == 1 && br == 1;
 }
 
