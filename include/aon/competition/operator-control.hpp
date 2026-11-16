@@ -22,11 +22,6 @@ namespace aon::operator_control {
 //
 // ============================================================================
 
-#if USING_BIG_ROBOT
-bool sortActive = false;
-bool sortEnabled = true;
-#endif
-
 
 /// Default Operator Control configuration
 inline void DriveDefault() { }
@@ -42,6 +37,33 @@ inline void RunIntake() {
     intake.corridor(0);
   }
 }
+
+/// Each mechanism runs while its button is held and brakes when released.
+inline void RunLiftAndClaw() {
+  if (mainController.get_digital(DIGITAL_L1)) {
+    intake.lift(127);
+  } else if (mainController.get_digital(DIGITAL_L2)) {
+    intake.lift(-127);
+  } else {
+    intake.lift(0);
+  }
+
+  if (mainController.get_digital(DIGITAL_UP)) {
+    intake.claw(127);
+  } else if (mainController.get_digital(DIGITAL_DOWN)) {
+    intake.claw(-127);
+  } else {
+    intake.claw(0);
+  }
+
+  if (mainController.get_digital(DIGITAL_X)) {
+    intake.clawArm(-127);
+  } else if (mainController.get_digital(DIGITAL_B)) {
+    intake.clawArm(127);
+  } else {
+    intake.clawArm(0);
+  }
+}
 #endif
 
 /// Driver1's Operator Control configuration
@@ -55,29 +77,10 @@ inline void DriveDRIVER1() {
   drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::HOLONOMIC);
 
   RunIntake();
+  RunLiftAndClaw();
 
-  // Change Height
-  if(mainController.get_digital_new_press(DIGITAL_B)) {
-    intake.toggleScorerHeight();
-  }
-  // Match loaders mechanism
-  else if(mainController.get_digital_new_press(DIGITAL_A)) {
-    intake.toggleCart();
-  }
-  else if(mainController.get_digital_new_press(DIGITAL_RIGHT)) {
+  if(mainController.get_digital_new_press(DIGITAL_RIGHT)) {
     drivetrain.toggleTurbo();
-  }
-  else if(mainController.get_digital_new_press(DIGITAL_Y)) {
-    intake.toggleTrapdoor();
-  }
-  else if(mainController.get_digital_new_press(DIGITAL_UP)) {
-    brooks.toggle();
-  }
-
-  if(mainController.get_digital(DIGITAL_DOWN)) {
-    arrow.deactivate();
-  } else {
-    arrow.activate();
   }
 
   #endif
@@ -86,80 +89,39 @@ inline void DriveDRIVER1() {
 /// Driver2's Operator Control configuration
 inline void DriveDRIVER2() {
   #if USING_BIG_ROBOT
-  //# From now on, all drivetrains used will need to use this format for driving
-  double leftX = scaler -> scale(-mainController.get_analog(ANALOG_LEFT_X));
-  double leftY = scaler -> scale(-mainController.get_analog(ANALOG_LEFT_Y));
-  double rightX = scaler -> scale(-mainController.get_analog(ANALOG_RIGHT_X));
-  double rightY = scaler -> scale(-mainController.get_analog(ANALOG_RIGHT_Y));
-  drivetrain.drive(leftX, leftY, rightX, rightY, Drivetrain::HOLONOMIC);
+  // Left stick: forward/backward and strafe. Right stick X: turn.
+  double leftX = scaler -> scale(mainController.get_analog(ANALOG_LEFT_X));
+  double leftY = scaler -> scale(mainController.get_analog(ANALOG_LEFT_Y));
+  double rightX = scaler -> scale(mainController.get_analog(ANALOG_RIGHT_X));
+  drivetrain.drive(leftX, leftY, rightX, 0, Drivetrain::HOLONOMIC);
 
-  if(mainController.get_digital(DIGITAL_L1)){
-    intake.store();
-  }
-  else if(mainController.get_digital(DIGITAL_L2)){
-    intake.score(Intake::BOTTOM);
-  }
-  else if(!sortActive){
-    intake.stop();
-  }
-
-  // Evaluate new_press unconditionally so internal state resets on release
-  bool r1NewPress = mainController.get_digital_new_press(DIGITAL_R1);
-  bool r2NewPress = mainController.get_digital_new_press(DIGITAL_R2);
-
-  if (sortEnabled) {
-    // R1 held — sort normally (correct→TOP, wrong→MIDDLE)
-    if(mainController.get_digital(DIGITAL_R1)) {
-      if(r1NewPress) {
-        intake.setSortHeights(Intake::TOP);
-        intake.startReleasing();
-        sortActive = true;
-      }
-    }
-    // R2 held — sort inverted (correct→MIDDLE, wrong→TOP)
-    else if(mainController.get_digital(DIGITAL_R2)) {
-      if(r2NewPress) {
-        intake.setSortHeights(Intake::MIDDLE);
-        intake.startReleasing();
-        sortActive = true;
-      }
-    }
-    // neither held — stop sorting only if it was previously active
-    else if(sortActive) {
-      intake.stopReleasing();
-      sortActive = false;
-    }
+  if (mainController.get_digital(DIGITAL_L1)) {
+    intake.lift(127);
+  } else if (mainController.get_digital(DIGITAL_L2)) {
+    intake.lift(-127);
   } else {
-    // Sort off — reuse scoring behavior
-    if(mainController.get_digital(DIGITAL_R1)) {
-      intake.score(Intake::TOP);
-    } else if(mainController.get_digital(DIGITAL_R2)) {
-      intake.score(Intake::MIDDLE);
-    }
+    intake.lift(0);
   }
 
-  // Change Brooks Height
-  if(mainController.get_digital_new_press(DIGITAL_B)) {
-    brooks.toggle();
+  // Both intake-to-claw motors run together, independently of the lift.
+  if (mainController.get_digital(DIGITAL_R1)) {
+    intake.move(INTAKE_VELOCITY);
+  } else if (mainController.get_digital(DIGITAL_R2)) {
+    intake.move(-INTAKE_VELOCITY);
+  } else {
+    intake.move(0);
   }
 
-  else if(mainController.get_digital_new_press(DIGITAL_LEFT)) {
-    sem.toggle();
-  }
-  // Match loaders mechanism
-  else if(mainController.get_digital_new_press(DIGITAL_UP)) {
-    intake.toggleCart();
+  if (mainController.get_digital(DIGITAL_X)) {
+    intake.roller(INTAKE_VELOCITY);
+  } else if (mainController.get_digital(DIGITAL_B)) {
+    intake.roller(-INTAKE_VELOCITY);
+  } else {
+    intake.roller(0);
   }
 
-  else if(mainController.get_digital_new_press(DIGITAL_X)) {
+  if (mainController.get_digital_new_press(DIGITAL_RIGHT)) {
     drivetrain.toggleTurbo();
-  }
-  else if(mainController.get_digital_new_press(DIGITAL_Y)) {
-    sortEnabled = !sortEnabled;
-    if (!sortEnabled && sortActive) {
-      intake.stopReleasing();
-      sortActive = false;
-    }
   }
   #endif
 }

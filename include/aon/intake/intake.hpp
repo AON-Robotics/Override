@@ -43,6 +43,8 @@ class Intake {
   SortState sortState = INIT;
   pros::MotorGroup elevatorMG;
   pros::MotorGroup judgeMG;
+  pros::MotorGroup liftMG;
+  pros::MotorGroup rollerMG;
   Piston cart;
   pros::Distance distanceSensor;
   pros::Optical colorSensor;
@@ -56,10 +58,19 @@ class Intake {
   Height acceptHeight = TOP;
 
  public:
+  /// @brief Creates two feed groups, a lift, and an independent intake roller.
+  /// @details Negative ports reverse individual motors within each group.
   Intake(const std::initializer_list<std::int8_t>& elevatorPorts,
          const std::initializer_list<std::int8_t>& judgePorts,
-         char cartPistonsPort, int distanceSensorPort, int colorSensorPort,
-         char acceptSensorPort, char rejectSensorPort);
+         const std::initializer_list<std::int8_t>& liftPorts,
+         const std::initializer_list<std::int8_t>& rollerPorts,
+         char cartPistonsPort = 'z', int distanceSensorPort = 0,
+         int colorSensorPort = 0, char acceptSensorPort = 'z',
+         char rejectSensorPort = 'z');
+
+  /// @brief Runs the independent roller: positive intakes, negative outtakes.
+  /// @param rpm Motor velocity; zero stops. Port reversal is handled by the group.
+  void roller(const int& rpm = INTAKE_VELOCITY);
 
   /// @brief Moves only the elevator at the given `rpm`
   /// @param rpm The rpm at which to set the elevator
@@ -100,17 +111,17 @@ class Intake {
   SortState getSortingState() const;
 #else
  private:
-  pros::MotorGroup corridorMG;
-  pros::MotorGroup elevatorMG;
-  pros::MotorGroup judgeMG;
-  pros::MotorGroup scorerMG;
+  pros::MotorGroup intakeMG;
+  pros::MotorGroup liftMG;
+  pros::MotorGroup clawMG;
+  pros::MotorGroup clawArmMG;
   Piston scorerPiston;
   Piston cart;
   Piston trapdoor;
   pros::Distance distanceSensor;
   pros::Optical colorSensor;
 
-  volatile bool scanning = true;
+  volatile bool scanning = false;
   volatile bool scoreDown = false;
   int leverTarget = 0;
 
@@ -118,27 +129,35 @@ class Intake {
   std::shared_ptr<void> leverController =
       nullptr;  // TODO: Replace okapi::AsyncPositionController with custom
                 // implementation
-  Intake(const std::initializer_list<std::int8_t>& corridorPorts,
-         const std::initializer_list<std::int8_t>& elevatorPorts,
-         const std::initializer_list<std::int8_t>& judgePorts,
-         const std::initializer_list<std::int8_t>& scorerPorts,
-         char scorerPistonPort, char cartPistonPort, char trapdoorPistonPort,
-         int distanceSensorPort, int colorSensorPort);
+  /// @brief Creates independently controlled intake, lift, claw, and claw arm groups.
+  /// @details Negative ports reverse individual motors within each group.
+  Intake(const std::initializer_list<std::int8_t>& intakePorts,
+         const std::initializer_list<std::int8_t>& liftPorts,
+         const std::initializer_list<std::int8_t>& clawPorts,
+         const std::initializer_list<std::int8_t>& clawArmPorts,
+         char scorerPistonPort = 'z', char cartPistonPort = 'z',
+         char trapdoorPistonPort = 'z', int distanceSensorPort = 0,
+         int colorSensorPort = 0);
 
-  /// @brief Moves only the corridor at the given `rpm`
-  /// @param rpm The rpm at which to set the corridor
+  /// @brief Moves the claw forward or in reverse.
+  /// @param power Motor power from -127 to 127; zero holds the claw.
+  void claw(const int& power = 127);
+
+  /// @brief Moves the claw arm forward or in reverse.
+  /// @param power Motor power from -127 to 127; zero holds the arm.
+  void clawArm(const int& power = 127);
+
+  /// @brief Moves only the intake rollers at the given `rpm`.
+  /// @param rpm Positive intakes; negative outtakes; zero stops.
   void corridor(const int& rpm = INTAKE_VELOCITY);
 
-  /// @brief Moves only the elevator at the given `rpm`
-  /// @param rpm The rpm at which to set the elevator
+  /// @brief Legacy velocity accessor for the lift motor group.
   void elevator(const int& rpm = INTAKE_VELOCITY);
 
-  /// @brief Moves only the judge at the given `rpm`
-  /// @param rpm The rpm at which to set the judge
+  /// @brief Legacy velocity accessor for the claw motor group.
   void judge(const int& rpm = INTAKE_VELOCITY);
 
-  /// @brief Moves only the scorer at the given `rpm`
-  /// @param rpm The rpm at which to set the scorer
+  /// @brief Legacy velocity accessor for the claw arm motor group.
   void scorer(const int& rpm = INTAKE_VELOCITY);
 
   /// @brief This small subroutine moves the intake such that a block is scored
@@ -194,12 +213,17 @@ class Intake {
 
 #endif
 
+  /// @brief Moves the lift: positive raises it, negative lowers it.
+  /// @param power Motor power from -127 to 127; zero holds the lift.
+  void lift(const int& power = 127);
+
   /// @brief Configures the subsytems of the intake
   /// @param brakeModeThe braking paradigm we will use, usually `coast`
   /// @param gearset The gearbox the physical motors contain
   void configure(pros::MotorBrake brakeMode, pros::MotorGears gearset);
 
-  /// @brief Moves the entire intake system at the same `rpm`
+  /// @brief Moves the intake at the given `rpm`.
+  /// @details On the small robot, the lift and claw mechanisms are independent.
   /// @param rpm The rpm to set to the motors
   void move(const int& rpm = INTAKE_VELOCITY);
 

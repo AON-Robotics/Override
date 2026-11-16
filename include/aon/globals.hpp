@@ -11,6 +11,7 @@
 #include "./drivetrain/h-drive.hpp"
 #include "./intake/intake.hpp"
 #include "./drivetrain/x-drive.hpp"
+#include "./drivetrain/mecanum.hpp"
 #include "./drivetrain/differential-drive.hpp"
 #include "./orbit/orbit.hpp"
 #include "./drivetrain/drivetrain.hpp"
@@ -82,19 +83,21 @@ aon::MotionProfile xProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL, MAX_DECEL, 
 aon::MotionProfile yProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL, MAX_DECEL, MAX_ACCEL);
 aon::MotionProfile thetaProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL * 3, MAX_DECEL * 0.8, MAX_ACCEL * 3);
 
-aon::XDrive drivetrain = aon::XDrive(
-                          {-5},   // Front left
-                          {10},  // Front right
-                          {-19},  // Back left
-                          {20},  // Back right
+aon::MecanumDrive drivetrain = aon::MecanumDrive(
+                          {20, 19},  // Front left
+                          {-9, -8},  // Front right
+                          {4, 7},    // Back left
+                          {-1, -2},  // Back right
                           startingPose,
                           std::make_unique<aon::Odometry>(odometry),
                           speedFactors,
                           std::make_unique<aon::MotionProfile>(xProfile),
                           std::make_unique<aon::MotionProfile>(yProfile),
                           std::make_unique<aon::MotionProfile>(thetaProfile));
-                          
-                          aon::Intake intake = aon::Intake({0, 0, 0}, {0}, 'z', 0, 0, 'z', 'z');
+
+// Intake to claw: both feed motors run positive to intake, negative to output.
+// The independent roller is reversed at the port, so positive still intakes.
+aon::Intake intake = aon::Intake({5}, {3}, {10, -6}, {-17});
                           
                           aon::Piston sem('z', aon::Piston::RETRACTED);
                           aon::Piston brooks('z', aon::Piston::RETRACTED);
@@ -120,7 +123,7 @@ aon::MotionProfile thetaProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL * 3, MAX
 // Match these corner assignments and reversal signs to the robot's wiring.
 aon::XDrive drivetrain = aon::XDrive(
                           {-8, 4},  // Front left: two motors
-                          {-9,6},        // Front right: port 10 is now used by the intake
+                          {-9, 6},   // Front right: two motors
                           {-11, 12},  // Back left: two motors
                           {-10, 7},    // Back right: two motors
                           startingPose,
@@ -131,7 +134,8 @@ aon::XDrive drivetrain = aon::XDrive(
                           std::make_unique<aon::MotionProfile>(thetaProfile));
 
 
-aon::Intake intake = aon::Intake({1, 10}, {0}, {0}, {0}, 'z', 'z', 'z', 0, 0);
+// Intake rollers, cascade lift, claw, and claw arm; negative ports reverse motors.
+aon::Intake intake = aon::Intake({17, -5}, {1, -3}, {20}, {19});
 
 aon::Piston arrow('z', aon::Piston::RETRACTED);
 aon::Piston brooks('z', aon::Piston::RETRACTED);
@@ -184,6 +188,9 @@ inline void Configure(const bool opcontrol = true) {
   drivetrain.configure(brakeMode, pros::MotorGears::blue, MAX_ACCEL * 0.4);
   
   intake.configure(pros::MotorBrake::brake, pros::MotorGears::blue);
+  intake.stopReleasing();
+  intake.stopScan();
+  intake.stop();
   
   #else
   drivetrain.configure(brakeMode, pros::MotorGears::blue, MAX_ACCEL);
@@ -216,7 +223,8 @@ void testEndpoint(int speed = 100){
 /// @brief Task to stop all motors during auton testing if something goes wrong
 void autonSafety(){
   while(true){
-    while(mainController.get_digital(DIGITAL_X)){
+    if ((TESTING_AUTONOMOUS || pros::competition::is_autonomous()) &&
+        mainController.get_digital(DIGITAL_X)) {
       STOP();
     }
     pros::delay(50);
