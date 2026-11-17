@@ -1,7 +1,7 @@
 #include "../include/main.hpp"
 
 void initialize() {
-  if (!drivetrain.initializeMotionService()) return;
+  if (!drivetrain.initializePathWorker()) return;
   drivetrain.beginCompetitionMode();
   pros::Task guiLoopTask([]{aon::gui->initialize();});
   aon::logging::Initialize();
@@ -15,8 +15,7 @@ void initialize() {
   pros::Task intakeSorting([]{intake.sort();});
 }
 
-/// @brief Revoke the previous callback epoch and stop through durable owners.
-/// Waiting holds no application locks; blocked motor I/O can delay stopping.
+/// @brief Cancel the prior path and wait for its worker to stop.
 void disabled() {
   drivetrain.beginCompetitionMode();
   drivetrain.setPathEnabled(false);

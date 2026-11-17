@@ -1,6 +1,269 @@
 #include "../../../include/aon/drivetrain/differential-drive.hpp"
+#include <array>
+#include <new>
+#include <type_traits>
 
 namespace aon {
+
+// The path worker owns request storage and motor writes across callback deletion.
+// Callbacks transfer only bounded plain data and wait without application locks.
+class Drivetrain::PersistentPathWorker final : public Drivetrain::PathWorker {
+  using Status = PurePursuit::Status;
+  static_assert(std::atomic<uint32_t>::is_always_lock_free &&
+                std::atomic<pros::task_t>::is_always_lock_free,
+                "Callback mailboxes require lock-free epoch/task atomics");
+  static_assert(std::is_trivially_copyable<Pose>::value,
+                "Deletable submitters may transfer only trivial request data");
+  enum Phase : uint32_t { FREE, WRITING, READY, EXECUTING, DONE };
+  static constexpr uint32_t phaseMask = 7, callbackBit = 8, epochMask = 0x0fffffff;
+  static constexpr size_t maximumPoints = 4096;
+  Drivetrain& drive;
+  std::atomic<bool> ready{false};
+  std::atomic<uint32_t> callbackEpoch{0};
+  std::atomic<pros::task_t> callbackTask{nullptr};
+  pros::task_t executor = nullptr;
+  std::atomic<uint32_t> stopRequested{0}, stopCompleted{0};
+
+  struct Request {
+    std::atomic<uint32_t> token{FREE};
+    // Only trivially destructible data is written by a deletable submitter.
+    // An interrupted copy can be abandoned without repairing a vector/allocator.
+    std::array<Pose,maximumPoints> points;
+    std::array<double,maximumPoints> caps;
+    size_t count = 0, capCount = 0, captureCapacity = 0;
+    uint32_t timeoutMs = 0, submittedAt = 0, generation = 0;
+    bool reversed = false, hasTrace = false, invalidTrace = false;
+    bool alignHeading = false;
+    PathResult result;
+    PathTrace capture;
+    // These containers are accessed only by the persistent executor, or by a
+    // live submitter after DONE. They are never modified during request transfer.
+    std::vector<PathSample> samples;
+  } request;
+
+  static void wait() { pros::c::task_delay(1); }
+  uint32_t epoch() const { return callbackEpoch.load() & epochMask; }
+  uint32_t stamp() const {
+    return (epoch()<<4) | (pros::c::task_get_current()==callbackTask.load() ? callbackBit : 0);
+  }
+  bool stale(uint32_t token) const { return (token>>4)!=epoch(); }
+  void reclaim(std::atomic<uint32_t>& token) {
+    uint32_t value = token.load();
+    if ((value&callbackBit) && stale(value) && (value&phaseMask)!=EXECUTING)
+      token.compare_exchange_strong(value,FREE);
+  }
+  void executeRequests() {
+    while (true) {
+      if (!ready.load()) { wait(); continue; }
+      const uint32_t stop = stopRequested.load();
+      if (stop != stopCompleted.load()) {
+        std::lock_guard<pros::Mutex> lock(drive.pathCommandMutex);
+        drive.pathCancelGeneration.fetch_add(1);
+        if (!drive.stopPathMotors()) drive.pathMotorFailure = true;
+        stopCompleted.store(stop);
+      }
+      reclaim(request.token);
+      uint32_t token=request.token.load();
+      if ((token&phaseMask)!=READY ||
+          !request.token.compare_exchange_strong(token,(token&~phaseMask)|EXECUTING)) {
+        wait(); continue;
+      }
+      PathResult result;
+      result.status=result.translationStatus=Status::CANCELLED;
+      request.capture=PathTrace{};
+      if (!stale(token)) {
+        try {
+          // Allocation and configuration copying belong to the durable owner.
+          std::vector<Pose> path(request.points.begin(),request.points.begin()+request.count);
+          std::vector<double> caps(request.caps.begin(),request.caps.begin()+request.capCount);
+          if (request.hasTrace && !request.invalidTrace) {
+            request.samples.resize(request.captureCapacity);
+            request.capture.samples=request.samples.data();
+            request.capture.capacity=request.samples.size();
+          } else if (request.invalidTrace) request.capture.capacity=1;
+          const uint32_t spent=uint32_t(pros::millis()-request.submittedAt);
+          // Copy/queue time consumes translation's cooperative budget too.
+          const uint32_t budget=spent>=request.timeoutMs ? 0 : request.timeoutMs-spent;
+          // Recheck after preparation: a mode change must not lend a new epoch
+          // to an old READY request. Mode handoff also waits for this scope.
+          if (!stale(token)) {
+            result=drive.executePath(path,budget,caps,request.reversed,
+                request.hasTrace ? &request.capture : nullptr,request.generation,request.alignHeading);
+          }
+        } catch (...) {
+          drive.stop();
+          result.status=result.translationStatus=Status::CONTROL_FAILURE;
+          drive.pathStatus.store(Status::CONTROL_FAILURE);
+        }
+      }
+      result.elapsedMs=uint32_t(pros::millis()-request.submittedAt);
+      request.capture.status=result.status;
+      request.capture.translationStatus=result.translationStatus;
+      drive.pathStatus.store(result.status);
+      request.result=result;
+      request.token.store((token&~phaseMask)|DONE);
+    }
+  }
+
+ public:
+  explicit PersistentPathWorker(Drivetrain& owner):drive(owner) {}
+  bool start() {
+    callbackTask.store(pros::c::task_get_current());
+    executor=pros::c::task_create([](void* self) {
+      static_cast<PersistentPathWorker*>(self)->executeRequests();
+    },this,TASK_PRIORITY_DEFAULT,TASK_STACK_DEPTH_DEFAULT,"AON path execution");
+    ready.store(executor != nullptr);
+    return ready.load();
+  }
+  bool ownsExecution() const override {
+    return ready.load() && pros::c::task_get_current()==executor;
+  }
+  PathResult follow(const std::vector<Pose>& path,uint32_t timeoutMs,
+      const std::vector<double>& caps,bool reversed,
+      PathTrace* trace, bool alignHeading) override {
+    PathResult rejected;
+    rejected.status=Status::CONTROL_FAILURE;
+    if (!ready.load()) return rejected;
+    const uint32_t identity=stamp();
+    const uint32_t generation=drive.pathCancelGeneration.load();
+    uint32_t free=FREE;
+    if (!request.token.compare_exchange_strong(free,identity|WRITING)) return rejected;
+    request.generation=generation;
+    request.submittedAt=pros::millis(); request.timeoutMs=timeoutMs;
+    // Oversize or mismatched inputs reach the original executor as invalid
+    // geometry; bounded transfer never reads beyond the caller's containers.
+    request.count=path.size()<=maximumPoints ? path.size() : 0;
+    request.capCount=caps.size()<=maximumPoints ? caps.size() : 0;
+    if ((!caps.empty() && caps.size()!=path.size()) || caps.size()>maximumPoints)
+      request.count=0;
+    for (size_t i=0;i<request.count;++i) request.points[i]=path[i];
+    for (size_t i=0;i<request.capCount;++i) request.caps[i]=caps[i];
+    request.reversed=reversed;
+    request.alignHeading=alignHeading;
+    request.hasTrace=trace!=nullptr;
+    request.captureCapacity=trace ? trace->capacity : 0;
+    request.invalidTrace=trace && trace->capacity && !trace->samples;
+    request.token.store(identity|READY);
+    while (request.token.load()!=(identity|DONE)) wait();
+    const PathResult result=request.result;
+    if (trace) {
+      const auto storage=trace->samples;
+      const size_t capacity=trace->capacity;
+      *trace=request.capture;
+      trace->samples=storage; trace->capacity=capacity;
+      for (size_t i=0;i<trace->size;++i) storage[i]=request.samples[i];
+    }
+    request.token.store(FREE);
+    return result;
+  }
+  void stopAndWait() override {
+    if (!ready.load()) return;
+    const uint32_t ticket = stopRequested.fetch_add(1) + 1;
+    // Outstanding stops must span fewer than 2^31 tickets across rollover.
+    while (int32_t(stopCompleted.load() - ticket) < 0) wait();
+  }
+  void beginMode() override {
+    // Only actual framework callback entry may prove its predecessor gone.
+    callbackTask.store(pros::c::task_get_current());
+    callbackEpoch.fetch_add(1);
+    drive.pathEnabled.store(false);
+    drive.pathCancelGeneration.fetch_add(1);
+    if (!ready.load()) return;
+    stopAndWait();
+    // Do not enable a new motion owner before old execution releases its locks
+    // and storage. DONE is safe: only its caller/result copy remains.
+    while (true) {
+      reclaim(request.token);
+      const auto phase=request.token.load()&phaseMask;
+      if (phase==FREE || phase==DONE) break;
+      wait();
+    }
+  }
+};
+
+bool Drivetrain::initializePathWorker() {
+  if (pathWorkerRequired) return pathWorkerStarted;
+  pathWorkerRequired=true;
+  auto* worker=new(std::nothrow) PersistentPathWorker(*this);
+  if (!worker) { pathEnabled.store(false); pathStatus.store(PurePursuit::Status::CONTROL_FAILURE); return false; }
+  pathWorker.reset(worker);
+  const bool started=worker->start();
+  pathWorkerStarted=started;
+  if (!started) { pathEnabled.store(false); pathStatus.store(PurePursuit::Status::CONTROL_FAILURE); }
+  return started;
+}
+
+void Drivetrain::beginCompetitionMode() { if (pathWorker) pathWorker->beginMode(); }
+
+PurePursuit::Status Drivetrain::publishPath(uint32_t generation, double left, double right) {
+  std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+  if (!pathEnabled.load() || pathCancelGeneration.load() != generation)
+    return PurePursuit::Status::CANCELLED;
+  if (pathMotorFailure || !commandPath(left,right)) {
+    pathMotorFailure = true;
+    return PurePursuit::Status::CONTROL_FAILURE;
+  }
+  return PurePursuit::Status::RUNNING;
+}
+
+void Drivetrain::stop() {
+  // Revoke admission before waiting so the publishing task cannot repeatedly
+  // reacquire the mutex with further commands while a stop is pending.
+  pathCancelGeneration.fetch_add(1);
+  if (pathWorkerStarted && !pathWorker->ownsExecution()) {
+    pathWorker->stopAndWait();
+    return;
+  }
+  std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+  if (!stopPathMotors()) pathMotorFailure = true;
+}
+
+void Drivetrain::cancelPath() {
+  pathCancelGeneration.fetch_add(1);
+  if (pathWorkerStarted && !pathWorker->ownsExecution()) {
+    pathWorker->stopAndWait();
+    return;
+  }
+  std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+}
+
+void Drivetrain::setPathEnabled(bool enabled) {
+  if (!enabled) {
+    pathEnabled.store(false);
+    pathCancelGeneration.fetch_add(1);
+  }
+  if (pathWorkerStarted && !pathWorker->ownsExecution()) {
+    if (!enabled) pathWorker->stopAndWait();
+    pathEnabled.store(enabled);
+    return;
+  }
+  std::lock_guard<pros::Mutex> lock(pathCommandMutex);
+  // Revoke again at the serialized boundary: an overlapping enable may have
+  // admitted a request carrying the first revocation's generation while this
+  // disable waited. That request must stay cancelled after a later enable.
+  // The pre-lock revocation still interrupts earlier requests immediately.
+  if (!enabled) pathCancelGeneration.fetch_add(1);
+  pathEnabled.store(enabled);
+  if (!enabled && !stopPathMotors()) pathMotorFailure = true;
+}
+
+Drivetrain::PathResult Drivetrain::followPath(const std::vector<Pose>& path, uint32_t timeoutMs,
+    const std::vector<double>& caps, bool reversed,
+    PathTrace* trace) {
+  return runPath(path, timeoutMs, caps, reversed, trace, false);
+}
+
+Drivetrain::PathResult Drivetrain::runPath(
+    const std::vector<Pose>& path, uint32_t timeoutMs,
+    const std::vector<double>& caps, bool reversed, PathTrace* trace,
+    bool alignHeading) {
+  if (pathWorker && !pathWorker->ownsExecution())
+    return pathWorker->follow(path, timeoutMs, caps, reversed, trace, alignHeading);
+  return executePath(path, timeoutMs, caps, reversed, trace,
+                     pathCancelGeneration.load(), alignHeading);
+}
+
+void Drivetrain::follow(const std::vector<Pose>& path) { (void)followPath(path); }
 
 bool DifferentialDrive::commandPath(double left, double right) {
   // Pure Pursuit has already profiled and bounded these commands. A second,
@@ -21,26 +284,21 @@ bool DifferentialDrive::stopPathMotors() {
 
 
 void DifferentialDrive::tank(const double &left, const double &right){
-  if (dispatchMotion(MotionOperation::TANK,left,right)) return;
-  std::lock_guard<pros::Mutex> lock(pathCommandMutex);
   this->leftMotors.move_velocity(left);
   this->rightMotors.move_velocity(right);
 }
 
 void DifferentialDrive::setBrakeMode(pros::MotorBrake brakeMode){
-  if (dispatchMotion(MotionOperation::BRAKE,static_cast<int>(brakeMode))) return;
   leftMotors.set_brake_mode(brakeMode);
   rightMotors.set_brake_mode(brakeMode);
 }
 
 void DifferentialDrive::setGearset(pros::MotorGears gearset){
-  if (dispatchMotion(MotionOperation::GEAR,static_cast<int>(gearset))) return;
   leftMotors.set_gearing(gearset);
   rightMotors.set_gearing(gearset);
 }
 
 void DifferentialDrive::setEncoderUnits(pros::MotorEncoderUnits units){
-  if (dispatchMotion(MotionOperation::ENCODER,static_cast<int>(units))) return;
   leftMotors.set_encoder_units(units);
   leftMotors.tare_position();
   rightMotors.set_encoder_units(units);
@@ -49,7 +307,6 @@ void DifferentialDrive::setEncoderUnits(pros::MotorEncoderUnits units){
 }
 
 void DifferentialDrive::setSlewRate(double slew){
-  if (dispatchMotion(MotionOperation::SLEW,slew)) return;
   leftMotors.SetAcceleration(slew);
   rightMotors.SetAcceleration(slew);
 }
@@ -71,7 +328,7 @@ Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, ui
     PathTrace* trace, uint32_t generation, bool alignHeading) {
   using Status = PurePursuit::Status;
   PathResult result;
-  if (motionServiceRequired && !motionService) {
+  if (pathWorkerRequired && !pathWorker) {
     result.status = Status::CONTROL_FAILURE;
     return result;
   }

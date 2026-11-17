@@ -11,10 +11,6 @@ bool HDrive::stopPathMotors() {
 
 
 void HDrive::sideways(const double &rpm, const int& delay) {
-  if (dispatchMotion(MotionOperation::SIDEWAYS,rpm)) {
-    if (delay!=0) { pros::delay(delay); this->stop(); }
-    return;
-  }
   this->midMotors.move_velocity(rpm);
   if (delay == 0) return;
   pros::delay(delay);
@@ -22,27 +18,23 @@ void HDrive::sideways(const double &rpm, const int& delay) {
 }
 
 void HDrive::tank(const double &left, const double &right){
-  if (dispatchMotion(MotionOperation::TANK,left,right)) return;
   this->leftMotors.move_velocity(left);
   this->rightMotors.move_velocity(right);
 }
 
 void HDrive::setBrakeMode(pros::MotorBrake brakeMode){
-  if (dispatchMotion(MotionOperation::BRAKE,static_cast<int>(brakeMode))) return;
   leftMotors.set_brake_mode(brakeMode);
   rightMotors.set_brake_mode(brakeMode);
   midMotors.set_brake_mode(brakeMode);
 }
 
 void HDrive::setGearset(pros::MotorGears gearset){
-  if (dispatchMotion(MotionOperation::GEAR,static_cast<int>(gearset))) return;
   leftMotors.set_gearing(gearset);
   rightMotors.set_gearing(gearset);
   midMotors.set_gearing(gearset);
 }
 
 void HDrive::setEncoderUnits(pros::MotorEncoderUnits units){
-  if (dispatchMotion(MotionOperation::ENCODER,static_cast<int>(units))) return;
   leftMotors.set_encoder_units(units);
   leftMotors.tare_position();
   rightMotors.set_encoder_units(units);
@@ -52,7 +44,6 @@ void HDrive::setEncoderUnits(pros::MotorEncoderUnits units){
 }
 
 void HDrive::setSlewRate(double slew){
-  if (dispatchMotion(MotionOperation::SLEW,slew)) return;
   leftMotors.SetAcceleration(slew);
   rightMotors.SetAcceleration(slew);
   midMotors.SetAcceleration(slew);
