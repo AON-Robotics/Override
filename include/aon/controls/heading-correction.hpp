@@ -16,7 +16,8 @@ enum class MovementStatus {
   SUCCESS,    ///< Arrived within position tolerance
   TIMEOUT,    ///< Timer expired before arriving
   CANCELLED,  ///< Cancelled / autonomous disabled
-  STALLED     ///< Controller stopped (e.g. pure pursuit returned {0,0}) outside tolerance
+  STALLED,    ///< Controller stopped (e.g. pure pursuit returned {0,0}) outside tolerance
+  POSE_LOST   ///< Odometry stopped publishing a fresh pose mid-movement
 };
 
 enum class HeadingResult {
@@ -27,6 +28,17 @@ enum class HeadingResult {
   INVALID_SENSOR,  ///< Heading unavailable (NaN/inf) at start or for too many samples
   INVALID_PARAMS   ///< Bad target heading or bad configuration
 };
+
+inline const char* toString(MovementStatus m) {
+  switch (m) {
+    case MovementStatus::SUCCESS: return "SUCCESS";
+    case MovementStatus::TIMEOUT: return "TIMEOUT";
+    case MovementStatus::CANCELLED: return "CANCELLED";
+    case MovementStatus::STALLED: return "STALLED";
+    case MovementStatus::POSE_LOST: return "POSE_LOST";
+  }
+  return "?";
+}
 
 inline const char* toString(HeadingResult r) {
   switch (r) {
@@ -60,13 +72,13 @@ inline bool isValid(const HeadingCorrectionConfig& c) {
   return std::isfinite(c.kP) && c.kP > 0 && std::isfinite(c.kI) && c.kI >= 0 &&
          std::isfinite(c.kD) && c.kD >= 0 && std::isfinite(c.maxTurnRpm) &&
          c.maxTurnRpm > 0 && std::isfinite(c.toleranceDeg) && c.toleranceDeg > 0 &&
-         c.toleranceDeg < 180 && c.timeoutMs > 0 && c.loopMs >= 1 && c.loopMs <= 100 &&
+         c.toleranceDeg < 180 && c.timeoutMs > 0 && c.settleMs < c.timeoutMs && c.loopMs >= 1 && c.loopMs <= 100 &&
          c.invalidSampleLimit >= 1 && !std::isnan(c.integralZoneDeg) &&
          c.integralZoneDeg >= 0 && !std::isnan(c.integralLimit) && c.integralLimit >= 0;
 }
 
 /// Shortest signed angle from `current` to `target`, in (-180, 180].
-/// Positive means clockwise. Works for any input range.
+/// Positive means clockwise (matches Drivetrain::turn). Works for any input range.
 inline double shortestAngleError(double target, double current) {
   double e = std::fmod(target - current, 360.0);
   if (e > 180.0) e -= 360.0;
@@ -103,21 +115,28 @@ HeadingResult runCorrection(double target, const HeadingCorrectionConfig& cfg, I
 
   while (true) {
     if (io.cancelled()) return HeadingResult::CANCELLED;
-    const std::uint32_t now = io.nowMs();
     const double heading = io.headingDeg();
+    // Timestamp the sample AFTER it was read, so a slow read cannot make a late sample look early.
+    const std::uint32_t now = io.nowMs();
+    const bool expired = static_cast<std::uint32_t>(now - start) >= cfg.timeoutMs;
 
     if (!std::isfinite(heading)) {
+      // An unknown heading says nothing about whether we stayed in tolerance, so
+      // the settle window must restart rather than span the gap.
+      settle.reset();
       if (!primed || ++bad >= cfg.invalidSampleLimit) return HeadingResult::INVALID_SENSOR;
+      if (expired) return HeadingResult::TIMEOUT;
       io.rotate(0.0);  // never drive on a bad reading
-      if (static_cast<std::uint32_t>(now - start) >= cfg.timeoutMs) return HeadingResult::TIMEOUT;
       io.delayMs(cfg.loopMs);
       continue;
     }
     bad = 0;
 
     const double error = shortestAngleError(target, heading);
-    if (settle.update(error, now)) return HeadingResult::SUCCESS;
-    if (static_cast<std::uint32_t>(now - start) >= cfg.timeoutMs) return HeadingResult::TIMEOUT;
+    const bool settled = settle.update(error, now);
+    // The deadline wins: settling that completes at or after the timeout is not a success.
+    if (expired) return HeadingResult::TIMEOUT;
+    if (settled) return HeadingResult::SUCCESS;
 
     // PID::Output's first call computes derivative against last_error = 0 (a large
     // "kick"). Burn one call so the first real command has a sane derivative.
@@ -138,9 +157,11 @@ HeadingResult runCorrection(double target, const HeadingCorrectionConfig& cfg, I
 ///   uint32_t nowMs();  double headingDeg();  void rotate(double rpm);
 ///   void stop();  bool cancelled();  void delayMs(uint32_t ms);
 /// Every exit path calls io.stop() exactly once.
+/// `prior` is deliberately NOT defaulted: a caller must pass the real result of the movement it
+/// just ran, so a forgotten argument can never be read as "the movement succeeded".
 template <class Io>
 HeadingResult correctHeading(double targetDeg, const HeadingCorrectionConfig& cfg, Io& io,
-                             MovementStatus prior = MovementStatus::SUCCESS) {
+                             MovementStatus prior) {
   HeadingResult result;
   if (prior != MovementStatus::SUCCESS) result = HeadingResult::SKIPPED;
   else if (!std::isfinite(targetDeg) || !isValid(cfg)) result = HeadingResult::INVALID_PARAMS;
