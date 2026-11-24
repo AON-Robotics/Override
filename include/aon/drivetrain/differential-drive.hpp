@@ -49,10 +49,11 @@ class DifferentialDrive : public Drivetrain {
   /// @return The RPM of the motors with respect to the front of the robot
   double getRPM() override;
 
-  /// @brief Goes to the target point
+  /// @brief Goes to the target pose using pure pursuit
   /// @param pose The target pose
-  /// @note Pose X/Y are inches; heading is clockwise degrees.
-  void goToPose(const Pose &pose) override; // TODO: add optional `settle` boolean
+  /// @return SUCCESS only if the robot arrived within tolerance; otherwise TIMEOUT, CANCELLED or STALLED
+  /// @note Pose X/Y are inches; heading is clockwise degrees. The final heading is NOT turned to: call `correctHeading(pose.theta, cfg, status)` afterwards.
+  MovementStatus goToPose(const Pose &pose) override;
 
 };
 

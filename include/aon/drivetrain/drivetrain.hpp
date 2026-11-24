@@ -1,7 +1,9 @@
 #pragma once
 
+#include <atomic>
 #include "pros/motors.hpp"
 #include "../odometry/odometry.hpp"
+#include "../controls/heading-correction.hpp"
 #include "../controls/smart_motor.hpp"
 #include "../controls/pid/pid.hpp"
 #include "../controls/s-curve-profile.hpp"
@@ -55,13 +57,13 @@ class Drivetrain {
   std::unique_ptr<MotionProfile> yProfile;
   std::unique_ptr<MotionProfile> thetaProfile;
   
-  public:
 
   Drivetrain(Pose pose, std::unique_ptr<Odometry> odom, SpeedFactors speedFactors, 
              std::unique_ptr<MotionProfile> xProfile, std::unique_ptr<MotionProfile> yProfile, std::unique_ptr<MotionProfile> thetaProfile): 
              odometry(std::move(odom)), speedFactors(speedFactors),
              xProfile(std::move(xProfile)), yProfile(std::move(yProfile)), thetaProfile(std::move(thetaProfile)) { setPose(pose); }
-
+  public:
+  
   enum DriveMode {
     TANK,
     ARCADE,
@@ -70,6 +72,69 @@ class Drivetrain {
     SPLIT_CURVATURE,
     HOLONOMIC,
   };
+
+  public:
+
+  // Cancellation of movement
+  static inline std::atomic<bool> cancelRequested{false};
+  static void requestCancel() { cancelRequested.store(true); }
+  static void clearCancel() { cancelRequested.store(false); }
+  static bool isCancelled() { return cancelRequested.load() || pros::competition::is_disabled(); }
+
+  // Arrival tolerances (inches)
+  // This value is to be passed to pure persuit
+  static constexpr double FOLLOW_ARRIVAL_TOLERANCE_INCHES = 0.5;
+  // Placeholder value
+  static constexpr double GO_TO_POSE_ARRIVAL_TOLERANCE_INCHES = 0.5;
+
+  protected:
+
+  struct HeadingIo{
+    Drivetrain& drive;
+    std::uint32_t nowMs() { return pros::millis(); }
+
+    double headingDeg() {
+      const double heading = drive.odometry->getDegrees();
+      return (std::isfinite(heading) && drive.odometry->isImuFusing()) ? heading : NAN;
+    }
+
+    void rotate(double rpm) { drive.rotate(rpm); }
+    void stop() { drive.stop(); }
+    bool cancelled() { return Drivetrain::isCancelled(); }
+    void delayMs(std::uint32_t ms) { pros::delay(ms); }
+  };
+
+  public:
+
+  /// @brief Turns to targetDeg after a movement, only if that movement succeded.
+  HeadingResult correctHeading(double targetDeg, const HeadingCorrectionConfig& cfg, MovementStatus prior) {
+    HeadingIo io{*this};
+    return aon::correctHeading(targetDeg, cfg, io, prior);
+  }
+
+  public:
+    /// Result of a movement followed by an explicit final-heading correction.
+  struct AlignedMove {
+    MovementStatus movement;
+    HeadingResult heading;
+    /// True only if the robot arrived AND the heading settled.
+    bool ok() const { return movement == MovementStatus::SUCCESS && heading == HeadingResult::SUCCESS; }
+  };
+
+  /// Follows `path`, then (only if arrival was verified) aligns to the path's final heading.
+  /// An invalid `cfg` is reported as INVALID_PARAMS after the move, not before it.
+  AlignedMove followAndAlign(const std::vector<Pose>& path, const HeadingCorrectionConfig& cfg) {
+    const MovementStatus movement = follow(path);
+    const double target = path.empty() ? 0.0 : path.back().theta;   // unused if the movement failed
+    return {movement, correctHeading(target, cfg, movement)};
+  }
+
+  AlignedMove goToPoseAndAlign(const Pose& pose, const HeadingCorrectionConfig& cfg) {
+    const MovementStatus movement = goToPose(pose);
+    return {movement, correctHeading(pose.theta, cfg, movement)};
+  }
+
+  public:
 
   // TODO: move all implementations to a dedicated cpp file
 
@@ -747,9 +812,7 @@ class Drivetrain {
   /// @param heading The target heading in \b degrees (same convention as odometry)
   /// @param settle If true, robot will stop after movement, if false, it will proceed at a constant speed
   void turnToHeading(const double &heading, bool settle = true) {
-    if (!hasFreshPose()) { stop(); return; }
-    const double delta = std::remainder(heading - odometry->getDegrees(), 360.0);
-    turn(delta, settle);
+    turn(shortestAngleError(heading, odometry->getDegrees()), settle);
   }
   
 
@@ -762,59 +825,134 @@ class Drivetrain {
     Vector target = Vector().SetPosition(x, y);
     // Determine current position
     Vector current = odometry->getPosition();
-    current.SetPosition(math::inchesToMeters(current.GetX()),
-                        math::inchesToMeters(current.GetY()));
+    current.SetPosition(math::inchesToMeters(current.GetX()), math::inchesToMeters(current.GetY()));
     // Do the movement
-    const Vector targetInches = Vector().SetPosition(math::metersToInches(x),
-                                                     math::metersToInches(y));
+    const Vector targetInches = Vector().SetPosition(math::metersToInches(x), math::metersToInches(y));
     turn(math::calculateTurn(targetInches, odometry->getPose()));
     move(math::findDistance(target, current));
   }
 
-  /// @brief Goes to the target point
-  /// @param pose The target pose
-  /// @note Pose X/Y are inches; heading is clockwise degrees.
-  virtual void goToPose(const Pose &pose) = 0;
 
-  /// @brief Follows a path using a pure pursuit controller
-  /// @param path The path to follow
-  /// @note The `path`s intermediate headings are ignored, only the final one is actually aligned
-  virtual void follow(const std::vector<Pose>& path) {
-    if (path.empty() || !hasFreshPose()) { stop(); return; }
-    PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
+  protected:
+  /// Shared motion-profile goToPose for holonomic drives (X, H, Mecanum).
+  /// Ends on POSITION only; heading is steered during the move but is the caller's job to verify.
+   MovementStatus goToPoseProfiled(const Pose& target) {
+    if (isCancelled()) { stop(); return MovementStatus::CANCELLED; }
+    if (!hasFreshPose()) { stop(); return MovementStatus::POSE_LOST; }
 
-    std::pair<double, double> output = {-1, -1};
+    const double delay = 20;  // ms
+    // Copied verbatim from the old per-class code. NOTE: these differ from DRIVE_WIDTH/DRIVE_LENGTH in constants.hpp.
+    const double drive_width = 10.5;
+    const double drive_length = 8.25;
+    const double ROBOT_RADIUS = hypot(drive_width, drive_length) / 2;
+    const double circumference = M_TWOPI * ROBOT_RADIUS;
+
+    const Pose start = odometry->getPose();
+    const double dist0 = std::hypot(target.x - start.x, target.y - start.y);
+    // Already within tolerance: nothing to move, so no deadline applies.
+    if (dist0 <= GO_TO_POSE_ARRIVAL_TOLERANCE_INCHES) { stop(); return MovementStatus::SUCCESS; }
+
+    // Timeout reuses the formulas already in driveProfiled()/turnProfiled().
+    const double ang0 = std::fabs(shortestAngleError(target.theta, start.theta));
+    Timer timer;
+    timer.start(std::max<uint32_t>((dist0 / 3.0) * 1E3, std::sqrt(ang0 / 2.0) * 1E3));
+
+    MovementStatus status = MovementStatus::STALLED;
+    while (true) {
+      if (isCancelled()) { status = MovementStatus::CANCELLED; break; }
+      if (!hasFreshPose()) { status = MovementStatus::POSE_LOST; break; }
+      const Pose current = odometry->getPose();                                // one snapshot per iteration
+      if (timer.isCompleted()) { status = MovementStatus::TIMEOUT; break; }    // deadline beats arrival
+
+      const double remX = target.x - current.x;
+      const double remY = target.y - current.y;
+      const double remTheta = shortestAngleError(target.theta, current.theta);
+      pros::lcd::print(0, "(x, y, theta): (%.2f, %.2f, %.2f)", current.x, current.y, current.theta);
+
+      if (std::hypot(remX, remY) <= GO_TO_POSE_ARRIVAL_TOLERANCE_INCHES) { status = MovementStatus::SUCCESS; break; }
+
+      const double xSign = (remX > 0) - (remX < 0);
+      const double ySign = (remY > 0) - (remY < 0);
+      const double thetaSign = (remTheta > 0) - (remTheta < 0);
+
+      double x = this->xProfile->update(std::fabs(remX)) * xSign;
+      double y = this->yProfile->update(std::fabs(remY)) * ySign;
+      double theta = this->thetaProfile->update(circumference * (std::fabs(remTheta) / 360.0)) * thetaSign;
+
+      Vector direction = Vector().SetPosition(x, y);
+      direction.SetDegrees(direction.GetDegrees() + current.theta);
+      this->holonomic(direction.GetY(), direction.GetX(), theta);
+
+      pros::delay(delay);
+    }
+
+    pros::lcd::clear();
+    this->stop();
+    return status;
+  }
+  
+
+  /// @brief Goes to the target pose. Each drivetrain implements this.
+  /// @return SUCCESS only if the robot arrived within tolerance; otherwise TIMEOUT, CANCELLED, STALLED or POSE_LOST.
+  /// @note The final heading is NOT turned to: call `correctHeading(pose.theta, cfg, status)` afterwards.
+  virtual MovementStatus goToPose(const Pose& pose) = 0;
+
+  public:
+  /// @brief Follows a path with pure pursuit. TRANSLATION ONLY.
+  /// @return SUCCESS only if the robot arrived within tolerance of the last pose and the deadline had not passed;
+  ///         otherwise TIMEOUT, CANCELLED, STALLED or POSE_LOST.
+  /// @note Intermediate headings are ignored, and this does NOT turn to `path.back().theta` (the old version did, even
+  ///       after a timeout). For final alignment use `followAndAlign()`, or `correctHeading(path.back().theta, cfg, status)`.
+  virtual MovementStatus follow(const std::vector<Pose>& path) {
+    if (path.empty()) { stop(); return MovementStatus::STALLED; }   // nothing to follow: never "success"
+    if (isCancelled()) { stop(); return MovementStatus::CANCELLED; }
+    if (!hasFreshPose()) { stop(); return MovementStatus::POSE_LOST; }
+
+    const Pose goal = path.back();
+    const Pose start = odometry->getPose();
+    // Already within tolerance: nothing to follow, so no deadline applies.
+    if (start.distanceTo(goal) <= FOLLOW_ARRIVAL_TOLERANCE_INCHES) { stop(); return MovementStatus::SUCCESS; }
+
+    PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, FOLLOW_ARRIVAL_TOLERANCE_INCHES, 2.5);
 
     double dt = 0.02;
     double now = pros::micros() / 1E6;
     double lastTime = now;
 
-    // Generous timeout
-    const uint32_t timeoutMs = (math::length(path)) * 1E3;
+    // Approach distance + path length (length() is ~0 for a one-point path, which is how goToPose reaches here).
+    const uint32_t timeoutMs = (start.distanceTo(path.front()) + math::length(path)) * 1E3;
     Timer timer;
     timer.start(timeoutMs);
 
-    while (odometry->getPose().distanceTo(path.back()) > 2.0 && !timer.isCompleted()) {
-      if (!hasFreshPose()) { stop(); return; }
+    MovementStatus status = MovementStatus::STALLED;
+    while (true) {
+      if (isCancelled()) { status = MovementStatus::CANCELLED; break; }
+      if (!hasFreshPose()) { status = MovementStatus::POSE_LOST; break; }
+      const Pose current = odometry->getPose();
+      const double distance = current.distanceTo(goal);
+      if (timer.isCompleted()) { status = MovementStatus::TIMEOUT; break; }   // deadline beats arrival
+      if (distance <= FOLLOW_ARRIVAL_TOLERANCE_INCHES) { status = MovementStatus::SUCCESS; break; }
+
       now = pros::micros() / 1E6;
       dt = now - lastTime;
-      output = controller.follow(path, this->odometry->getPose(), dt);
       lastTime = now;
+      std::pair<double, double> output = controller.follow(path, current, dt);
+
+      // Controller gave up while still outside tolerance (e.g. lookahead point inside its deadband).
+      if (output.first == 0 && output.second == 0) { status = MovementStatus::STALLED; break; }
+
       this->tank(output.first, output.second);
 
-      pros::lcd::print(0, "Current: Pose(%.2f, %.2f, %.2f)", odometry->getX(), odometry->getY(), odometry->getDegrees());
-      pros::lcd::print(1, "Target: Pose(%.2f, %.2f, %.2f)", path.back().x, path.back().y, path.back().theta);
-      pros::lcd::print(2, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
-      pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "Distance: %.2f", odometry->getPose().distanceTo(path.back()));
-
-      if (output.first == 0 && output.second == 0) { break; }
+      pros::lcd::print(0, "Current: Pose(%.2f, %.2f, %.2f)", current.x, current.y, current.theta);
+      pros::lcd::print(1, "Target: Pose(%.2f, %.2f, %.2f)", goal.x, goal.y, goal.theta);
+      pros::lcd::print(2, "Distance: %.2f", distance);
+      pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "Distance: %.2f", distance);
 
       pros::delay(10);
     }
 
-    if (hasFreshPose()) this->turnToHeading(path.back().theta);
-
     this->stop();
+    return status;
   }
 
   /// @brief Scales a joystick input to drivetrain motor intensity according to a percentage

@@ -503,6 +503,8 @@ void bigBotCurves(){
 }
 
 void bigBotContinuity(){
+
+  /*
   // TODO: check color sorting integration
   drivetrain.strafe(28.5); // Align with match loader.
   intake.dropCart(); // Prepare loader mechanism.
@@ -523,6 +525,9 @@ void bigBotContinuity(){
   drivetrain.move(44.5); // Go back to long goal
   drivetrain.turn(-45); // Align with long goal
   drivetrain.strafe(9); // Push against it to block descoring
+  */
+
+  drivetrain.move(18);
 }
 
 void bigBotStayThere(){
@@ -696,43 +701,8 @@ void smallBotRoutine(){
 }
 
 void blackBeard(){
-  drivetrain.move(30, false);
-  drivetrain.driveAngleOfArc(-9, 50);
-  intake.score(Intake::BOTTOM, 750);
-  drivetrain.move(-9, false);
-  drivetrain.driveAngleOfArc(-5, -155, false);
-  intake.dropCart();
-  drivetrain.move(28, false);
-  drivetrain.driveAngleOfArc(6, 82);
-  drivetrain.move(8);
-  intake.activateScan();
-  intake.move();
-  drivetrain.jiggle(7, 110, 200);
-  pros::delay(200);
-  intake.stop();
-  drivetrain.move(-13);
-  intake.stopScan();
-  intake.raiseCart();
-  intake.raiseScorer();
-  drivetrain.turnToHeading(7);
-  intake.openTrapdoor();
-  drivetrain.move(12);
-  intake.store();
-  pros::delay(500);
-  intake.lever(750);
-  pros::delay(500);
-  intake.lever(750);
-  pros::delay(500);
-  intake.lever(750);
-  pros::delay(500);
-  intake.lever(750);
-  pros::delay(500);
-  intake.stop();
-  drivetrain.driveAngleOfArc(8, -120, false);
-  drivetrain.move(34, false);
-  drivetrain.driveAngleOfArc(8.2, 37, false);
-  drivetrain.move(-3, false);
-  drivetrain.motors(MAX_RPM, 2000);
+
+  drivetrain.move(18);
 }
 
 void jackSparrow(){
