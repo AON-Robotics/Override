@@ -113,15 +113,6 @@ class PurePursuit {
         std::isfinite(math::linearSpeed(1)) && math::linearSpeed(1) > 0;
   }
 
-  // Legacy wheel/motor ceiling; path-specific limits do not apply here.
-  std::pair<double, double> boundedLegacy(double left, double right) {
-    if (!std::isfinite(left) || !std::isfinite(right))
-      return fail(Status::CONTROL_FAILURE);
-    const double limit = std::min(double(MAX_RPM),linearProfile.getMaxVelocity());
-    const double scale = std::max({1.0,std::abs(left)/limit,std::abs(right)/limit});
-    return {left/scale,right/scale};
-  }
-
  public:
   /// @brief Copy profiles (zero final velocity); distances are inches, speeds motor RPM.
   /// @param lookaheadOffset Path lookahead inches, despite the legacy parameter name.
@@ -190,7 +181,7 @@ class PurePursuit {
     if (std::abs(linearError) <= linearDeadband)
       return {0, 0};
 
-    return boundedLegacy(left,right);
+    return {left, right};
   }
 
   /// @brief Legacy stationary turn toward target.theta, left/right motor RPM.
@@ -217,7 +208,7 @@ class PurePursuit {
     // Deadband (symmetric for turning)
     if (std::abs(angularError) <= angularDeadband) return {0, 0};
 
-    return boundedLegacy(angularVel,-angularVel);
+    return {angularVel, -angularVel};
   }
 
   /// @brief Read controller status; movement tracks its timeout/cancellation externally.

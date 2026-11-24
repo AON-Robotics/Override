@@ -447,7 +447,21 @@ Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, ui
       const double error = std::remainder(
           std::remainder(result.finalHeading, 360.0) -
           std::remainder(current.theta, 360.0), 360.0);
-      if (std::abs(error) <= 2.5) return finish(Status::SUCCESS);
+      if (std::abs(error) <= 2.5) {
+        if (current.distanceTo(path.back()) <= arrivalTolerance)
+          return finish(Status::SUCCESS);
+        // A final turn can leave the position tolerance; retain this request's budget.
+        const Status prepared = controller.setPath({path.back()});
+        if (prepared != Status::RUNNING) return finish(prepared);
+        result.translationStatus = Status::IDLE;
+        turnProfile.setVelocity(0);
+        turnProfile.setAccel(0);
+        turning = false;
+        const Status stopped = publishPath(generation,0,0);
+        if (stopped != Status::RUNNING) return finish(stopped);
+        pros::delay(10);
+        continue;
+      }
       const double arc = std::abs(error) * DRIVE_WIDTH * M_PI / 360.0;
       const double rpm = std::copysign(std::min(turnProfile.update(arc, dt),
                                                double(MAX_RPM)), error);
