@@ -83,9 +83,9 @@ aon::MotionProfile yProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL, MAX_DECEL, 
 aon::MotionProfile thetaProfile = aon::MotionProfile(MAX_RPM, MAX_ACCEL * 3, MAX_DECEL * 0.8, MAX_ACCEL * 3);
 
 aon::XDrive drivetrain = aon::XDrive(
-                          {5},   // Front left
+                          {-5},   // Front left
                           {10},  // Front right
-                          {19},  // Back left
+                          {-19},  // Back left
                           {20},  // Back right
                           startingPose,
                           std::make_unique<aon::Odometry>(odometry),
@@ -107,7 +107,6 @@ aon::XDrive drivetrain = aon::XDrive(
 
 aon::operator_control::Driver driver = aon::operator_control::DRIVER2;
 
-// aon::XDrive drivetrain = aon::XDrive({-13}, {11}, {-12}, {14});
 aon::Pose startingPose = aon::Pose(INITIAL_ODOMETRY_X, INITIAL_ODOMETRY_Y, INITIAL_ODOMETRY_THETA);
 aon::Odometry odometry = aon::Odometry(0, 0, 0, 0, 16);
 

@@ -99,7 +99,6 @@ class PID {
   double Output(double setpoint, double process_variable) {
     // error = What we want - what we have
     error = setpoint - process_variable;
-    // integral = integral + error * kT;
     calculate_integral();
     derivative = (error - last_error) / kT;
 
