@@ -33,7 +33,6 @@ class Drivetrain::PersistentPathWorker final : public Drivetrain::PathWorker {
     size_t count = 0, capCount = 0, captureCapacity = 0;
     uint32_t timeoutMs = 0, submittedAt = 0, generation = 0;
     bool reversed = false, hasTrace = false, invalidTrace = false;
-    bool alignHeading = false;
     PathResult result;
     PathTrace capture;
     // These containers are accessed only by the persistent executor, or by a
@@ -88,7 +87,7 @@ class Drivetrain::PersistentPathWorker final : public Drivetrain::PathWorker {
           // to an old READY request. Mode handoff also waits for this scope.
           if (!stale(token)) {
             result=drive.executePath(path,budget,caps,request.reversed,
-                request.hasTrace ? &request.capture : nullptr,request.generation,request.alignHeading);
+                request.hasTrace ? &request.capture : nullptr,request.generation);
           }
         } catch (...) {
           drive.stop();
@@ -120,7 +119,7 @@ class Drivetrain::PersistentPathWorker final : public Drivetrain::PathWorker {
   }
   PathResult follow(const std::vector<Pose>& path,uint32_t timeoutMs,
       const std::vector<double>& caps,bool reversed,
-      PathTrace* trace, bool alignHeading) override {
+      PathTrace* trace) override {
     PathResult rejected;
     rejected.status=Status::CONTROL_FAILURE;
     if (!ready.load()) return rejected;
@@ -139,7 +138,6 @@ class Drivetrain::PersistentPathWorker final : public Drivetrain::PathWorker {
     for (size_t i=0;i<request.count;++i) request.points[i]=path[i];
     for (size_t i=0;i<request.capCount;++i) request.caps[i]=caps[i];
     request.reversed=reversed;
-    request.alignHeading=alignHeading;
     request.hasTrace=trace!=nullptr;
     request.captureCapacity=trace ? trace->capacity : 0;
     request.invalidTrace=trace && trace->capacity && !trace->samples;
@@ -250,17 +248,10 @@ void Drivetrain::setPathEnabled(bool enabled) {
 Drivetrain::PathResult Drivetrain::followPath(const std::vector<Pose>& path, uint32_t timeoutMs,
     const std::vector<double>& caps, bool reversed,
     PathTrace* trace) {
-  return runPath(path, timeoutMs, caps, reversed, trace, false);
-}
-
-Drivetrain::PathResult Drivetrain::runPath(
-    const std::vector<Pose>& path, uint32_t timeoutMs,
-    const std::vector<double>& caps, bool reversed, PathTrace* trace,
-    bool alignHeading) {
   if (pathWorker && !pathWorker->ownsExecution())
-    return pathWorker->follow(path, timeoutMs, caps, reversed, trace, alignHeading);
+    return pathWorker->follow(path, timeoutMs, caps, reversed, trace);
   return executePath(path, timeoutMs, caps, reversed, trace,
-                     pathCancelGeneration.load(), alignHeading);
+                     pathCancelGeneration.load());
 }
 
 void Drivetrain::follow(const std::vector<Pose>& path) { (void)followPath(path); }
@@ -318,14 +309,45 @@ double DifferentialDrive::getRPM(){
 }
 
 void DifferentialDrive::goToPose(const Pose& pose) {
-  // Let followPath report missing odometry and attempt its terminal stops.
-  const Pose start = odometry ? getPose() : Pose();
-  (void)runPath({start, pose}, 15000, {}, false, nullptr, true);
+  if (!odometry->hasFreshPose()) { stop(); return; }
+  PurePursuit controller = PurePursuit(*this->yProfile, *this->thetaProfile, 5, 2.5, 2.5);
+
+  std::pair<double, double> output = {-1, -1};
+
+  double dt = 0.02;
+  double now = pros::micros() / 1E6;
+  double lastTime = now;
+
+  // Generous timeout
+  const uint32_t timeoutMs = (this->odometry->getPose().distanceTo(pose)) * 1E3;
+  Timer timer;
+  timer.start(timeoutMs);
+  while (odometry->getPose().distanceTo(pose) > 2.0 && !timer.isCompleted()){
+    if (!odometry->hasFreshPose()) { stop(); return; }
+    now = pros::micros() / 1E6;
+    dt = now - lastTime;
+    output = controller.go(pose, this->odometry->getPose(), dt);
+    lastTime = now;
+    this->tank(output.first, output.second);
+
+    pros::lcd::print(0, "Current: Pose(%.2f, %.2f, %.2f)", odometry->getX(), odometry->getY(), odometry->getDegrees());
+    pros::lcd::print(1, "Target: Pose(%.2f, %.2f, %.2f)", pose.x, pose.y, pose.theta);
+    pros::lcd::print(2, "Distance: %.2f", odometry->getPose().distanceTo(pose));
+    pros::c::controller_print(pros::E_CONTROLLER_MASTER, 0, 0, "Distance: %.2f", odometry->getPose().distanceTo(pose));
+
+    if (output.first == 0 && output.second == 0) { break; }
+
+    pros::delay(10);
+  }
+
+  if (odometry->hasFreshPose()) this->turnToHeading(pose.theta);
+
+  this->stop();
 }
 
 Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, uint32_t timeoutMs,
     const std::vector<double>& caps, bool reversed,
-    PathTrace* trace, uint32_t generation, bool alignHeading) {
+    PathTrace* trace, uint32_t generation) {
   using Status = PurePursuit::Status;
   PathResult result;
   if (pathWorkerRequired && !pathWorker) {
@@ -427,11 +449,6 @@ Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, ui
     if (trace) trace->maxIntervalUs = std::max(trace->maxIntervalUs,elapsedUs);
     return std::make_pair(elapsedUs,dt);
   };
-  bool turning = false;
-  MotionProfile turnProfile = *thetaProfile;
-  turnProfile.setVelocity(0);
-  turnProfile.setAccel(0);
-  turnProfile.setFinalVelocity(0);
   while (true) {
     if (const Status status = requestStatus(); status != Status::RUNNING) return finish(status);
     Pose current;
@@ -440,37 +457,6 @@ Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, ui
       return finish(Status::CONTROL_FAILURE);
     const uint32_t now = uint32_t(pros::micros());
     const auto [elapsedUs,dt] = sampleInterval(now);
-    if (turning) {
-      if (!std::isfinite(current.theta) || dt <= 0 ||
-          dt > PurePursuit::maxPathInterval)
-        return finish(Status::CONTROL_FAILURE);
-      const double error = std::remainder(
-          std::remainder(result.finalHeading, 360.0) -
-          std::remainder(current.theta, 360.0), 360.0);
-      if (std::abs(error) <= 2.5) {
-        if (current.distanceTo(path.back()) <= arrivalTolerance)
-          return finish(Status::SUCCESS);
-        // A final turn can leave the position tolerance; retain this request's budget.
-        const Status prepared = controller.setPath({path.back()});
-        if (prepared != Status::RUNNING) return finish(prepared);
-        result.translationStatus = Status::IDLE;
-        turnProfile.setVelocity(0);
-        turnProfile.setAccel(0);
-        turning = false;
-        const Status stopped = publishPath(generation,0,0);
-        if (stopped != Status::RUNNING) return finish(stopped);
-        pros::delay(10);
-        continue;
-      }
-      const double arc = std::abs(error) * DRIVE_WIDTH * M_PI / 360.0;
-      const double rpm = std::copysign(std::min(turnProfile.update(arc, dt),
-                                               double(MAX_RPM)), error);
-      if (!std::isfinite(rpm)) return finish(Status::CONTROL_FAILURE);
-      const Status published = publishPath(generation, rpm, -rpm);
-      if (published != Status::RUNNING) return finish(published);
-      pros::delay(10);
-      continue;
-    }
     const uint32_t computeStart = uint32_t(pros::micros());
     const auto output = controller.update(current, dt, estimateMs);
     const uint32_t computeUs = uint32_t(uint32_t(pros::micros())-computeStart);
@@ -483,12 +469,7 @@ Drivetrain::PathResult Drivetrain::executePath(const std::vector<Pose>& path, ui
       record(PathStage::TRANSLATION,current,now,elapsedUs,computeUs,0,
              output.first,output.second,status,false);
       result.translationStatus = status;
-      if (!alignHeading || status != Status::SUCCESS) return finish(status);
-      const Status stopped = publishPath(generation, 0, 0);
-      if (stopped != Status::RUNNING) return finish(stopped);
-      turning = true;
-      pros::delay(10);
-      continue;
+      return finish(status);
     }
     const Status published = publishAndRecord(PathStage::TRANSLATION,current,now,
         elapsedUs,computeUs,output.first,output.second);

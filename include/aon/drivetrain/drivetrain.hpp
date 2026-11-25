@@ -27,7 +27,7 @@ class Drivetrain {
     virtual ~PathWorker() = default;
     virtual bool ownsExecution() const = 0;
     virtual PathResult follow(const std::vector<Pose>&, uint32_t,
-        const std::vector<double>&, bool, PathTrace*, bool) = 0;
+        const std::vector<double>&, bool, PathTrace*) = 0;
     virtual void stopAndWait() = 0;
     virtual void beginMode() = 0;
   };
@@ -319,7 +319,7 @@ class Drivetrain {
   void cancelPath();
 
   /// @brief Persistently allow/reject followPath requests at the competition boundary.
-  /// Disabling revokes the active translation/heading generation before waiting,
+  /// Disabling revokes the active path generation before waiting,
   /// then attempts zeros under the publication barrier. Enabling permits a new
   /// explicit request; it never revives a cancelled request. Raw driver commands
   /// and legacy motion APIs remain caller-owned and are not gated by this flag.
@@ -921,13 +921,10 @@ class Drivetrain {
 
  protected:
   /// @brief Execute with the epoch captured at admission, including queued admission.
-  PathResult runPath(const std::vector<Pose>& path, uint32_t timeoutMs,
-                     const std::vector<double>& caps, bool reversed,
-                     PathTrace* trace, bool alignHeading);
   PathResult executePath(const std::vector<Pose>& path, uint32_t timeoutMs,
                          const std::vector<double>& caps, bool reversed,
                          PathTrace* trace,
-                         uint32_t generation, bool alignHeading);
+                         uint32_t generation);
 
  public:
   /// @brief Compatibility wrapper; inspect getPathStatus or use followPath for
