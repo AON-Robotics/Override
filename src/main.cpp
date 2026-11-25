@@ -2,7 +2,7 @@
 
 void initialize() {
   if (!drivetrain.initializePathWorker()) return;
-  drivetrain.beginCompetitionMode();
+  drivetrain.stopPath();
   pros::Task guiLoopTask([]{aon::gui->initialize();});
   aon::logging::Initialize();
   aon::Configure(false);
@@ -17,18 +17,18 @@ void initialize() {
 
 /// @brief Cancel the prior path and wait for its worker to stop.
 void disabled() {
-  drivetrain.beginCompetitionMode();
+  drivetrain.stopPath();
   drivetrain.setPathEnabled(false);
 }
 
 void competition_initialize() {
-  drivetrain.beginCompetitionMode();
+  drivetrain.stopPath();
   drivetrain.setPathEnabled(false);
 }
 
 /// @brief Await old execution cleanup before admitting fresh autonomous requests.
 void autonomous() {
-  drivetrain.beginCompetitionMode();
+  drivetrain.stopPath();
   drivetrain.setPathEnabled(true);
   aon::Configure(false); // Set drivetrain to hold for auton
   // TODO: add presetFunction
@@ -43,7 +43,7 @@ void autonomous() {
 /// @brief Await old execution cleanup before driver publication.
 /// Callers must serialize driver and path ownership.
 void opcontrol() {
-  drivetrain.beginCompetitionMode();
+  drivetrain.stopPath();
   drivetrain.setPathEnabled(true);
   aon::Configure();
   aon::operator_control::LoadDriverProfile(driver);

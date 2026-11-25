@@ -191,7 +191,7 @@ bool Drivetrain::initializePathWorker() {
   return started;
 }
 
-void Drivetrain::beginCompetitionMode() { if (pathWorker) pathWorker->beginMode(); }
+void Drivetrain::stopPath() { if (pathWorker) pathWorker->beginMode(); }
 
 PurePursuit::Status Drivetrain::publishPath(uint32_t generation, double left, double right) {
   std::lock_guard<pros::Mutex> lock(pathCommandMutex);

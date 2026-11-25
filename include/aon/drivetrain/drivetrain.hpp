@@ -42,7 +42,7 @@ class Drivetrain {
   bool initializePathWorker();
   /// Cancel the old path and await worker stopping. Call only at callback entry.
   /// Waiting callbacks hold no application locks and may be deleted by PROS.
-  void beginCompetitionMode();
+  void stopPath();
 
   /// @brief This struct holds the factors by which inputs will be scaled when driving during `turbo` and `!turbo` states
   struct SpeedFactors {
