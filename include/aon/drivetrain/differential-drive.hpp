@@ -5,6 +5,13 @@
 namespace aon {
 
 class DifferentialDrive : public Drivetrain {
+ protected:
+  bool supportsPurePursuit() const override { return true; }
+
+  bool commandPath(double left, double right) override;
+
+  bool stopPathMotors() override;
+
  private:
   SmartMotorGroup leftMotors;
   SmartMotorGroup rightMotors;
@@ -49,9 +56,9 @@ class DifferentialDrive : public Drivetrain {
   /// @return The RPM of the motors with respect to the front of the robot
   double getRPM() override;
 
-  /// @brief Goes to the target point
-  /// @param pose The target pose
-  /// @note Pose X/Y are inches; heading is clockwise degrees.
+  /// @brief Translates to the target, then aligns its heading after successful arrival.
+  /// @param pose Target in inches and clockwise degrees.
+  /// @note Configured odometry is required.
   void goToPose(const Pose &pose) override; // TODO: add optional `settle` boolean
 
 };

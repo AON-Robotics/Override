@@ -48,7 +48,7 @@ class MotionProfile {
   /// @brief Converts a robot velocity in \b in/s back to motor \b RPM
   static double toRPM(const double& inchesPerSecond) { return inchesPerSecond / inchesPerRPM(); }
 
-  double MAX_VELOCITY, MAX_ACCELERATION, MAX_DECELERATION, JERK;
+  double MAX_VELOCITY = 0, MAX_ACCELERATION = 0, MAX_DECELERATION = 0, JERK = 0;
   double currVelocity = 0;         // in/s
   double currAccel = 0;            // in/s^2
   double targetFinalVelocity = 0;  // in/s
@@ -118,6 +118,21 @@ class MotionProfile {
   /// @return The stage of the motion profile
   Stage getStage() const { return this->stage; }
 
+  double getMaxVelocity() const { return toRPM(MAX_VELOCITY); }
+  double getMaxDeceleration() const { return toRPM(MAX_DECELERATION); }
+  double getBrakingMargin() const { return BRAKING_MARGIN; }
+
+  bool isValid() const {
+    return std::isfinite(MAX_VELOCITY) && MAX_VELOCITY > 0 &&
+           std::isfinite(MAX_ACCELERATION) && MAX_ACCELERATION > 0 &&
+           std::isfinite(MAX_DECELERATION) && MAX_DECELERATION > 0 &&
+           std::isfinite(JERK) && JERK > 0 &&
+           std::isfinite(BRAKING_MARGIN) && std::isfinite(MIN_VELOCITY);
+  }
+
+  /// Synchronize with a capped motor command while retaining the last target.
+  void setCommandedVelocity(double rpm) { currVelocity = toInches(rpm); }
+
   /// @brief Calculates the target velocity to send to the motors for smooth and precise movements using an S-curve profile.
   /// @param remainingDist The remaining distance to the target in \b inches.
   /// @param dtIn The time elapsed since the last function call in \b seconds (bad values are replaced, see `MAX_DT`).
@@ -125,7 +140,7 @@ class MotionProfile {
   double update(const double& remainingDist, const double& dtIn = DEFAULT_DT) {
     // Safety: a non-finite distance means the sensor or a motor could not be read (PROS returns
     // inf on errors). Stop instead of driving on a number that means nothing.
-    if (!std::isfinite(remainingDist)) {
+    if (!isValid() || !std::isfinite(remainingDist)) {
       this->currAccel = 0;
       this->currVelocity = 0;
       this->prevTargetVelocity = -1;

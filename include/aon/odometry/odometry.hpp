@@ -110,6 +110,8 @@ namespace aon {
         void resetCurrent(double x, double y, double theta);
         Vector gpsPosition();
         Pose getPose();
+        /// Copies a fresh pose and its estimate timestamp (milliseconds) together.
+        bool getFreshPose(Pose& pose, std::uint32_t& estimateMs);
         /// True while any position source is updating.
         bool hasFreshPose();
         bool hasFreshOtos();

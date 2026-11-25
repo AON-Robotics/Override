@@ -1,6 +1,8 @@
 #include "../include/main.hpp"
 
 void initialize() {
+  if (!drivetrain.initializePathWorker()) return;
+  drivetrain.stopPath();
   pros::Task guiLoopTask([]{aon::gui->initialize();});
   aon::logging::Initialize();
   aon::Configure(false);
@@ -13,11 +15,21 @@ void initialize() {
   pros::Task intakeSorting([]{intake.sort();});
 }
 
-void disabled() {}
+/// @brief Cancel the prior path and wait for its worker to stop.
+void disabled() {
+  drivetrain.stopPath();
+  drivetrain.setPathEnabled(false);
+}
 
-void competition_initialize() {}
+void competition_initialize() {
+  drivetrain.stopPath();
+  drivetrain.setPathEnabled(false);
+}
 
+/// @brief Await old execution cleanup before admitting fresh autonomous requests.
 void autonomous() {
+  drivetrain.stopPath();
+  drivetrain.setPathEnabled(true);
   aon::Configure(false); // Set drivetrain to hold for auton
   // TODO: add presetFunction
   aon::autonomousReader->ExecuteFunction("autonomous");
@@ -28,7 +40,11 @@ void autonomous() {
 // Program slot 1 with Pizza Icon is for opcontrol
 // Program slot 2 with Planet Icon is for autonomous routine
 // Program slot 3 with Alien Icon is for tests or miscellaneous components
+/// @brief Await old execution cleanup before driver publication.
+/// Callers must serialize driver and path ownership.
 void opcontrol() {
+  drivetrain.stopPath();
+  drivetrain.setPathEnabled(true);
   aon::Configure();
   aon::operator_control::LoadDriverProfile(driver);
   while (true) {

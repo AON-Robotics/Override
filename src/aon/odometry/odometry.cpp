@@ -96,6 +96,18 @@ bool Odometry::hasFreshPose() {
   return fresh;
 }
 
+bool Odometry::getFreshPose(Pose& pose, std::uint32_t& estimateMs) {
+  pose_mutex.take(TIMEOUT_MAX);
+  const bool fresh = poseSource != 0 &&
+                     pros::millis() - lastEstimateMs <= kPoseTimeoutMs;
+  if (fresh) {
+    pose = currentPose;
+    estimateMs = lastEstimateMs;
+  }
+  pose_mutex.give();
+  return fresh;
+}
+
 bool Odometry::hasFreshOtos() {
   pose_mutex.take(TIMEOUT_MAX);
   const bool fresh = hasPacket && pros::millis() - lastPacketMs <= kPoseTimeoutMs;
